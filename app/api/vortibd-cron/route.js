@@ -125,6 +125,23 @@ async function _vortibdFetchExportBytes(token, clientId, vortibdCircularId) {
   }
   return Buffer.from(await res.arrayBuffer());
 }
+// date_of_birth is stored as plain text (see
+// migration_admission_applications_date_gender_to_text.sql -- it used to be
+// a strict `date` column that rejected non-ISO formats outright), but the
+// native admin editor's <input type="date"> only ever DISPLAYS a value
+// that's already exactly YYYY-MM-DD -- anything else (e.g. VortiBD's own
+// DD-MM-YYYY) silently shows blank even though the data is really there.
+// Normalizing on the way in keeps every row's date in one consistent,
+// always-displayable format regardless of the source's own convention.
+function _normalizeDateToISO(str) {
+  const s = String(str || '').trim();
+  if (!s || /^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const m = /^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/.exec(s);
+  if (!m) return s;
+  const day = parseInt(m[1], 10), month = parseInt(m[2], 10), year = parseInt(m[3], 10);
+  if (day < 1 || day > 31 || month < 1 || month > 12) return s;
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
 function _applyTemplateMapping(headers, rows, template) {
   const mapping = template.mapping || {};
   const fieldLabels = template.field_labels || {};
@@ -134,7 +151,7 @@ function _applyTemplateMapping(headers, rows, template) {
       const colIdx = headers.indexOf(headerText);
       if (colIdx < 0) continue;
       const val = String(r[colIdx] ?? '').trim();
-      if (CORE_FIELDS.includes(rowId) || BUILTIN_FORM_FIELD_KEYS.has(rowId)) obj[rowId] = val;
+      if (CORE_FIELDS.includes(rowId) || BUILTIN_FORM_FIELD_KEYS.has(rowId)) obj[rowId] = rowId === 'date_of_birth' ? _normalizeDateToISO(val) : val;
       else obj.extra_fields[fieldLabels[rowId] || rowId] = val;
     }
     const pkHeader = mapping[template.primary_key_field];

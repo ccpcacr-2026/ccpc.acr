@@ -45170,6 +45170,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const primaryEl = document.querySelector('input[name=admCandPrimaryKey]:checked');
     return { mapping, primaryKeyRowId: primaryEl ? primaryEl.value : null };
   }
+  // date_of_birth is stored as plain text (it used to be a strict `date`
+  // column that rejected non-ISO formats outright), but the native admin
+  // editor's <input type="date"> only ever DISPLAYS a value that's already
+  // exactly YYYY-MM-DD -- anything else (e.g. a source file's own
+  // DD-MM-YYYY) silently shows blank even though the data is really there.
+  // Normalizing on the way in keeps every row's date in one consistent,
+  // always-displayable format regardless of the source's own convention.
+  function _admCandNormalizeDateToISO(str) {
+    const s = String(str || '').trim();
+    if (!s || /^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const m = /^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/.exec(s);
+    if (!m) return s;
+    const day = parseInt(m[1], 10), month = parseInt(m[2], 10), year = parseInt(m[3], 10);
+    if (day < 1 || day > 31 || month < 1 || month > 12) return s;
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
   function _admCandBuildMappedRows() {
     const { mapping, primaryKeyRowId } = _admCandGetMapping();
     const builtIn = new Set(_admCandFormFieldDefs.filter(f => f.built_in).map(f => f.key));
@@ -45177,7 +45193,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const obj = { extra_fields: {} };
       Object.entries(mapping).forEach(([rowId, idx]) => {
         const val = String(r[idx] ?? '').trim();
-        if (ADM_CAND_CORE_FIELDS.includes(rowId) || builtIn.has(rowId)) obj[rowId] = val;
+        if (ADM_CAND_CORE_FIELDS.includes(rowId) || builtIn.has(rowId)) obj[rowId] = rowId === 'date_of_birth' ? _admCandNormalizeDateToISO(val) : val;
         else obj.extra_fields[rowId] = val;
       });
       obj.external_key = (primaryKeyRowId && mapping[primaryKeyRowId] !== undefined) ? String(r[mapping[primaryKeyRowId]] ?? '').trim() : '';
