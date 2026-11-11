@@ -882,8 +882,15 @@ export async function POST(req) {
     const optionKey = String(payload.option_key || '').trim();
     if (!optionKey) return NextResponse.json({ error: 'Pick a scan option first.' });
     if (!isFullAdmin) {
+      // Performing a scan (any behavior, including a 'form' option's marks
+      // submit via saveScanOptionValue below) only ever needs 'view' on the
+      // scan tab -- there is no committee-level "edit" capability for Scan
+      // Options to distinguish against (defining/deleting options and their
+      // fields is isFullAdmin-only, unconditionally, regardless of this tab
+      // level), so requiring 'edit' here just meant a committee member had
+      // to be over-granted to do the one thing this tab is actually for.
       const perms = await _getCommitteePerms(user_id, circularId);
-      if (!_tabOk(false, perms, 'scan', 'edit') || !_scanOk(false, perms, optionKey)) return _forbidden();
+      if (!_tabOk(false, perms, 'scan', 'view') || !_scanOk(false, perms, optionKey)) return _forbidden();
     }
     const candidate = await findCandidateByCode(circularId, payload.code);
     if (!candidate) return NextResponse.json({ error: `No candidate matches "${payload.code}".` });
@@ -903,7 +910,7 @@ export async function POST(req) {
       const candRows = await sbAdmission(`admission_applications?id=eq.${candidateId}&select=circular_id`);
       const circularId = (Array.isArray(candRows) && candRows[0]) ? candRows[0].circular_id : null;
       const perms = await _getCommitteePerms(user_id, circularId);
-      if ((!_tabOk(false, perms, 'scan', 'edit') || !_scanOk(false, perms, optionKey)) && !_tabOk(false, perms, 'candidates', 'edit')) return _forbidden();
+      if ((!_tabOk(false, perms, 'scan', 'view') || !_scanOk(false, perms, optionKey)) && !_tabOk(false, perms, 'candidates', 'edit')) return _forbidden();
     }
     const scan_values = await _applyScanValue(candidateId, optionKey, payload.value);
     return NextResponse.json({ success: true, scan_values });
