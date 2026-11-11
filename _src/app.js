@@ -41779,14 +41779,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div class="hidden flex gap-1 mb-4 overflow-x-auto pb-1" id="adm-top-tabs">
-        <button class="adm-ftab" data-id="dashboard" onclick="_admShowView('dashboard')">Dashboard</button>
-        <button class="adm-ftab" data-id="applist" onclick="_admShowView('applist')">Applications</button>
-        <button class="adm-ftab" data-id="adm-cand-import" onclick="_admShowTopTab('adm-cand-import',this)">Import &amp; Mapping</button>
-        <button class="adm-ftab" data-id="adm-cand-rooms" onclick="_admShowTopTab('adm-cand-rooms',this)">Rooms</button>
-        <button class="adm-ftab" data-id="adm-cand-alloc" onclick="_admShowTopTab('adm-cand-alloc',this)">Seat Allocation</button>
-        <button class="adm-ftab" data-id="adm-cand-scan" onclick="_admShowTopTab('adm-cand-scan',this)">Scan</button>
-        <button class="adm-ftab" data-id="adm-cand-setup" onclick="_admShowTopTab('adm-cand-setup',this)">Circular Setup</button>
-        <button class="adm-ftab" data-id="settings" onclick="_admOpenSettings()">Settings</button>
+        <button class="adm-ftab shrink-0" data-id="dashboard" onclick="_admShowView('dashboard')">Dashboard</button>
+        <button class="adm-ftab shrink-0" data-id="applist" onclick="_admShowView('applist')">Applications</button>
+        <button class="adm-ftab shrink-0" data-id="adm-cand-import" onclick="_admShowTopTab('adm-cand-import',this)">Import &amp; Mapping</button>
+        <button class="adm-ftab shrink-0" data-id="adm-cand-rooms" onclick="_admShowTopTab('adm-cand-rooms',this)">Rooms</button>
+        <button class="adm-ftab shrink-0" data-id="adm-cand-alloc" onclick="_admShowTopTab('adm-cand-alloc',this)">Seat Allocation</button>
+        <button class="adm-ftab shrink-0" data-id="adm-cand-scan" onclick="_admShowTopTab('adm-cand-scan',this)">Scan</button>
+        <button class="adm-ftab shrink-0" data-id="adm-cand-setup" onclick="_admShowTopTab('adm-cand-setup',this)">Circular Setup</button>
+        <button class="adm-ftab shrink-0" data-id="settings" onclick="_admOpenSettings()">Settings</button>
       </div>
 
       <div id="admAdminDashboard" class="hidden">
