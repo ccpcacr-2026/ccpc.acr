@@ -43136,6 +43136,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       openPrintTab(generateAdmitHtml(r.application, effectiveSettings));
     } catch (e) { showToast(e.message || 'Could not open print preview', 'error'); }
   }
+  // Non-native rows (source 'imported'/'online') never get a tracking_id --
+  // that's only ever generated for admin-created applications (see
+  // saveApplication) -- they carry token/external_key instead. The
+  // on-screen editor already falls back to token for display (_admLoadForm's
+  // adm-f-tracking-id field, which deliberately leaves Index ID blank for
+  // these rows too -- it's a native-only sequential number, not something a
+  // non-native row ever has or needs a substitute for). The print templates
+  // (generateFormHtml/generateFormFromLayout/generateAdmitHtml, all of which
+  // read a.tracking_id directly) never got the same fallback, so a merged
+  // candidate's printed Form/Admit Card showed a blank "Roll / Tracking No."
+  // instead of their real token.
+  function _admNormalizeForPrint(a) {
+    if (!a) return a;
+    return { ...a, tracking_id: a.tracking_id || a.token || a.external_key || '' };
+  }
   async function _admPrintFormById(id) {
     try {
       await _ensureAdmissionFormDesigner();
@@ -43143,7 +43158,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       await _admEnsureFormLayoutForPrint();
       const r = await _admAdminFetch('getApplication', { id });
       if (!r.application) { showToast('Not found', 'error'); return; }
-      openPrintTab(formLayout.length ? generateFormFromLayout(r.application, formLayout) : generateFormHtml(r.application, currentFormSettings));
+      const app = _admNormalizeForPrint(r.application);
+      openPrintTab(formLayout.length ? generateFormFromLayout(app, formLayout) : generateFormHtml(app, currentFormSettings));
     } catch (e) { showToast(e.message || 'Could not open print preview', 'error'); }
   }
   async function _admPrintAdmitById(id) {
@@ -43152,9 +43168,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       await _admEnsureAdmitTplForPrint();
       const r = await _admAdminFetch('getApplication', { id });
       if (!r.application) { showToast('Not found', 'error'); return; }
+      const app = _admNormalizeForPrint(r.application);
       const circularNotice = await _admGetCircularNotice();
       const effectiveSettings = circularNotice ? Object.assign({}, _admCurrentAdmitSettings, { instructions: circularNotice }) : _admCurrentAdmitSettings;
-      openPrintTab(generateAdmitHtml(r.application, effectiveSettings));
+      openPrintTab(generateAdmitHtml(app, effectiveSettings));
     } catch (e) { showToast(e.message || 'Could not open print preview', 'error'); }
   }
 
