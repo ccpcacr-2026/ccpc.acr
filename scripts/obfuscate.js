@@ -514,6 +514,7 @@ const RESERVED = [
   '_admCandScanShowMode','_admCandScanSetScope','_admCandScanStart','_admCandScanStop','_admCandScanManualLookup','_admCandScanChooseInput',
   '_admCandCopyApplyLink',
   '_admCandTagDefTypeChange','_admCandTagDefSave','_admCandTagDefDelete','_admCandScanTagDefChange','_admCandScanLockTag',
+  '_admCandMarksFieldSave','_admCandMarksFieldDelete','_admCandSubmitMarksForm','_admCandCancelMarksForm',
   '_admCandTagFilterDefChange','_admCandShowTagHistory',
   '_admCandCommitteeAdd','_admCandCommitteeSave','_admCandCommitteeRemove','_admCandPullCommitteeMembers',
   '_admCandPickExistingSession','_admCandEditSession','_admCandDeleteSession',

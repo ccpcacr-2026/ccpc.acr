@@ -44369,6 +44369,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _admCandScanStream = null, _admCandScanTimer = null, _admCandScanBusy = false;
   let _admCandScanMode = 'submission', _admCandScanScope = {}, _admCandScanInputMode = null;
   let _admCandTagDefs = [], _admCandScanTagKey = null, _admCandScanTagValue = null;
+  let _admCandMarksFields = [], _admCandMarksFormOpen = false, _admCandMarksCurrentCandidate = null;
   let _admCandMyAccess = { is_full_admin: true, circulars: {} }, _admCandMyPerms = null;
 
   function _admCandFetch(action, payload) {
@@ -45100,6 +45101,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button class="adm-ftab adm-ftab-on w-full sm:w-auto text-center" data-scan-opt="submission" onclick="_admCandScanShowMode('submission', this)">Form Submission Scan</button>
           <button class="adm-ftab w-full sm:w-auto text-center" data-scan-opt="attendance" onclick="_admCandScanShowMode('attendance', this)">Exam Attendance Scan</button>
           <button class="adm-ftab w-full sm:w-auto text-center" id="admCandScanTagsModeBtn" onclick="_admCandScanShowMode('tags', this)">Custom Tags</button>
+          <button class="adm-ftab w-full sm:w-auto text-center" id="admCandScanMarksModeBtn" data-scan-opt="marks" onclick="_admCandScanShowMode('marks', this)">Marks Entry</button>
+        </div>
+        <div id="admCandMarksPanel" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-3">
+          <div class="flex items-center justify-between mb-2">
+            <p class="text-[10px] uppercase text-slate-400 font-bold">Marks Fields</p>
+          </div>
+          <div id="admCandMarksFieldAddRow" class="flex gap-2 items-center mb-2 flex-wrap">
+            <input id="admCandMarksFieldLabel" placeholder="Field name e.g. Written Marks" class="flex-1 min-w-[160px] px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+            <select id="admCandMarksFieldType" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+              <option value="number">Number keypad</option>
+              <option value="text">Text keypad</option>
+            </select>
+            <button onclick="_admCandMarksFieldSave()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Add Field</button>
+          </div>
+          <div id="admCandMarksFieldList" class="flex flex-wrap gap-1.5"></div>
+          <p class="text-[10px] text-slate-400 mt-2">After each scan, the candidate's short info and these fields appear for entry — submitting saves them and automatically returns to scanning for the next candidate.</p>
         </div>
         <div id="admCandTagsPanel" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-3">
           <div class="flex items-center justify-between mb-2">
@@ -45277,7 +45294,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <option value="edit" ${tabs[key] === 'edit' ? 'selected' : ''}>Edit</option>
           </select>
         </div>`).join('');
-      const scanChecks = [['submission', 'Submission'], ['attendance', 'Attendance']]
+      const scanChecks = [['submission', 'Submission'], ['attendance', 'Attendance'], ['marks', 'Marks Entry']]
         .concat(_admCandTagDefs.map(d => ['tag:' + d.key, d.label]))
         .map(([key, label]) => `<label class="flex items-center gap-1 text-[10px] font-bold text-slate-600"><input type="checkbox" class="admCandCommitteeScanChk" value="${_escHtml(key)}" ${scanOpts.includes(key) ? 'checked' : ''}> ${_escHtml(label)}</label>`).join('');
       return `<div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-4" data-member-id="${m.id}" data-user-id="${_escHtml(m.user_id)}">
@@ -46707,7 +46724,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const note = document.getElementById('admCandScanScopeNote'); if (note) note.textContent = '';
     _admCandScanScope = {};
     document.getElementById('admCandTagsPanel')?.classList.toggle('hidden', mode !== 'tags');
+    document.getElementById('admCandMarksPanel')?.classList.toggle('hidden', mode !== 'marks');
     if (mode === 'tags') { _admCandScanTagKey = null; _admCandScanTagValue = null; _admCandLoadTagDefs(); }
+    if (mode === 'marks') { _admCandCloseMarksForm(); _admCandLoadMarksFields(); }
   }
   // ── Part 4: Custom Tags — admin-defined scan sections ────────────────────
   async function _admCandLoadTagDefs() {
@@ -46757,6 +46776,97 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   async function _admCandTagDefDelete(id) {
     if (!confirm('Delete this tag section? Candidates keep whatever value they already have, but it will no longer be assignable by scanning.')) return;
     try { await _admCandFetch('deleteTagDefinition', { id }); _admCandLoadTagDefs(); } catch (e) {}
+  }
+  // ── "Marks Entry" scan mode — admin-defined number/text fields filled in
+  // once per scanned candidate. Unlike Custom Tags (lock one field+value,
+  // then scan many candidates with it), here the admin defines the field SET
+  // up front and a small form for ALL of them appears after EACH scan.
+  async function _admCandLoadMarksFields() {
+    if (!_admCandActiveCircularId) return;
+    try {
+      const res = await _admCandFetch('listMarksFields', { circular_id: _admCandActiveCircularId });
+      _admCandMarksFields = res.fields || [];
+      _admCandRenderMarksFieldList();
+    } catch (e) {}
+  }
+  // Same admin-only reasoning as _admCandRenderTagDefList -- defining/
+  // deleting fields is enforced admin-only server-side (ADMIN_ONLY_ACTIONS).
+  function _admCandRenderMarksFieldList() {
+    const host = document.getElementById('admCandMarksFieldList');
+    const isAdmin = _admCandMyAccess.is_full_admin;
+    document.getElementById('admCandMarksFieldAddRow')?.classList.toggle('hidden', !isAdmin);
+    if (!host) return;
+    host.innerHTML = _admCandMarksFields.map(f => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 rounded-full text-[10px] font-bold text-slate-700">${_escHtml(f.label)} <span class="text-slate-400 uppercase">${f.input_type === 'text' ? 'Text' : 'Number'}</span> ${isAdmin ? `<button onclick="_admCandMarksFieldDelete(${f.id})" class="text-red-500 ml-1">×</button>` : ''}</span>`).join('') || `<span class="text-xs text-slate-400">${isAdmin ? 'No fields yet — add one above.' : 'No marks fields available yet.'}</span>`;
+  }
+  async function _admCandMarksFieldSave() {
+    if (!_admCandRequireCircular()) return;
+    const label = document.getElementById('admCandMarksFieldLabel').value.trim();
+    if (!label) { showToast('Name the field first', 'error'); return; }
+    const input_type = document.getElementById('admCandMarksFieldType').value;
+    try {
+      const res = await _admCandFetch('saveMarksField', { circular_id: _admCandActiveCircularId, label, input_type });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      document.getElementById('admCandMarksFieldLabel').value = '';
+      showToast('Field added', 'success');
+      _admCandLoadMarksFields();
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  async function _admCandMarksFieldDelete(id) {
+    if (!confirm('Delete this marks field? Candidates keep whatever value they already have, but it will no longer be entered by scanning.')) return;
+    try { await _admCandFetch('deleteMarksField', { id }); _admCandLoadMarksFields(); } catch (e) {}
+  }
+  // Shown after a 'marks'-mode scan resolves (a plain lookup, not a write --
+  // see _admCandResolveScan) instead of the usual pending/collected-style
+  // result line. Camera decoding is paused (not stopped -- see the
+  // _admCandMarksFormOpen check in _admCandScanStart's loop) while this is
+  // open, and resumes automatically on Submit/Cancel with no re-tap needed.
+  function _admCandOpenMarksForm(candidate) {
+    _admCandMarksFormOpen = true;
+    _admCandMarksCurrentCandidate = candidate;
+    const host = document.getElementById('admCandScanResult');
+    if (!host) return;
+    host.classList.remove('hidden');
+    const existing = candidate.marks || {};
+    const fieldsHtml = _admCandMarksFields.map(f => `
+      <div class="mb-2">
+        <label class="text-[10px] uppercase text-slate-400 font-bold">${_escHtml(f.label)}</label>
+        <input type="${f.input_type === 'text' ? 'text' : 'number'}" inputmode="${f.input_type === 'text' ? 'text' : 'numeric'}" data-marks-key="${_escHtml(f.key)}" value="${_escHtml(existing[f.key] ?? '')}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold mt-1">
+      </div>`).join('');
+    host.innerHTML = `<div class="bg-white border border-slate-200 rounded-xl p-4">
+      <div class="flex items-center gap-3 mb-3">
+        ${candidate.student_photo ? `<img src="${_escHtml(candidate.student_photo)}" style="width:48px;height:48px;object-fit:cover;border-radius:10px">` : ''}
+        <div>
+          <p class="font-black text-slate-800">${_escHtml(candidate.name_english || '—')}</p>
+          <p class="text-xs text-slate-500">${_escHtml(candidate.class || '')} · <span class="font-mono text-blue-600">${_escHtml(candidate.token || candidate.tracking_id || '')}</span></p>
+        </div>
+      </div>
+      ${_admCandMarksFields.length ? fieldsHtml : '<p class="text-xs text-slate-400 mb-2">No marks fields defined yet — add some above.</p>'}
+      <div class="flex gap-2 mt-2">
+        <button onclick="_admCandSubmitMarksForm()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase">Submit</button>
+        <button onclick="_admCandCancelMarksForm()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase">Cancel</button>
+      </div>
+    </div>`;
+  }
+  async function _admCandSubmitMarksForm() {
+    if (!_admCandMarksCurrentCandidate) return;
+    const host = document.getElementById('admCandScanResult');
+    const marks = {};
+    host?.querySelectorAll('[data-marks-key]').forEach(el => { marks[el.getAttribute('data-marks-key')] = el.value.trim(); });
+    try {
+      const r = await _admCandFetch('saveCandidateMarks', { candidate_id: _admCandMarksCurrentCandidate.id, marks });
+      if (r.error) { showToast(r.error, 'error'); return; }
+      showToast('Saved — ready for next scan', 'success');
+      _admCandCloseMarksForm();
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  function _admCandCancelMarksForm() { _admCandCloseMarksForm(); }
+  function _admCandCloseMarksForm() {
+    _admCandMarksFormOpen = false;
+    _admCandMarksCurrentCandidate = null;
+    document.getElementById('admCandScanResult')?.classList.add('hidden');
+    _admCandScanBusy = false;
+    const note = document.getElementById('admCandScanNote');
+    if (note && _admCandScanMode === 'marks') note.textContent = _admCandScanInputMode === 'camera' ? 'Point the camera at the next QR code…' : '';
   }
   function _admCandPopulateScanTagDefSelect() {
     const sel = document.getElementById('admCandScanTagDefSelect');
@@ -46837,7 +46947,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     canvas.width = 400; canvas.height = 300;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     _admCandScanTimer = setInterval(() => {
-      if (_admCandScanBusy || !video.videoWidth) return;
+      // Marks Entry pauses decoding (not the camera/stream itself) while its
+      // form is open, so Submit/Cancel resumes scanning instantly with no
+      // re-tap of "Open Camera" needed -- see _admCandCloseMarksForm.
+      if (_admCandScanBusy || _admCandMarksFormOpen || !video.videoWidth) return;
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const code = window.jsQR(img.data, img.width, img.height);
@@ -46853,6 +46966,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const video = document.getElementById('admCandScanVideo');
     if (video) { video.pause(); video.srcObject = null; video.classList.add('hidden'); }
     _admCandScanInputMode = null;
+    _admCandMarksFormOpen = false;
+    _admCandMarksCurrentCandidate = null;
+    document.getElementById('admCandScanResult')?.classList.add('hidden');
     document.getElementById('admCandScanCameraBox')?.classList.add('hidden');
     document.getElementById('admCandScanManualBox')?.classList.add('hidden');
     document.getElementById('admCandScanChooser')?.classList.remove('hidden');
@@ -46890,7 +47006,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const code = _admCandExtractScanCode(rawCode);
     const note = document.getElementById('admCandScanNote');
     if (_admCandScanMode === 'tags' && !_admCandScanTagKey) { if (note) note.textContent = 'Lock a tag section first.'; return; }
+    if (_admCandMarksFormOpen) return; // a form is already open awaiting submit/cancel -- ignore stray scans
     if (note) note.textContent = 'Looking up ' + code + '…';
+    // Marks Entry is a lookup, not an immediate write -- it opens a form
+    // instead of marking anything, and the actual save only happens when the
+    // admin submits that form (_admCandSubmitMarksForm).
+    if (_admCandScanMode === 'marks') {
+      try {
+        const r = await _admCandFetch('lookupCandidateByToken', { circular_id: _admCandActiveCircularId, code, scope: _admCandScanScope });
+        if (r.error) {
+          if (note) note.textContent = r.error;
+          if (r.out_of_scope && r.candidate) _admCandRenderScanResult(r.candidate, true);
+          return;
+        }
+        if (note) note.textContent = '';
+        _admCandOpenMarksForm(r.candidate);
+      } catch (e) { if (note) note.textContent = e.message || 'Lookup failed'; }
+      return;
+    }
     try {
       const action = _admCandScanMode === 'submission' ? 'scanSubmission' : _admCandScanMode === 'attendance' ? 'scanAttendance' : 'scanTagCandidate';
       const extra = _admCandScanMode === 'tags' ? { tag_key: _admCandScanTagKey, value: _admCandScanTagValue } : {};

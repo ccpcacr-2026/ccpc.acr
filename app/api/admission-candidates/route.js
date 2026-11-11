@@ -176,7 +176,7 @@ export async function POST(req) {
   // sections, only use what's already been granted to them.
   const ADMIN_ONLY_ACTIONS = new Set([
     'listSessions', 'createSession', 'updateSession', 'deleteSession', 'createCircular', 'updateCircular', 'getStudentFieldValues',
-    'saveTagDefinition', 'deleteTagDefinition',
+    'saveTagDefinition', 'deleteTagDefinition', 'saveMarksField', 'deleteMarksField',
     'listStaffForCommittee', 'listCommitteeMembers', 'saveCommitteeMember', 'removeCommitteeMember', 'listOrgCommittees', 'pullCommitteeMembers',
     'getVortibdCredentials', 'saveVortibdCredentials', 'listVortibdCirculars', 'getVortibdSyncConfig', 'saveVortibdSyncConfig', 'saveVortibdCircularLink', 'vortibdPullFile', 'syncVortibdNow',
   ]);
@@ -876,6 +876,65 @@ export async function POST(req) {
     }
     const rows = await sbAdmission(`candidate_tag_scans?candidate_id=eq.${candidateId}&tag_key=eq.${encodeURIComponent(tagKey)}&order=scanned_at.desc&limit=50`);
     return NextResponse.json({ history: Array.isArray(rows) ? rows : [] });
+  }
+
+  // ── "Marks Entry" scan mode -- admin-defined number/text fields filled in
+  // once per scanned candidate (distinct from Custom Tags above: Tags lock
+  // one field+value before scanning many candidates with it; Marks shows a
+  // small multi-field form after EACH scan). Field CRUD is admin-only
+  // (ADMIN_ONLY_ACTIONS above); using the fields while scanning is a
+  // committee scan_options grant ('marks'), same shape as 'submission'/
+  // 'attendance'/'tag:<key>'.
+  if (action === 'listMarksFields') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ fields: [] });
+    if (!isFullAdmin) {
+      const perms = await _getCommitteePerms(user_id, circularId);
+      if (!_tabOk(false, perms, 'scan', 'view') && !_tabOk(false, perms, 'candidates', 'view')) return NextResponse.json({ fields: [] });
+    }
+    const rows = await sbAdmission(`candidate_marks_fields?circular_id=eq.${circularId}&order=sort_order.asc,created_at.asc`);
+    return NextResponse.json({ fields: Array.isArray(rows) ? rows : [] });
+  }
+  if (action === 'saveMarksField') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    const label = String(payload.label || '').trim();
+    if (!label) return NextResponse.json({ error: 'Field name is required.' });
+    const input_type = payload.input_type === 'text' ? 'text' : 'number';
+    const id = parseInt(payload.id, 10);
+    if (id) {
+      // key is immutable once created, same reasoning as tag definitions.
+      const res = await sbAdmission(`candidate_marks_fields?id=eq.${id}`, 'PATCH', { label, input_type });
+      if (res?.error) return NextResponse.json({ error: res.error });
+      return NextResponse.json({ success: true, id });
+    }
+    const key = _slugifyTagKey(label);
+    const existing = await sbAdmission(`candidate_marks_fields?circular_id=eq.${circularId}&select=id`);
+    const sort_order = Array.isArray(existing) ? existing.length : 0;
+    const data = { circular_id: circularId, key, label, input_type, sort_order };
+    const res = await sbAdmission('candidate_marks_fields', 'POST', data);
+    if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A field with this name already exists.' : res.error });
+    return NextResponse.json({ id: res?.[0]?.id, ...data });
+  }
+  if (action === 'deleteMarksField') {
+    await sbAdmission(`candidate_marks_fields?id=eq.${parseInt(payload.id, 10) || 0}`, 'DELETE');
+    return NextResponse.json({ success: true });
+  }
+  if (action === 'saveCandidateMarks') {
+    const candidateId = parseInt(payload.candidate_id, 10);
+    if (!candidateId) return NextResponse.json({ error: 'Missing candidate.' });
+    const candRows = await sbAdmission(`admission_applications?id=eq.${candidateId}&select=circular_id,marks`);
+    const row = Array.isArray(candRows) && candRows[0];
+    if (!row) return NextResponse.json({ error: 'Candidate not found.' });
+    if (!isFullAdmin) {
+      const perms = await _getCommitteePerms(user_id, row.circular_id);
+      if (!_tabOk(false, perms, 'scan', 'edit') || !_scanOk(false, perms, 'marks')) return _forbidden();
+    }
+    const incoming = (payload.marks && typeof payload.marks === 'object') ? payload.marks : {};
+    const marks = { ...(row.marks || {}), ...incoming };
+    const res = await sbAdmission(`admission_applications?id=eq.${candidateId}`, 'PATCH', { marks, updated_at: new Date().toISOString() });
+    if (res?.error) return NextResponse.json({ error: res.error });
+    return NextResponse.json({ success: true, marks });
   }
 
   // ── Part 5: committee management (all admin-only -- enforced above via
