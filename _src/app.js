@@ -45105,7 +45105,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex items-center justify-between mb-2">
             <p class="text-[10px] uppercase text-slate-400 font-bold">Tag Sections</p>
           </div>
-          <div class="flex gap-2 items-center mb-2 flex-wrap">
+          <div id="admCandTagDefAddRow" class="flex gap-2 items-center mb-2 flex-wrap">
             <input id="admCandTagDefLabel" placeholder="Section name e.g. Division" class="flex-1 min-w-[160px] px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
             <select id="admCandTagDefType" onchange="_admCandTagDefTypeChange()" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
               <option value="toggle">Toggle</option>
@@ -46720,10 +46720,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admRenderFilterPanel(); // no-op if the Applications filter panel isn't open; keeps its tag dims current if it is
     } catch (e) {}
   }
+  // Defining/deleting tag SECTIONS (and their dropdown options) is admin-only
+  // server-side (ADMIN_ONLY_ACTIONS in admission-candidates/route.js) -- a
+  // committee member can only USE an existing section they've been granted
+  // via scan_options, never create or remove one. Hiding the Add-Section row
+  // and each chip's delete button for them is UX convenience matching that
+  // real boundary, not the enforcement itself.
   function _admCandRenderTagDefList() {
     const host = document.getElementById('admCandTagDefList');
+    const isAdmin = _admCandMyAccess.is_full_admin;
+    document.getElementById('admCandTagDefAddRow')?.classList.toggle('hidden', !isAdmin);
     if (!host) return;
-    host.innerHTML = _admCandTagDefs.map(d => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 rounded-full text-[10px] font-bold text-slate-700">${_escHtml(d.label)} <span class="text-slate-400 uppercase">${_escHtml(d.type)}</span> <button onclick="_admCandTagDefDelete(${d.id})" class="text-red-500 ml-1">×</button></span>`).join('') || '<span class="text-xs text-slate-400">No sections yet — add one above.</span>';
+    host.innerHTML = _admCandTagDefs.map(d => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 rounded-full text-[10px] font-bold text-slate-700">${_escHtml(d.label)} <span class="text-slate-400 uppercase">${_escHtml(d.type)}</span> ${isAdmin ? `<button onclick="_admCandTagDefDelete(${d.id})" class="text-red-500 ml-1">×</button>` : ''}</span>`).join('') || `<span class="text-xs text-slate-400">${isAdmin ? 'No sections yet — add one above.' : 'No tag sections available yet.'}</span>`;
   }
   function _admCandTagDefTypeChange() {
     const type = document.getElementById('admCandTagDefType').value;
