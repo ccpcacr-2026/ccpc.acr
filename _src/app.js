@@ -471,6 +471,7 @@
   function _genericCloseModal(el) {
     if (!el || !el.isConnected) return;
     if (el.id === 'main-sidebar') { closeMobileSidebar(); return; }
+    if (el.id === 'admCandScanCameraOverlay') { _admCandScanStop(); return; }
     // Just re-hide it (app.html's global .hidden{display:none!important}
     // covers every modal variant, including the ones normally toggled via
     // a "flex" class rather than "hidden") — deliberately never el.remove()
@@ -45359,7 +45360,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="_admCandScanChooseInput('camera')" class="flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-3 sm:py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest"><i data-lucide="camera" class="h-3.5 w-3.5"></i> Open Camera</button>
             <button onclick="_admCandScanChooseInput('manual')" class="flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-3 sm:py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest"><i data-lucide="keyboard" class="h-3.5 w-3.5"></i> Manual</button>
           </div>
-          <div id="admCandScanCameraBox" class="hidden" style="position:fixed;inset:0;z-index:9000;background:#000;">
+          <div id="admCandScanCameraOverlay" class="hidden" style="position:fixed;inset:0;z-index:9000;background:#000;">
             <video id="admCandScanVideo" class="hidden" style="width:100%;height:100%;object-fit:cover;" muted playsinline></video>
             <canvas id="admCandScanCanvas" class="hidden"></canvas>
             <button onclick="_admCandScanStop()" style="position:absolute;top:calc(env(safe-area-inset-top,0px) + 16px);left:16px;" class="flex items-center gap-1.5 px-3 py-2 bg-black/55 text-white rounded-lg text-[10px] font-black uppercase backdrop-blur-sm"><i data-lucide="x" class="h-3.5 w-3.5"></i> Close</button>
@@ -47216,7 +47217,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     _admCandScanInputMode = mode;
     document.getElementById('admCandScanChooser')?.classList.add('hidden');
-    document.getElementById('admCandScanCameraBox')?.classList.toggle('hidden', mode !== 'camera');
+    document.getElementById('admCandScanCameraOverlay')?.classList.toggle('hidden', mode !== 'camera');
     document.getElementById('admCandScanManualBox')?.classList.toggle('hidden', mode !== 'manual');
     if (mode === 'camera') _admCandScanStart();
     else document.getElementById('admCandScanManualCode')?.focus();
@@ -47263,7 +47264,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admCandMarksFormOpen = false;
     _admCandMarksCurrentCandidate = null;
     document.getElementById('admCandScanResult')?.classList.add('hidden');
-    document.getElementById('admCandScanCameraBox')?.classList.add('hidden');
+    document.getElementById('admCandScanCameraOverlay')?.classList.add('hidden');
     document.getElementById('admCandScanManualBox')?.classList.add('hidden');
     document.getElementById('admCandScanChooser')?.classList.remove('hidden');
     const note = document.getElementById('admCandScanNote'); if (note) note.textContent = '';
@@ -47279,7 +47280,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (_admCandScanStream) { _admCandScanStream.getTracks().forEach(t => t.stop()); _admCandScanStream = null; }
     const video = document.getElementById('admCandScanVideo');
     if (video) { video.pause(); video.srcObject = null; video.classList.add('hidden'); }
-    document.getElementById('admCandScanCameraBox')?.classList.add('hidden');
+    document.getElementById('admCandScanCameraOverlay')?.classList.add('hidden');
   }
   async function _admCandHandleScannedCode(code) {
     await _admCandResolveScan(code);
