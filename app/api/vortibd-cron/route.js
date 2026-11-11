@@ -174,7 +174,8 @@ async function _upsertMappedRows(circularId, rows, meta) {
   const new_count = clean.filter(r => !existingKeys.has(r.external_key)).length;
   const updated_count = clean.length - new_count;
   for (const part of chunk(clean, 500)) {
-    await sbAdmission('admission_applications?on_conflict=circular_id,external_key', 'POST', part, { Prefer: 'resolution=merge-duplicates,return=minimal' });
+    const upsertRes = await sbAdmission('admission_applications?on_conflict=circular_id,external_key', 'POST', part, { Prefer: 'resolution=merge-duplicates,return=minimal' });
+    if (upsertRes?.error) return { error: `Could not save candidates to the database: ${upsertRes.error}` };
   }
   const batch = await sbAdmission('candidate_import_batches', 'POST', {
     circular_id: circularId, template_id: (meta && meta.template_id) || null,

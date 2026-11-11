@@ -373,7 +373,13 @@ export async function POST(req) {
     const updated_count = clean.length - new_count;
 
     for (const part of chunk(clean, 500)) {
-      await sbAdmission('admission_applications?on_conflict=circular_id,external_key', 'POST', part, { Prefer: 'resolution=merge-duplicates,return=minimal' });
+      const upsertRes = await sbAdmission('admission_applications?on_conflict=circular_id,external_key', 'POST', part, { Prefer: 'resolution=merge-duplicates,return=minimal' });
+      // This write's result was never checked before -- it silently failed
+      // whenever the on_conflict target didn't resolve (e.g. a partial
+      // unique index needs its WHERE predicate repeated in the ON CONFLICT
+      // clause, which PostgREST's on_conflict=col,col param can't express),
+      // while the caller still reported a confident success with counts.
+      if (upsertRes?.error) return { error: `Could not save candidates to the database: ${upsertRes.error}` };
     }
 
     const batch = await sbAdmission('candidate_import_batches', 'POST', {
