@@ -44975,7 +44975,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // 'admin_settings' (the Settings view) widen this same list -- both the
   // Committee tab's UI and app/api/admission-admin/route.js's own gate key
   // off the identical tab names.
-  const ADM_CAND_TABS = [['applications', 'Applications'], ['admin_settings', 'Settings'], ['import', 'Import'], ['candidates', 'Candidates'], ['rooms', 'Rooms'], ['alloc', 'Allocation'], ['templates', 'Templates'], ['print', 'Printing'], ['photos', 'Photos'], ['scan', 'Scan']];
+  // 'candidates' is deliberately NOT listed here any more -- the standalone
+  // Candidates list panel it used to gate has no reachable button anywhere
+  // in the UI (not even for a full admin), so offering it as a grantable
+  // permission was dead-looking clutter. The server action still requires
+  // 'candidates':'view' (background refresh for Rooms/Allocation counts
+  // etc.), so _admCandCommitteeSave grants it implicitly below instead of
+  // exposing a no-op control for it.
+  const ADM_CAND_TABS = [['applications', 'Applications'], ['admin_settings', 'Settings'], ['import', 'Import'], ['rooms', 'Rooms'], ['alloc', 'Allocation'], ['templates', 'Templates'], ['print', 'Printing'], ['photos', 'Photos'], ['scan', 'Scan']];
   let _admCandOrgCommittees = [];
   async function _admCandLoadCommitteeTab() {
     if (!_admCandRequireCircular()) return;
@@ -45079,6 +45086,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!card) return;
     const tabs = {};
     card.querySelectorAll('.admCandCommitteeTabSel').forEach(sel => { tabs[sel.getAttribute('data-tab')] = sel.value; });
+    // Implicit grant -- see the ADM_CAND_TABS comment above: there's no
+    // visible control for this any more, but listCandidates (background
+    // refresh for Rooms/Allocation counts, tag filters, etc.) still checks it.
+    tabs.candidates = 'view';
     const scan_options = Array.from(card.querySelectorAll('.admCandCommitteeScanChk:checked')).map(c => c.value);
     try {
       await _admCandFetch('saveCommitteeMember', { circular_id: _admCandActiveCircularId, user_id: card.getAttribute('data-user-id'), permissions: { tabs, scan_options } });
