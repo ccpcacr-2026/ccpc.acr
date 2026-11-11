@@ -42524,7 +42524,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       document.head.appendChild(link);
       const script = document.createElement('script');
       script.src = 'https://cdn.jsdelivr.net/npm/gridstack@14.1.0/dist/gridstack-all.js';
-      script.onload = () => resolve();
+      script.onload = () => {
+        // GridStack does NOT render a widget's `content` string as HTML by
+        // default (it's shown as literal escaped text instead, e.g. "<div
+        // class=..." printed on the page) -- GridStack.renderCB must be set
+        // explicitly before the first init()/load() call for `content` to
+        // actually become the card's innerHTML. Must be set exactly once,
+        // globally, before any grid uses content strings.
+        if (!GridStack.renderCB) GridStack.renderCB = (el, w) => { el.innerHTML = w.content || ''; };
+        resolve();
+      };
       script.onerror = () => reject(new Error('Could not load the drag/resize library.'));
       document.head.appendChild(script);
     });
@@ -45665,27 +45674,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
         <div id="admCandScanOptionPanel" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-3"></div>
-        <div id="admCandScanDataBox" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-3">
-          <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
-            <p class="text-[10px] uppercase text-slate-400 font-bold">Scan data for this option</p>
-            <div class="flex gap-2 items-center flex-wrap">
-              <input type="text" id="admCandScanDataSearch" placeholder="Search name/tracking ID…" oninput="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-              <select id="admCandScanDataValueFilter" onchange="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></select>
-            </div>
-          </div>
-          <div class="overflow-x-auto rounded-xl border border-slate-100">
-            <table class="w-full text-xs">
-              <thead><tr class="bg-slate-50 border-b border-slate-100">
-                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Tracking ID</th>
-                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Name</th>
-                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase hidden md:table-cell">Class</th>
-                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Value</th>
-              </tr></thead>
-              <tbody id="admCandScanDataBody"></tbody>
-            </table>
-          </div>
-          <p id="admCandScanDataCount" class="text-[10px] text-slate-400 font-bold mt-2"></p>
-        </div>
         <p id="admCandScanEmptyNote" class="hidden text-xs text-slate-400 bg-white rounded-2xl border border-slate-100 p-5">No scan options yet — create one above to start scanning.</p>
         <div id="admCandScanScopeBox" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
           <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">Scope — restrict scanning to:</p>
@@ -45716,6 +45704,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <p id="admCandScanNote" class="text-xs text-white font-bold" style="position:fixed;left:16px;right:16px;bottom:16px;z-index:9400;background:rgba(0,0,0,0.75);padding:10px 14px;border-radius:10px;text-align:center;"></p>
           <div id="admCandScanResult" class="hidden" style="position:fixed;left:0;right:0;bottom:0;z-index:9500;max-height:70vh;overflow-y:auto;background:#fff;border-top-left-radius:16px;border-top-right-radius:16px;box-shadow:0 -4px 24px rgba(0,0,0,0.25);padding:16px;"></div>
+        </div>
+        <div id="admCandScanDataBox" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mt-3">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <p class="text-[10px] uppercase text-slate-400 font-bold">Scan data for this option</p>
+            <div class="flex gap-2 items-center flex-wrap">
+              <input type="text" id="admCandScanDataSearch" placeholder="Search name/tracking ID…" oninput="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+              <select id="admCandScanDataValueFilter" onchange="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></select>
+            </div>
+          </div>
+          <div class="overflow-x-auto rounded-xl border border-slate-100">
+            <table class="w-full text-xs">
+              <thead><tr class="bg-slate-50 border-b border-slate-100">
+                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Tracking ID</th>
+                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Name</th>
+                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase hidden md:table-cell">Class</th>
+                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Value</th>
+              </tr></thead>
+              <tbody id="admCandScanDataBody"></tbody>
+            </table>
+          </div>
+          <p id="admCandScanDataCount" class="text-[10px] text-slate-400 font-bold mt-2"></p>
         </div>
       </div>
 
@@ -47569,18 +47578,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!sel) return;
     const opt = _admCandScanSelectedOption;
     if (!opt) { sel.innerHTML = ''; return; }
+    // Defaults to "scanned only" (Done/Has a value) rather than "Any" --
+    // the point of this table is reviewing who's already been scanned, not
+    // re-showing the full roster (that's what the Applications tab is
+    // for). "Any" is still one click away in the dropdown.
     if (opt.behavior === 'status') {
-      sel.innerHTML = `<option value="">Any</option><option value="done">Done</option><option value="pending">Pending</option>`;
+      sel.innerHTML = `<option value="done" selected>Done</option><option value="pending">Pending</option><option value="">Any</option>`;
     } else if (opt.behavior === 'tag') {
       const cfg = opt.config || {};
       let opts = [];
       if (cfg.type === 'dropdown') opts = cfg.options || [];
       else if (cfg.type === 'toggle') opts = ['true'];
-      sel.innerHTML = `<option value="">Any</option>`
+      sel.innerHTML = `<option value="__has__" selected>Has a value</option>`
         + opts.map(o => `<option value="${_escHtml(o)}">${_escHtml(o === 'true' ? 'Yes' : o)}</option>`).join('')
-        + `<option value="__has__">Has a value</option><option value="__none__">No value yet</option>`;
+        + `<option value="__none__">No value yet</option><option value="">Any</option>`;
     } else {
-      sel.innerHTML = `<option value="">Any</option><option value="__has__">Has a value</option><option value="__none__">No value yet</option>`;
+      sel.innerHTML = `<option value="__has__" selected>Has a value</option><option value="__none__">No value yet</option><option value="">Any</option>`;
     }
   }
   function _admCandRenderScanDataTable() {
