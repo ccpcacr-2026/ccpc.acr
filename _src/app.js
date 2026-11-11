@@ -42775,9 +42775,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const apps = _admLastFiltered;
     if (!apps.length) { showToast('No applications to export', 'error'); return; }
     const headers = ['SL', 'Tracking ID', 'Index ID', 'Name', 'Class', 'Version', 'Category', 'Session', 'Status', 'Payment Status', 'Room No', 'Submitted At'];
+    // Part 10: one column per Scan Option (status/tag), and one column per
+    // field for 'form'-behavior options, so scanned/tagged/marks data
+    // exports alongside the base fields -- apps is already _admLastFiltered,
+    // so this respects whatever filter/search is currently applied.
+    const scanCols = [];
+    (_admCandScanOptions || []).forEach(o => {
+      if (o.behavior === 'form') {
+        (o.config?.fields || []).forEach(f => scanCols.push({ header: `${o.label} - ${f.label}`, get: a => ((a.scan_values || {})[o.key] || {})[f.key] ?? '' }));
+      } else {
+        scanCols.push({
+          header: o.label,
+          get: a => {
+            const v = (a.scan_values || {})[o.key];
+            if (o.behavior === 'status') return v && v.done ? 'Done' : '';
+            return v === true ? 'Yes' : (v ?? '');
+          },
+        });
+      }
+    });
+    headers.push(...scanCols.map(c => c.header));
     const rows = [headers];
     apps.forEach((a, idx) => {
-      rows.push([idx + 1, a.tracking_id || '', a.index_id || '', a.name_english || '', a.class || '', a.version || '', a.category || '', a.session || '', a.status || '', a.payment_status || '', a.room_no || '', a.created_at ? new Date(a.created_at).toLocaleString() : '']);
+      rows.push([idx + 1, a.tracking_id || '', a.index_id || '', a.name_english || '', a.class || '', a.version || '', a.category || '', a.session || '', a.status || '', a.payment_status || '', a.room_no || '', a.created_at ? new Date(a.created_at).toLocaleString() : '', ...scanCols.map(c => c.get(a))]);
     });
     const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
     const a = document.createElement('a');
