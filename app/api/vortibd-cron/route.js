@@ -28,7 +28,20 @@ export const maxDuration = 280;
 const SB_URL = process.env.SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_KEY;
 const VORTIBD_API = 'https://vortibdliveapi.cloudcampus24.com';
-const MODELED_FIELDS = ['token', 'candidate_name', 'class', 'category', 'version', 'mobile'];
+// Part 8: same field-vocabulary split as admission-candidates/route.js's
+// copy -- keep both in sync if that list ever changes.
+const CORE_FIELDS = ['token', 'class', 'category', 'version', 'mobile'];
+const BUILTIN_FORM_FIELD_KEYS = new Set([
+  'name_english', 'name_bangla', 'date_of_birth', 'gender', 'blood_group', 'religion', 'birth_reg_no', 'nationality',
+  'emergency_contact', 'height', 'last_class', 'last_version', 'last_institute', 'present_address', 'permanent_address',
+  'co_curricular', 'student_photo',
+  'father_name', 'father_profession', 'father_designation', 'father_education', 'father_contact', 'father_nid',
+  'father_office_address', 'father_yearly_income', 'father_photo',
+  'mother_name', 'mother_profession', 'mother_designation', 'mother_education', 'mother_contact', 'mother_nid',
+  'mother_office_address', 'mother_yearly_income', 'mother_photo',
+  'guardian_name', 'guardian_relation', 'guardian_profession', 'guardian_designation', 'guardian_education',
+  'guardian_contact', 'guardian_office_address', 'guardian_nid', 'guardian_photo',
+]);
 
 async function sbAdmission(path, method = 'GET', body = null, extraHeaders = {}) {
   const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
@@ -121,7 +134,8 @@ function _applyTemplateMapping(headers, rows, template) {
       const colIdx = headers.indexOf(headerText);
       if (colIdx < 0) continue;
       const val = String(r[colIdx] ?? '').trim();
-      if (MODELED_FIELDS.includes(rowId)) obj[rowId] = val; else obj.extra_fields[fieldLabels[rowId] || rowId] = val;
+      if (CORE_FIELDS.includes(rowId) || BUILTIN_FORM_FIELD_KEYS.has(rowId)) obj[rowId] = val;
+      else obj.extra_fields[fieldLabels[rowId] || rowId] = val;
     }
     const pkHeader = mapping[template.primary_key_field];
     const pkIdx = pkHeader ? headers.indexOf(pkHeader) : -1;
@@ -145,22 +159,22 @@ async function _upsertMappedRows(circularId, rows, meta) {
       if (Array.isArray(allowed) && allowed.length && r[rowField] && !allowed.includes(r[rowField])) { mismatch = true; break; }
     }
     if (mismatch) { mismatchCount++; continue; }
-    const row = { circular_id: circularId, external_key, updated_at: new Date().toISOString() };
-    MODELED_FIELDS.forEach(f => { if (r[f] !== undefined && r[f] !== '') row[f] = r[f]; });
+    const row = { circular_id: circularId, source: 'imported', external_key, updated_at: new Date().toISOString() };
+    Object.keys(r).forEach(f => { if (f !== 'extra_fields' && f !== 'external_key' && r[f] !== undefined && r[f] !== '') row[f] = r[f]; });
     row.extra_fields = (r.extra_fields && typeof r.extra_fields === 'object') ? r.extra_fields : {};
     clean.push(row);
   }
   if (!clean.length) return { error: `No valid rows (${mismatchCount} mismatched, ${error_count} missing key).` };
   const existingKeys = new Set();
   for (const part of chunk(clean.map(r => r.external_key), 150)) {
-    const q = `exam_candidates?circular_id=eq.${circularId}&external_key=in.(${part.map(k => encodeURIComponent(k)).join(',')})&select=external_key`;
+    const q = `admission_applications?circular_id=eq.${circularId}&external_key=in.(${part.map(k => encodeURIComponent(k)).join(',')})&select=external_key`;
     const res = await sbAdmission(q);
     if (Array.isArray(res)) res.forEach(x => existingKeys.add(x.external_key));
   }
   const new_count = clean.filter(r => !existingKeys.has(r.external_key)).length;
   const updated_count = clean.length - new_count;
   for (const part of chunk(clean, 500)) {
-    await sbAdmission('exam_candidates?on_conflict=circular_id,external_key', 'POST', part, { Prefer: 'resolution=merge-duplicates,return=minimal' });
+    await sbAdmission('admission_applications?on_conflict=circular_id,external_key', 'POST', part, { Prefer: 'resolution=merge-duplicates,return=minimal' });
   }
   const batch = await sbAdmission('candidate_import_batches', 'POST', {
     circular_id: circularId, template_id: (meta && meta.template_id) || null,

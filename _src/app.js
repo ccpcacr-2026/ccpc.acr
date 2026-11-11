@@ -41535,6 +41535,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <select id="adm-filter-status" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
             <option value="">All Status</option>${ADM_STATUSES.map(s => `<option>${s}</option>`).join('')}
           </select>
+          <select id="adm-filter-source" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
+            <option value="">All Sources</option><option value="native">Native</option><option value="imported">Imported</option><option value="online">Online</option>
+          </select>
           <button id="adm-new-app-btn" onclick="_admLoadNewApplication()" class="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all">
             <i data-lucide="plus" class="h-3.5 w-3.5"></i> New Application
           </button>
@@ -41866,7 +41869,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     tbody.innerHTML = apps.map(a => `
       <tr class="border-t border-slate-50 hover:bg-slate-50/80 transition-all cursor-pointer" onclick="_admLoadForm(${a.id})">
         <td class="px-3 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="adm-row-select" data-id="${a.id}" ${_admSelectedIds.has(a.id) ? 'checked' : ''} onchange="_admToggleRowSelect(${a.id},this.checked)"></td>
-        <td class="px-3 py-3"><span class="font-black text-blue-600 text-xs font-mono">${_escHtml(a.tracking_id || '—')}</span><br><span class="text-[9px] text-slate-400">${_escHtml(a.index_id || '')}</span></td>
+        <td class="px-3 py-3"><span class="font-black text-blue-600 text-xs font-mono">${_escHtml(a.tracking_id || a.token || '—')}</span><br><span class="text-[9px] text-slate-400">${_escHtml(a.index_id || (a.source !== 'native' ? a.source : '') || '')}</span></td>
         <td class="px-3 py-3"><p class="font-bold text-sm text-slate-800">${_escHtml(a.name_english || '—')}</p><p class="text-[10px] text-slate-400">${_escHtml(a.name_bangla || '')}</p>${a.room_no ? `<span class="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[9px] font-bold">Room ${_escHtml(a.room_no)}</span>` : ''}</td>
         <td class="px-3 py-3 hidden md:table-cell text-sm font-bold text-slate-600">${_escHtml(a.class || '—')}</td>
         <td class="px-3 py-3 hidden md:table-cell text-sm text-slate-600">${_escHtml(a.category || '—')}</td>
@@ -41926,10 +41929,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const q = (document.getElementById('adm-search-input').value || '').toLowerCase();
     const cls = document.getElementById('adm-filter-class').value;
     const stat = document.getElementById('adm-filter-status').value;
+    const src = document.getElementById('adm-filter-source')?.value || '';
     _admRenderTable(_admAllApps.filter(a => {
-      if (q && !`${a.name_english || ''} ${a.tracking_id || ''} ${a.index_id || ''}`.toLowerCase().includes(q)) return false;
+      if (q && !`${a.name_english || ''} ${a.tracking_id || ''} ${a.index_id || ''} ${a.token || ''}`.toLowerCase().includes(q)) return false;
       if (cls && a.class !== cls) return false;
       if (stat && a.status !== stat) return false;
+      if (src && (a.source || 'native') !== src) return false;
       return true;
     }));
   }
@@ -42041,7 +42046,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (!a) { showToast('Not found', 'error'); return; }
       _admSetV('adm-f-session', a.session); _admSetV('adm-f-class', a.class); _admSetV('adm-f-category', a.category);
       _admSetV('adm-f-version', a.version); _admSetV('adm-f-quota', a.quota || 'No'); _admSetV('adm-f-status', a.status);
-      _admSetV('adm-f-tracking-id', a.tracking_id); _admSetV('adm-f-index-id', a.index_id);
+      _admSetV('adm-f-tracking-id', a.tracking_id || a.token || ''); _admSetV('adm-f-index-id', a.index_id || '');
       _admSetV('adm-f-name-en', a.name_english); _admSetV('adm-f-name-bn', a.name_bangla);
       _admSetV('adm-f-dob', a.date_of_birth ? a.date_of_birth.split('T')[0] : '');
       _admSetV('adm-f-blood', a.blood_group); _admSetV('adm-f-gender', a.gender); _admSetV('adm-f-religion', a.religion);
@@ -44217,8 +44222,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     else if (id === 'adm-cand-print') { _admCandLoadRooms(); _admCandPopulatePrintDropdowns(); }
     else if (id === 'adm-cand-scan') _admCandPopulateFilterDropdowns();
     else if (id === 'adm-cand-committee') _admCandLoadCommitteeTab();
-    else if (id === 'adm-cand-import') { _admCandLoadTemplates().then(_admCandLoadVortibdPanel); }
-    else if (id === 'adm-cand-photos') { _admCandLoadTemplates().then(_admCandPopulatePhotoMatchFieldOptions); }
+    else if (id === 'adm-cand-import') { _admCandLoadFormFieldsForMapping(); _admCandLoadTemplates().then(_admCandLoadVortibdPanel); }
+    else if (id === 'adm-cand-photos') { _admCandLoadFormFieldsForMapping().then(_admCandPopulatePhotoMatchFieldOptions); }
   }
 
   function _admCandRenderSections() {
@@ -44269,6 +44274,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex items-center gap-3 flex-wrap mb-3">
             <input type="file" id="admCandFileInput" accept=".xlsx,.xls,.csv" onchange="_admCandHandleImportFile(event)" class="text-xs">
             <select id="admCandTemplateSelect" onchange="_admCandApplySavedTemplate(this)" class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold"><option value="">— Use saved mapping —</option></select>
+            <button onclick="_admCandDeleteSelectedTemplate()" class="px-3 py-2 border border-slate-200 text-red-500 rounded-xl text-[10px] font-black uppercase" title="Delete the mapping selected above">Delete Mapping</button>
             <span id="admCandImportStatus" class="text-xs text-slate-400"></span>
           </div>
           <div id="admCandMappingSection" class="hidden">
@@ -44277,7 +44283,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <div class="col-span-1 text-center">Key</div><div class="col-span-3">Field</div><div class="col-span-4">Excel column</div><div class="col-span-3">Sample</div><div class="col-span-1"></div>
             </div>
             <div id="admCandMappingList"></div>
-            <datalist id="admCandFieldLabelOptions"></datalist>
             <div class="flex items-center gap-2 mt-3 flex-wrap">
               <select id="admCandAddFieldSelect" multiple size="4" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:200px"></select>
               <button onclick="_admCandAddSelectedFields()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">+ Add Selected</button>
@@ -44305,9 +44310,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <select id="admCandListTagValueSelect" onchange="_admCandFilterList()" class="hidden px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold"></select>
           <button onclick="_admCandExportCsv()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50"><i data-lucide="download" class="h-3.5 w-3.5"></i> Export CSV</button>
         </div>
+        <div id="admCandBulkBar" class="hidden flex items-center gap-2 bg-rose-50 border border-rose-200 rounded-xl px-4 py-2.5 mb-3">
+          <span id="admCandBulkCount" class="text-xs font-bold text-rose-700">0 selected</span>
+          <button onclick="_admCandDeleteSelected()" class="ml-auto px-3 py-2 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase">Delete Selected</button>
+          <button onclick="_admCandClearSelection()" class="px-3 py-2 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black uppercase">Clear</button>
+        </div>
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-x-auto">
           <table class="w-full text-sm">
             <thead><tr class="bg-slate-50 border-b border-slate-100">
+              <th class="px-3 py-3 text-left" style="width:36px"><input type="checkbox" id="admCandSelectAll" onchange="_admCandToggleSelectAll(this)"></th>
               <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Token</th>
               <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Name</th>
               <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden md:table-cell">Class</th>
@@ -44318,7 +44329,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest hidden lg:table-cell">Tags</th>
               <th class="px-3 py-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
             </tr></thead>
-            <tbody id="admCandListBody"><tr><td colspan="9" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr></tbody>
+            <tbody id="admCandListBody"><tr><td colspan="10" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr></tbody>
           </table>
         </div>
         <p id="admCandListCount" class="text-[10px] text-slate-400 font-bold mt-3 text-right"></p>
@@ -44358,7 +44369,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div>
               <label class="text-[10px] uppercase text-slate-400 font-bold">Sort candidates by</label>
               <select id="admCandAllocSortBy" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mt-1">
-                <option value="token">Token</option><option value="candidate_name">Name</option><option value="class">Class</option><option value="category">Category</option>
+                <option value="token">Token</option><option value="name_english">Name</option><option value="class">Class</option><option value="category">Category</option>
               </select>
             </div>
             <div>
@@ -44423,10 +44434,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex items-center gap-3 flex-wrap mb-3">
             <label class="text-[10px] uppercase text-slate-400 font-bold">Photo type</label>
             <select id="admCandPhotoTypeSelect" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold">
-              <option value="photo_url">Applicant</option>
-              <option value="father_photo_url">Father</option>
-              <option value="mother_photo_url">Mother</option>
-              <option value="guardian_photo_url">Local Guardian</option>
+              <option value="student_photo">Applicant</option>
+              <option value="father_photo">Father</option>
+              <option value="mother_photo">Mother</option>
+              <option value="guardian_photo">Local Guardian</option>
             </select>
             <label class="text-[10px] uppercase text-slate-400 font-bold">Match photos by</label>
             <select id="admCandPhotoMatchField" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold"></select>
@@ -44603,14 +44614,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   // ── Import & Mapping ──────────────────────────────────────────────────────
-  function _admCandDefaultMapRows() {
-    return [
-      { rowId: 'token', label: 'Token', fixed: true },
-      { rowId: 'candidate_name', label: 'Candidate Name', fixed: true },
-      { rowId: 'class', label: 'Class', fixed: true },
-      { rowId: 'version', label: 'Version', fixed: true },
-      { rowId: 'category', label: 'Category', fixed: true },
-    ];
+  // Part 8: nothing is pre-seeded on a fresh parse any more -- a brand-new
+  // file starts with an EMPTY row list (populated only by a matched saved
+  // template, or by the admin explicitly adding columns via the pickers
+  // below), rather than always showing a fixed Token/Class/Version/
+  // Category/Mobile starter set whether or not the file actually has them.
+  // Those core identity/classification fields haven't gone away -- they're
+  // just offered through the exact same "System" group in the Field picker
+  // as every Form Field, instead of being force-present.
+  function _admCandDefaultMapRows() { return []; }
+  const ADM_CAND_CORE_FIELDS = ['token', 'class', 'category', 'version', 'mobile'];
+  const ADM_CAND_CORE_FIELD_LABELS = [['token', 'Token'], ['class', 'Class'], ['version', 'Version'], ['category', 'Category'], ['mobile', 'Mobile']];
+  // Form Fields (same list app/api/admission-admin/route.js's native
+  // application editor reads/writes via getFormFields/saveFormFields) is the
+  // vocabulary for every non-fixed mapping row -- fetched once per Import &
+  // Mapping tab visit, shared by the Field picker, "+ Define new field", and
+  // the Photos tab's "match photos by" dropdown.
+  let _admCandFormFieldDefs = [];
+  async function _admCandLoadFormFieldsForMapping() {
+    try { _admCandFormFieldDefs = (await _admAdminFetch('getFormFields', {})).fields || []; }
+    catch (e) { _admCandFormFieldDefs = []; }
   }
   function _admCandHeaderSignature() {
     return _admCandExcelHeaders.map(normImportKey).filter(Boolean).sort().join('|');
@@ -44668,22 +44691,47 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (nameEl) nameEl.value = tpl.name || '';
     Object.entries(mapping).forEach(([key, headerText]) => {
       let row = _admCandMapRows.find(r => r.rowId === key);
-      // A template saved before field_labels existed has nothing stored for
-      // its custom fields -- fall back to the Excel column's own header
-      // text (e.g. "StudentNameBangla") rather than the internal row id
-      // ("extra_5"), which is unreadable and means nothing to the admin.
-      if (!row) { row = { rowId: key, label: fieldLabels[key] || headerText || key, fixed: false }; _admCandMapRows.push(row); }
+      if (!row) {
+        // key is normally a real Form Field key going forward -- use its
+        // live label. A template saved before this scheme existed may still
+        // have an old extra_N id with nothing recognizable; fall back to
+        // its legacy field_labels entry, then the Excel header text itself,
+        // rather than the unreadable internal id -- the admin will need to
+        // re-pick a field for that row via the picker (it won't match any
+        // option), but at least sees a meaningful hint while doing so.
+        const known = _admCandFormFieldDefs.find(f => f.key === key);
+        row = { rowId: key, label: known ? known.label : (fieldLabels[key] || headerText || key), fixed: false };
+        _admCandMapRows.push(row);
+      }
       row.headerIdx = _admCandExcelHeaders.findIndex(h => h === headerText);
     });
     _admCandPrimaryKeyRowId = tpl.primary_key_field || null;
     _admCandAppliedTemplateId = tpl.id;
     showToast(`Applied saved mapping "${tpl.name}"`, 'success');
   }
+  // Field picker for a non-fixed row: a dropdown of live Form Fields
+  // (grouped by section, same vocabulary the native application editor
+  // uses) instead of a free-typed label -- so mapped data lands on the same
+  // field names as the applicants, and matching features (photo upload,
+  // filters) can rely on stable keys. "+ Define new field…" registers a
+  // brand-new custom field on the spot via saveFormFields.
+  function _admCandFieldSelectOptionsHtml(currentKey) {
+    const sections = [['student', 'Student'], ['father', 'Father'], ['mother', 'Mother'], ['guardian', 'Guardian']];
+    let html = `<option value="">— pick field —</option>`;
+    html += `<optgroup label="System">` + ADM_CAND_CORE_FIELD_LABELS.map(([key, label]) => `<option value="${key}" ${key === currentKey ? 'selected' : ''}>${_escHtml(label)}</option>`).join('') + `</optgroup>`;
+    sections.forEach(([sec, secLabel]) => {
+      const opts = _admCandFormFieldDefs.filter(f => (f.section || 'student') === sec);
+      if (!opts.length) return;
+      html += `<optgroup label="${_escHtml(secLabel)}">` + opts.map(f => `<option value="${_escHtml(f.key)}" ${f.key === currentKey ? 'selected' : ''}>${_escHtml(f.label)}</option>`).join('') + `</optgroup>`;
+    });
+    html += `<option value="__new__">+ Define new field…</option>`;
+    return html;
+  }
   function _admCandRenderMapping() {
     const section = document.getElementById('admCandMappingSection');
     const list = document.getElementById('admCandMappingList');
     if (!section || !list) return;
-    list.innerHTML = _admCandMapRows.map(row => {
+    list.innerHTML = _admCandMapRows.length ? _admCandMapRows.map(row => {
       const guessIdx = (row.headerIdx !== undefined && row.headerIdx !== null && row.headerIdx >= 0)
         ? row.headerIdx
         : _admCandExcelHeaders.findIndex(h => normImportKey(h) === normImportKey(row.label));
@@ -44691,7 +44739,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const sample = guessIdx >= 0 && _admCandExcelRows[0] ? String(_admCandExcelRows[0][guessIdx] ?? '') : '';
       const labelHtml = row.fixed
         ? `<span class="font-bold text-xs text-slate-700">${_escHtml(row.label)}</span>`
-        : `<input type="text" list="admCandFieldLabelOptions" value="${_escHtml(row.label)}" oninput="_admCandRenameRow('${row.rowId}', this.value)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs font-bold">`;
+        : `<select onchange="_admCandSetRowFieldKey('${row.rowId}', this)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs font-bold">${_admCandFieldSelectOptionsHtml(row.rowId)}</select>`;
       return `<div class="grid grid-cols-12 gap-2 items-center py-1 admCandMapRow" data-row-id="${row.rowId}">
         <div class="col-span-1 text-center"><input type="radio" name="admCandPrimaryKey" value="${row.rowId}" ${_admCandPrimaryKeyRowId === row.rowId ? 'checked' : ''} onchange="_admCandSetPrimaryKey('${row.rowId}')"></div>
         <div class="col-span-3">${labelHtml}</div>
@@ -44699,7 +44747,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="col-span-3"><span class="text-xs text-slate-400 italic admCandMapSample">${sample ? 'e.g. ' + sample : ''}</span></div>
         <div class="col-span-1 text-right">${row.fixed ? '' : `<button onclick="_admCandRemoveRow('${row.rowId}')" class="text-red-400 hover:text-red-600"><i data-lucide="x" class="h-3.5 w-3.5"></i></button>`}</div>
       </div>`;
-    }).join('');
+    }).join('') : '<p class="text-xs text-slate-400 py-3">No fields mapped yet — pick columns below and click "+ Add Selected", or "+ Add All Remaining" to map every column at once.</p>';
     section.classList.remove('hidden');
     document.getElementById('admCandPreviewSection')?.classList.add('hidden');
     document.getElementById('admCandResultSection')?.classList.add('hidden');
@@ -44721,24 +44769,36 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     sel.innerHTML = unmapped.map(i => `<option value="${i}">${_escHtml(_admCandExcelHeaders[i] || '(blank header)')}</option>`).join('')
       || '<option value="" disabled>— every column is mapped —</option>';
   }
+  // New rows start "pending" (no field chosen yet) unless the Excel header
+  // text happens to match an existing Form Field's key/label, in which case
+  // it's auto-assigned immediately -- same auto-guess spirit as a saved
+  // template auto-applying by header signature.
+  function _admCandAddFieldRowForHeader(idx) {
+    _admCandRowSeq++;
+    const headerText = _admCandExcelHeaders[idx] || ('Column ' + (idx + 1));
+    const normHeader = normImportKey(headerText);
+    const coreGuess = ADM_CAND_CORE_FIELD_LABELS.find(([key, label]) => normImportKey(label) === normHeader || normImportKey(key) === normHeader);
+    const fieldGuess = _admCandFormFieldDefs.find(f => normImportKey(f.label) === normHeader || normImportKey(f.key) === normHeader);
+    const guessKey = coreGuess ? coreGuess[0] : (fieldGuess ? fieldGuess.key : null);
+    const guessLabel = coreGuess ? coreGuess[1] : (fieldGuess ? fieldGuess.label : null);
+    if (guessKey && !_admCandMapRows.some(r => r.rowId === guessKey)) {
+      _admCandMapRows.push({ rowId: guessKey, label: guessLabel, fixed: false, headerIdx: idx });
+    } else {
+      _admCandMapRows.push({ rowId: 'pending_' + _admCandRowSeq, label: headerText, fixed: false, headerIdx: idx });
+    }
+  }
   function _admCandAddSelectedFields() {
     const sel = document.getElementById('admCandAddFieldSelect');
     if (!sel) return;
     const indexes = Array.from(sel.selectedOptions).map(o => parseInt(o.value, 10)).filter(i => !isNaN(i) && i >= 0);
     if (!indexes.length) { showToast('Select one or more columns first', 'error'); return; }
-    indexes.forEach(idx => {
-      _admCandRowSeq++;
-      _admCandMapRows.push({ rowId: 'extra_' + _admCandRowSeq, label: _admCandExcelHeaders[idx] || ('Column ' + (idx + 1)), fixed: false, headerIdx: idx });
-    });
+    indexes.forEach(idx => _admCandAddFieldRowForHeader(idx));
     _admCandRenderMapping();
   }
   function _admCandAddAllRemainingFields() {
     const unmapped = _admCandUnmappedHeaderIndexes();
     if (!unmapped.length) { showToast('Every column is already mapped', 'error'); return; }
-    unmapped.forEach(idx => {
-      _admCandRowSeq++;
-      _admCandMapRows.push({ rowId: 'extra_' + _admCandRowSeq, label: _admCandExcelHeaders[idx] || ('Column ' + (idx + 1)), fixed: false, headerIdx: idx });
-    });
+    unmapped.forEach(idx => _admCandAddFieldRowForHeader(idx));
     _admCandRenderMapping();
   }
   function _admCandUpdateMappingSample(sel) {
@@ -44748,9 +44808,42 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const sample = idx >= 0 && _admCandExcelRows[0] ? String(_admCandExcelRows[0][idx] ?? '') : '';
     sampleEl.textContent = sample ? 'e.g. ' + sample : '';
   }
-  function _admCandRenameRow(rowId, val) {
+  // Assigns (or reassigns) which Form Field a mapping row targets. rowId is
+  // mutated in place to the chosen field's key -- the row's identity IS its
+  // field key once assigned, same as a fixed row's rowId always equaling
+  // its own column name.
+  function _admCandSetRowFieldKey(rowId, sel) {
     const row = _admCandMapRows.find(r => r.rowId === rowId);
-    if (row) row.label = val;
+    if (!row) return;
+    if (sel.value === '__new__') { _admCandDefineNewFormField(row); return; }
+    if (!sel.value) return;
+    if (_admCandMapRows.some(r => r !== row && r.rowId === sel.value)) { showToast('That field is already mapped to another column', 'error'); _admCandRenderMapping(); return; }
+    if (_admCandPrimaryKeyRowId === row.rowId) _admCandPrimaryKeyRowId = sel.value;
+    row.rowId = sel.value;
+    const def = _admCandFormFieldDefs.find(f => f.key === sel.value);
+    row.label = def ? def.label : sel.value;
+    _admCandRenderMapping();
+  }
+  async function _admCandDefineNewFormField(row) {
+    const label = (prompt('Name this new field (e.g. "Shift"):') || '').trim();
+    if (!label) { _admCandRenderMapping(); return; }
+    const key = normImportKey(label).replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || ('field_' + Date.now());
+    if (_admCandFormFieldDefs.some(f => f.key === key) || ADM_CAND_CORE_FIELDS.includes(key)) {
+      showToast('A field with a similar name already exists — pick it from the list instead', 'error');
+      _admCandRenderMapping();
+      return;
+    }
+    try {
+      const newField = { key, label, type: 'text', section: 'student', required: false, visible: true, built_in: false };
+      const fields = [..._admCandFormFieldDefs, newField];
+      const res = await _admAdminFetch('saveFormFields', { fields });
+      if (res.error) { showToast(res.error, 'error'); _admCandRenderMapping(); return; }
+      _admCandFormFieldDefs = fields;
+      if (_admCandPrimaryKeyRowId === row.rowId) _admCandPrimaryKeyRowId = key;
+      row.rowId = key; row.label = label;
+      showToast(`Defined new field "${label}"`, 'success');
+      _admCandRenderMapping();
+    } catch (e) { showToast(e.message || 'Failed to define field', 'error'); _admCandRenderMapping(); }
   }
   function _admCandSetPrimaryKey(rowId) { _admCandPrimaryKeyRowId = rowId; }
   function _admCandRemoveRow(rowId) {
@@ -44758,26 +44851,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (_admCandPrimaryKeyRowId === rowId) _admCandPrimaryKeyRowId = null;
     _admCandRenderMapping();
   }
+  function _admCandPendingFieldCount() {
+    return _admCandMapRows.filter(r => !r.fixed && String(r.rowId).startsWith('pending_')).length;
+  }
   function _admCandGetMapping() {
-    const mapping = {}, labels = {};
+    const mapping = {};
     document.querySelectorAll('.admCandMapRow').forEach(row => {
       const rowId = row.dataset.rowId;
+      if (String(rowId).startsWith('pending_')) return; // not yet assigned to a field -- excluded, not guessed
       const idx = parseInt(row.querySelector('.admCandMapSelect').value, 10);
       if (idx >= 0) mapping[rowId] = idx;
-      const input = row.querySelector('input[type=text]');
-      labels[rowId] = input ? input.value.trim() : ((_admCandMapRows.find(r => r.rowId === rowId) || {}).label || rowId);
     });
     const primaryEl = document.querySelector('input[name=admCandPrimaryKey]:checked');
-    return { mapping, labels, primaryKeyRowId: primaryEl ? primaryEl.value : null };
+    return { mapping, primaryKeyRowId: primaryEl ? primaryEl.value : null };
   }
   function _admCandBuildMappedRows() {
-    const { mapping, labels, primaryKeyRowId } = _admCandGetMapping();
+    const { mapping, primaryKeyRowId } = _admCandGetMapping();
+    const builtIn = new Set(_admCandFormFieldDefs.filter(f => f.built_in).map(f => f.key));
     return _admCandExcelRows.map(r => {
       const obj = { extra_fields: {} };
       Object.entries(mapping).forEach(([rowId, idx]) => {
         const val = String(r[idx] ?? '').trim();
-        if (['token', 'candidate_name', 'class', 'version', 'category'].includes(rowId)) obj[rowId] = val;
-        else obj.extra_fields[labels[rowId] || rowId] = val;
+        if (ADM_CAND_CORE_FIELDS.includes(rowId) || builtIn.has(rowId)) obj[rowId] = val;
+        else obj.extra_fields[rowId] = val;
       });
       obj.external_key = (primaryKeyRowId && mapping[primaryKeyRowId] !== undefined) ? String(r[mapping[primaryKeyRowId]] ?? '').trim() : '';
       return obj;
@@ -44786,6 +44882,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admCandPreviewImport() {
     const { mapping, primaryKeyRowId } = _admCandGetMapping();
     if (!primaryKeyRowId || mapping[primaryKeyRowId] === undefined) { showToast('Pick a primary key column first (the radio button)', 'error'); return; }
+    if (_admCandPendingFieldCount()) { showToast(`${_admCandPendingFieldCount()} column(s) have no field assigned yet — pick one or remove the row`, 'error'); return; }
     const rows = _admCandBuildMappedRows();
     const withKey = rows.filter(r => r.external_key).length;
     const summary = document.getElementById('admCandPreviewSummary');
@@ -44799,6 +44896,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_admCandRequireCircular()) return;
     const { mapping, primaryKeyRowId } = _admCandGetMapping();
     if (!primaryKeyRowId || mapping[primaryKeyRowId] === undefined) { showToast('Pick a primary key column first', 'error'); return; }
+    if (_admCandPendingFieldCount()) { showToast(`${_admCandPendingFieldCount()} column(s) have no field assigned yet — pick one or remove the row`, 'error'); return; }
     const rows = _admCandBuildMappedRows();
     const mappingUsed = {};
     Object.keys(mapping).forEach(rowId => { mappingUsed[rowId] = _admCandExcelHeaders[mapping[rowId]]; });
@@ -44998,30 +45096,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admCandTemplates = res.templates || [];
       const sel = document.getElementById('admCandTemplateSelect');
       if (sel) sel.innerHTML = '<option value="">— Use saved mapping —</option>' + _admCandTemplates.map(t => `<option value="${t.id}">${_escHtml(t.name)}</option>`).join('');
-      _admCandPopulateFieldLabelOptions();
     } catch (e) {}
   }
-  // Every custom field name ever used across saved mapping templates (e.g.
-  // "Applicant ID"), offered as suggestions while naming/renaming a mapped
-  // field -- so re-mapping a later VortiBD pull reuses the same exact field
-  // names instead of drifting (which would silently break anything matched
-  // against that label, like the photo-upload match-by-field feature).
-  function _admCandPopulateFieldLabelOptions() {
-    const host = document.getElementById('admCandFieldLabelOptions');
-    if (!host) return;
-    const seen = new Set();
-    const labels = [];
-    (_admCandTemplates || []).forEach(t => {
-      const fieldLabels = t.field_labels || {};
-      Object.keys(t.mapping || {}).forEach(rowId => {
-        if (ADM_CAND_MODELED_ROW_IDS.includes(rowId)) return;
-        const label = fieldLabels[rowId] || rowId;
-        if (seen.has(label)) return;
-        seen.add(label);
-        labels.push(label);
-      });
+  function _admCandDeleteSelectedTemplate() {
+    const sel = document.getElementById('admCandTemplateSelect');
+    const id = sel ? parseInt(sel.value, 10) : 0;
+    if (!id) { showToast('Pick a saved mapping first', 'error'); return; }
+    const tpl = _admCandTemplates.find(t => t.id === id);
+    showConfirm(`Delete the saved mapping "${tpl ? tpl.name : id}"? This cannot be undone.`, async () => {
+      try {
+        const res = await _admCandFetch('deleteCandidateImportTemplate', { id });
+        if (res.error) { showToast(res.error, 'error'); return; }
+        showToast('Mapping deleted', 'success');
+        sel.value = '';
+        _admCandLoadTemplates();
+      } catch (e) { showToast(e.message || 'Failed', 'error'); }
     });
-    host.innerHTML = labels.map(l => `<option value="${_escHtml(l)}"></option>`).join('');
   }
   function _admCandApplySavedTemplate(sel) {
     const id = parseInt(sel.value, 10);
@@ -45034,13 +45124,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const nameEl = document.getElementById('admCandTemplateName');
     const name = nameEl ? nameEl.value.trim() : '';
     if (!name) { showToast('Name this mapping first', 'error'); return; }
-    const { mapping, labels, primaryKeyRowId } = _admCandGetMapping();
+    const { mapping, primaryKeyRowId } = _admCandGetMapping();
     if (!primaryKeyRowId || mapping[primaryKeyRowId] === undefined) { showToast('Pick a primary key column first', 'error'); return; }
+    if (_admCandPendingFieldCount()) { showToast(`${_admCandPendingFieldCount()} column(s) have no field assigned yet — pick one or remove the row`, 'error'); return; }
     const mappingObj = {};
     Object.keys(mapping).forEach(rowId => { mappingObj[rowId] = _admCandExcelHeaders[mapping[rowId]]; });
     try {
+      // field_labels is no longer needed for new templates -- mapping keys
+      // ARE Form Field keys now, resolved live via getFormFields wherever a
+      // label is shown.
       const res = await _admCandFetch('saveCandidateImportTemplate', {
-        name, header_signature: _admCandHeaderSignature(), mapping: mappingObj, primary_key_field: primaryKeyRowId, field_labels: labels,
+        name, header_signature: _admCandHeaderSignature(), mapping: mappingObj, primary_key_field: primaryKeyRowId,
       });
       if (res.error) { showToast(res.error, 'error'); return; }
       showToast('Mapping saved', 'success');
@@ -45057,12 +45151,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admCandPopulateFilterDropdowns();
     } catch (e) {}
   }
+  let _admCandSelectedIds = new Set();
   function _admCandRenderList(list) {
     const body = document.getElementById('admCandListBody');
     if (!body) return;
     const countEl = document.getElementById('admCandListCount');
     if (countEl) countEl.textContent = `${list.length} candidate(s)`;
-    if (!list.length) { body.innerHTML = '<tr><td colspan="9" class="px-4 py-10 text-center text-slate-400 text-sm">No candidates imported yet.</td></tr>'; return; }
+    const visibleIds = new Set(list.map(c => c.id));
+    [..._admCandSelectedIds].forEach(id => { if (!visibleIds.has(id)) _admCandSelectedIds.delete(id); });
+    if (!list.length) { body.innerHTML = '<tr><td colspan="10" class="px-4 py-10 text-center text-slate-400 text-sm">No candidates imported yet.</td></tr>'; _admCandRenderBulkBar(); return; }
+    const canEdit = _admCandCan('candidates', 'edit');
     body.innerHTML = list.map(c => {
       const room = _admCandRooms.find(r => r.id === c.room_id);
       const tagBadges = Object.entries(c.tags || {}).map(([k, v]) => {
@@ -45072,8 +45170,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         return `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-bold text-slate-600 mr-1 mb-1">${_escHtml(label)}: ${_escHtml(shown)} <button onclick="_admCandShowTagHistory(${c.id},'${k}')" class="text-slate-400 hover:text-slate-700" title="History">⏱</button></span>`;
       }).join('');
       return `<tr class="border-t border-slate-100">
+        <td class="px-3 py-2.5">${canEdit ? `<input type="checkbox" class="adm-cand-row-select" data-id="${c.id}" ${_admCandSelectedIds.has(c.id) ? 'checked' : ''} onchange="_admCandToggleRowSelect(${c.id}, this.checked)">` : ''}</td>
         <td class="px-3 py-2.5 font-mono text-blue-600">${_escHtml(c.token || '')}</td>
-        <td class="px-3 py-2.5 font-bold">${_escHtml(c.candidate_name || '')}</td>
+        <td class="px-3 py-2.5 font-bold">${_escHtml(c.name_english || c.name_bangla || '')}</td>
         <td class="px-3 py-2.5 hidden md:table-cell">${_escHtml(c.class || '')}</td>
         <td class="px-3 py-2.5 hidden md:table-cell">${_escHtml(c.category || '')}</td>
         <td class="px-3 py-2.5">${room ? _escHtml(room.room_name) + (c.seat_no ? ' / ' + _escHtml(c.seat_no) : '') : '—'}</td>
@@ -45083,10 +45182,49 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <td class="px-3 py-2.5 text-right whitespace-nowrap">
           <button onclick="_admCandPrintFormTemplate(${c.id})" class="text-blue-600 text-xs font-bold mr-2">Form</button>
           <button onclick="_admCandPrintAdmitTemplate(${c.id})" class="text-blue-600 text-xs font-bold mr-2">Admit</button>
-          ${_admCandCan('candidates', 'edit') ? `<button onclick="_admCandDeleteCandidate(${c.id})" class="text-red-500 text-xs font-bold">Delete</button>` : ''}
+          ${canEdit ? `<button onclick="_admCandDeleteCandidate(${c.id})" class="text-red-500 text-xs font-bold">Delete</button>` : ''}
         </td>
       </tr>`;
     }).join('');
+    _admCandRenderBulkBar();
+  }
+  function _admCandToggleRowSelect(id, checked) {
+    checked ? _admCandSelectedIds.add(id) : _admCandSelectedIds.delete(id);
+    _admCandRenderBulkBar();
+  }
+  function _admCandToggleSelectAll(cb) {
+    document.querySelectorAll('.adm-cand-row-select').forEach(el => {
+      el.checked = cb.checked;
+      const id = parseInt(el.dataset.id, 10);
+      cb.checked ? _admCandSelectedIds.add(id) : _admCandSelectedIds.delete(id);
+    });
+    _admCandRenderBulkBar();
+  }
+  function _admCandClearSelection() {
+    _admCandSelectedIds = new Set();
+    document.querySelectorAll('.adm-cand-row-select').forEach(el => el.checked = false);
+    const all = document.getElementById('admCandSelectAll'); if (all) all.checked = false;
+    _admCandRenderBulkBar();
+  }
+  function _admCandRenderBulkBar() {
+    const bar = document.getElementById('admCandBulkBar');
+    if (!bar) return;
+    bar.classList.toggle('hidden', _admCandSelectedIds.size === 0);
+    const countEl = document.getElementById('admCandBulkCount');
+    if (countEl) countEl.textContent = `${_admCandSelectedIds.size} selected`;
+  }
+  function _admCandDeleteSelected() {
+    const ids = [..._admCandSelectedIds];
+    if (!ids.length) return;
+    showConfirm(`Delete ${ids.length} selected candidate(s)? This cannot be undone.`, async () => {
+      try {
+        const res = await _admCandFetch('deleteCandidates', { ids, circular_id: _admCandActiveCircularId });
+        if (res.error) { showToast(res.error, 'error'); return; }
+        showToast(`Deleted ${res.count || ids.length} candidate(s)`, 'success');
+        _admCandClearSelection();
+        _admCandLoadList();
+      } catch (e) { showToast(e.message || 'Failed', 'error'); }
+    });
   }
   function _admCandTagFilterDefChange() {
     const sel = document.getElementById('admCandListTagDefFilter');
@@ -45118,7 +45256,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       : '';
     const filtered = _admCandAllCandidates.filter(c =>
       (!cls || c.class === cls) && (!cat || c.category === cat) &&
-      (!search || [c.token, c.candidate_name, c.external_key].some(v => String(v || '').toLowerCase().includes(search))) &&
+      (!search || [c.token, c.name_english, c.name_bangla, c.external_key].some(v => String(v || '').toLowerCase().includes(search))) &&
       (!def || !tagValue || String((c.tags || {})[def.key]) === tagValue));
     _admCandRenderList(filtered);
   }
@@ -45145,11 +45283,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admCandExportCsv() {
     const rows = _admCandAllCandidates;
     if (!rows.length) { showToast('Nothing to export', 'error'); return; }
-    const cols = ['token', 'candidate_name', 'class', 'version', 'category', 'room_id', 'seat_no', 'submission_scan_status', 'attendance_scan_status'];
+    const cols = ['token', 'name_english', 'class', 'version', 'category', 'room_id', 'seat_no', 'submission_scan_status', 'attendance_scan_status'];
     const csv = [cols.join(',')].concat(rows.map(r => cols.map(c => `"${String(r[c] ?? '').replace(/"/g, '""')}"`).join(','))).join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    a.download = 'exam_candidates.csv';
+    a.download = 'candidates.csv';
     a.click();
     URL.revokeObjectURL(a.href);
   }
@@ -45445,30 +45583,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
 
-  // ── Per-candidate template printing — adapts an exam_candidates row onto
-  // the SAME field keys Part 1's Form/Admit Designer engine (generateForm
-  // FromLayout/generateAdmitHtml in the lazy-loaded admission-form-
-  // designer.js/admission-print-templates.js) reads via fv(app, field):
-  // app[field], falling back to app.extra_fields[field]. Only the fields
-  // this module actually collects (name/class/version/category/token/
-  // photo/room/session) resolve to real values; any OTHER field a
-  // template happens to use (father_name, address, etc. — fields this
-  // module never collects) renders fv()'s own "[field]" placeholder, same
-  // graceful-degradation the engine already does for a missing field on a
-  // real application, not a new failure mode. ────────────────────────────
+  // ── Per-candidate template printing — c is now a real admission_
+  // applications row (Part 8 merge), so it already carries every built-in
+  // Form Field (name_english, father_name, student_photo, ...) as a real
+  // top-level property, exactly the shape Part 1's Form/Admit Designer
+  // engine (generateFormFromLayout/generateAdmitHtml) reads via fv(app,
+  // field): app[field], falling back to app.extra_fields[field] for custom
+  // fields. Only a few overrides are needed: tracking_id/index_id fall
+  // back to token for a non-native row that never got one, and room_no/
+  // session are resolved from this module's own Rooms/Sessions state
+  // rather than the (here, unused) native room_no/session columns. ───────
   function _admCandToAppShape(c) {
     const room = _admCandRooms.find(r => r.id === c.room_id);
     const sess = _admCandSessions.find(s => s.id === _admCandActiveSessionId);
     return {
-      tracking_id: c.token, index_id: c.token,
-      name_english: c.candidate_name, name_bangla: '',
-      class: c.class, category: c.category, version: c.version,
+      ...c,
+      tracking_id: c.tracking_id || c.token, index_id: c.index_id || c.token,
       session: sess ? sess.name : '',
       room_no: room ? room.room_name : '',
-      student_photo: c.photo_url,
       qr_data: c.token || c.external_key || '',
-      extra_fields: c.extra_fields || {},
-      ...(c.extra_fields || {}),
     };
   }
   function _admCandResolveTemplateIds(c) {
@@ -45533,7 +45666,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const rows = candidates.map((c, i) => `<tr>
       <td>${i + 1}</td>
       <td>${_escHtml(c.seat_no || '')}</td>
-      <td style="display:flex;align-items:center;gap:6px">${_gfPrintAvatarHtml({ photo: c.photo_url, student_name: c.candidate_name }, 22)} ${_escHtml(c.candidate_name || '')}</td>
+      <td style="display:flex;align-items:center;gap:6px">${_gfPrintAvatarHtml({ photo: c.student_photo, student_name: c.name_english }, 22)} ${_escHtml(c.name_english || '')}</td>
       <td>${_escHtml(c.token || '')}</td>
       <td style="width:120px"><div style="border-top:1px solid #1e293b;height:8mm"></div></td>
     </tr>`).join('');
@@ -45571,7 +45704,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <img src="${qrSrc}" class="qr" alt="QR">
       <div class="info">
         <div class="ref">${_escHtml(c.token || '')}</div>
-        <div class="proj">${_escHtml(c.candidate_name || '')}</div>
+        <div class="proj">${_escHtml(c.name_english || '')}</div>
         <div class="leader">${_escHtml(c.class || '')}${c.category ? ' · ' + _escHtml(c.category) : ''}</div>
       </div>
     </div>`;
@@ -45602,30 +45735,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   // ── Photo bulk upload by admin-selected match field ──────────────────────
-  // "Match photos by" isn't limited to the 3 fixed columns -- it also lists
-  // every custom field from any saved import mapping template (e.g.
-  // "Applicant ID", if that's what a photo export is actually named after),
-  // sent as "extra:<field label>" and matched server-side against that
-  // candidate's extra_fields. "Photo type" picks which of the four photo
+  // "Match photos by" lists the CORE identity/classification fields plus
+  // every Form Field (built-ins go straight to a real column; a custom
+  // field is sent as "extra:<field key>" and matched server-side via
+  // extra_fields). "Photo type" picks which of the four native photo
   // columns this batch fills, for a VortiBD-style export with separate
   // applicant/father/mother/local-guardian photo folders.
   const ADM_CAND_FIXED_MATCH_FIELDS = [
-    ['token', 'Token'], ['external_key', 'Primary key (as imported)'], ['candidate_name', 'Candidate Name'],
+    ['token', 'Token'], ['external_key', 'Primary key (as imported)'],
     ['class', 'Class'], ['version', 'Version'], ['category', 'Category'], ['mobile', 'Mobile'],
   ];
-  const ADM_CAND_MODELED_ROW_IDS = ['token', 'candidate_name', 'class', 'version', 'category', 'mobile'];
   function _admCandFieldOptionsFromTemplates() {
     const options = ADM_CAND_FIXED_MATCH_FIELDS.map(([value, label]) => ({ value, label }));
-    const seen = new Set(options.map(o => o.label));
-    (_admCandTemplates || []).forEach(t => {
-      const labels = t.field_labels || {};
-      Object.keys(t.mapping || {}).forEach(rowId => {
-        if (ADM_CAND_MODELED_ROW_IDS.includes(rowId)) return;
-        const label = labels[rowId] || rowId;
-        if (seen.has(label)) return;
-        seen.add(label);
-        options.push({ value: 'extra:' + label, label });
-      });
+    const seen = new Set(options.map(o => o.value));
+    (_admCandFormFieldDefs || []).forEach(f => {
+      const value = f.built_in ? f.key : ('extra:' + f.key);
+      if (seen.has(value)) return;
+      seen.add(value);
+      options.push({ value, label: f.label });
     });
     return options;
   }
@@ -45644,7 +45771,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const CONCURRENCY = 4;
     let idx = 0;
     const matchField = document.getElementById('admCandPhotoMatchField').value;
-    const photoField = document.getElementById('admCandPhotoTypeSelect')?.value || 'photo_url';
+    const photoField = document.getElementById('admCandPhotoTypeSelect')?.value || 'student_photo';
     function next() {
       if (idx >= jobs.length) return Promise.resolve();
       const job = jobs[idx++];
@@ -45853,9 +45980,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       statusLine = `${_escHtml(def ? def.label : _admCandScanTagKey)}: <b>${_escHtml(val === true ? 'Yes' : String(val ?? ''))}</b>`;
     }
     host.innerHTML = `<div class="flex items-center gap-4 ${rejected ? 'bg-red-50 border border-red-200' : 'bg-emerald-50 border border-emerald-200'} rounded-xl p-3">
-      ${c.photo_url ? `<img src="${_escHtml(c.photo_url)}" style="width:48px;height:48px;object-fit:cover;border-radius:10px">` : ''}
+      ${c.student_photo ? `<img src="${_escHtml(c.student_photo)}" style="width:48px;height:48px;object-fit:cover;border-radius:10px">` : ''}
       <div class="flex-1">
-        <p class="font-black text-slate-800">${_escHtml(c.candidate_name || '—')}</p>
+        <p class="font-black text-slate-800">${_escHtml(c.name_english || '—')}</p>
         <p class="text-xs text-slate-500">${_escHtml(c.class || '')} · <span class="font-mono text-blue-600">${_escHtml(c.token || '')}</span></p>
         <p class="text-xs mt-1">${rejected ? 'Outside selected scope — not marked.' : statusLine}</p>
       </div>

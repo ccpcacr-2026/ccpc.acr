@@ -230,16 +230,27 @@ export async function POST(req) {
     }
     if (!circularId) return _forbidden();
     const perms = await _getCommitteePerms(user_id, circularId);
-    if (!_tabOk(false, perms, tab, level)) return _forbidden();
+    // getFormFields is shared, low-sensitivity metadata (field names/types,
+    // not applicant data) that the Candidates module's mapping screen also
+    // needs to read (Part 8) -- a committee member granted only 'import'
+    // there (and no 'admin_settings' grant at all) can still read it.
+    const formFieldsReadOk = action === 'getFormFields' && _tabOk(false, perms, 'import', 'view');
+    if (!_tabOk(false, perms, tab, level) && !formFieldsReadOk) return _forbidden();
   }
 
   // ── List Applications ────────────────────────────────────────────────────
+  // Part 8: rows may now come from either this editor (source: 'native') or
+  // the Candidates module's VortiBD import/sync (source: 'vortibd') -- an
+  // optional source filter lets the Dashboard's filter chip tell them apart;
+  // token is selected too so a VortiBD-sourced row (no tracking_id/index_id)
+  // still has something identifying to show in the list.
   if (action === 'listApplications') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ applications: [] });
-    let q = `admission_applications?select=id,tracking_id,index_id,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,created_at&circular_id=eq.${circularId}&order=created_at.desc&limit=1000`;
+    let q = `admission_applications?select=id,tracking_id,index_id,token,source,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,created_at&circular_id=eq.${circularId}&order=created_at.desc&limit=1000`;
     if (payload.class)   q += `&class=eq.${encodeURIComponent(payload.class)}`;
     if (payload.status)  q += `&status=eq.${encodeURIComponent(payload.status)}`;
+    if (payload.source)  q += `&source=eq.${encodeURIComponent(payload.source)}`;
     const rows = await sbAdmission(q);
     if (rows?.error) return NextResponse.json({ error: rows.error });
     return NextResponse.json({ applications: rows || [] });
@@ -341,7 +352,9 @@ export async function POST(req) {
   if (action === 'getStats') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ stats: {} });
-    const rows = await sbAdmission(`admission_applications?select=status&circular_id=eq.${circularId}`);
+    let statsQ = `admission_applications?select=status&circular_id=eq.${circularId}`;
+    if (payload.source) statsQ += `&source=eq.${encodeURIComponent(payload.source)}`;
+    const rows = await sbAdmission(statsQ);
     if (!rows || rows.error) return NextResponse.json({ stats: {} });
     const stats = { total: rows.length, pending: 0, admitted: 0, rejected: 0, called: 0 };
     rows.forEach(r => {

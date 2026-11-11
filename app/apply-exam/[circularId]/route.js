@@ -8,6 +8,13 @@ import { NextResponse } from 'next/server';
 // POST handles the actual submit/edit. Self-contained: own sbAdmission()
 // copy, no auth gate at all (public by design) -- this is NOT the same
 // route as app/api/admission-candidates/route.js, which stays admin-only.
+//
+// Part 8: writes land in admission.admission_applications (source:
+// 'online'), same unified table as VortiBD imports and native admin-
+// created applications. This file's own payload/internal field names keep
+// "candidate_name" (its own private wire contract, only ever read by this
+// file's own client-side script below) -- remapped to the real
+// name_english column only at the two DB write sites.
 
 export const dynamic = 'force-dynamic';
 
@@ -46,12 +53,16 @@ function checkBounds(bounds, data) {
   }
   return null;
 }
+// field names here come from circular.unique_fields (admin-picked from the
+// same dropdown as before) -- 'candidate_name' maps onto the real
+// name_english column, every other field name is already a real column.
 async function checkUniqueFields(circularId, uniqueFields, data, excludeId) {
   for (const field of uniqueFields) {
     if (field === 'token') continue; // always system-unique already
     const val = data[field];
     if (!val) continue;
-    let q = `exam_candidates?circular_id=eq.${circularId}&${field}=eq.${encodeURIComponent(val)}&select=id`;
+    const column = field === 'candidate_name' ? 'name_english' : field;
+    let q = `admission_applications?circular_id=eq.${circularId}&${column}=eq.${encodeURIComponent(val)}&select=id`;
     if (excludeId) q += `&id=neq.${excludeId}`;
     const rows = await sbAdmission(q);
     if (Array.isArray(rows) && rows.length) return field;
@@ -61,7 +72,7 @@ async function checkUniqueFields(circularId, uniqueFields, data, excludeId) {
 async function generateUniqueToken(circularId) {
   for (let i = 0; i < 8; i++) {
     const t = Math.random().toString(36).slice(2, 8).toUpperCase();
-    const rows = await sbAdmission(`exam_candidates?circular_id=eq.${circularId}&token=eq.${t}&select=id`);
+    const rows = await sbAdmission(`admission_applications?circular_id=eq.${circularId}&token=eq.${t}&select=id`);
     if (!Array.isArray(rows) || !rows.length) return t;
   }
   return 'T' + Date.now().toString(36).toUpperCase();
@@ -117,7 +128,7 @@ function renderFormPage(circular, existing, editToken) {
   const bounds = circular.bounds || {};
   const title = esc(circular.name);
   const fields = [
-    fieldHtml('f_candidate_name', 'Full Name', null, existing?.candidate_name, true),
+    fieldHtml('f_candidate_name', 'Full Name', null, existing?.name_english, true),
     fieldHtml('f_mobile', 'Mobile Number', null, existing?.mobile, false),
     fieldHtml('f_class', 'Class', bounds.class, existing?.class, false),
     fieldHtml('f_version', 'Version', bounds.version, existing?.version, false),
@@ -217,7 +228,7 @@ export async function GET(request, { params }) {
 
   let existing = null;
   if (editToken) {
-    const er = await sbAdmission(`exam_candidates?circular_id=eq.${id}&token=eq.${encodeURIComponent(editToken)}&select=*`);
+    const er = await sbAdmission(`admission_applications?circular_id=eq.${id}&token=eq.${encodeURIComponent(editToken)}&select=*`);
     existing = (Array.isArray(er) && er[0]) ? er[0] : null;
     if (!existing) return new Response(closedHtml('No application found for that link.'), { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
   }
@@ -257,7 +268,7 @@ export async function POST(request, { params }) {
   const editToken = String(body.token || '').trim();
   let existingId = null;
   if (editToken) {
-    const er = await sbAdmission(`exam_candidates?circular_id=eq.${id}&token=eq.${encodeURIComponent(editToken)}&select=id`);
+    const er = await sbAdmission(`admission_applications?circular_id=eq.${id}&token=eq.${encodeURIComponent(editToken)}&select=id`);
     existingId = (Array.isArray(er) && er[0]) ? er[0].id : null;
     if (!existingId) return NextResponse.json({ result: 'error', message: 'Could not find your earlier submission to edit.' }, { status: 404 });
   }
@@ -266,14 +277,20 @@ export async function POST(request, { params }) {
   const dupField = await checkUniqueFields(id, uniqueFields, data, existingId);
   if (dupField) return NextResponse.json({ result: 'error', message: `This ${dupField.replace(/_/g, ' ')} has already been used for this application.` }, { status: 409 });
 
+  // data (candidate_name) is this file's own internal/wire shape, used
+  // above for bounds/uniqueness checks and below for the SMS template --
+  // the actual row only ever gets name_english, the real column.
+  const { candidate_name, ...rest } = data;
+  const dbData = { ...rest, name_english: candidate_name };
+
   if (existingId) {
-    const res = await sbAdmission(`exam_candidates?id=eq.${existingId}`, 'PATCH', { ...data, updated_at: new Date().toISOString() });
+    const res = await sbAdmission(`admission_applications?id=eq.${existingId}`, 'PATCH', { ...dbData, updated_at: new Date().toISOString() });
     if (res && res.error) return NextResponse.json({ result: 'error', message: 'Could not save your changes.' }, { status: 500 });
     return NextResponse.json({ result: 'success', token: editToken });
   }
 
   const token = await generateUniqueToken(id);
-  const res = await sbAdmission('exam_candidates', 'POST', { circular_id: id, external_key: token, token, ...data });
+  const res = await sbAdmission('admission_applications', 'POST', { circular_id: id, source: 'online', external_key: token, token, ...dbData });
   if (res && res.error) return NextResponse.json({ result: 'error', message: 'Could not submit your application.' }, { status: 500 });
   await sendSubmissionSms(circular, { ...data, token });
   return NextResponse.json({ result: 'success', token });

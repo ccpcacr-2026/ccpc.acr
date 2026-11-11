@@ -89,7 +89,28 @@ function _admCandDownloadsConfig(payload) {
   };
 }
 
-const MODELED_FIELDS = ['token', 'candidate_name', 'class', 'category', 'version', 'mobile'];
+// Part 8: these candidates are now real admission_applications rows (same
+// table app/api/admission-admin/route.js's native application editor
+// uses), source: 'imported'. A mapped Excel column targets either a real
+// column (CORE_FIELDS -- identity/classification fields that aren't part
+// of the applicant-form vocabulary at all -- or a built-in Form Field,
+// whose key IS the column name) or extra_fields[key] (a custom,
+// admin-defined Form Field). BUILTIN_FORM_FIELD_KEYS is a bare duplicate of
+// app/api/admission-admin/route.js's BUILTIN_FORM_FIELDS key list (per this
+// codebase's no-shared-lib convention) -- keep both in sync if that list
+// ever changes.
+const CORE_FIELDS = ['token', 'class', 'category', 'version', 'mobile'];
+const BUILTIN_FORM_FIELD_KEYS = new Set([
+  'name_english', 'name_bangla', 'date_of_birth', 'gender', 'blood_group', 'religion', 'birth_reg_no', 'nationality',
+  'emergency_contact', 'height', 'last_class', 'last_version', 'last_institute', 'present_address', 'permanent_address',
+  'co_curricular', 'student_photo',
+  'father_name', 'father_profession', 'father_designation', 'father_education', 'father_contact', 'father_nid',
+  'father_office_address', 'father_yearly_income', 'father_photo',
+  'mother_name', 'mother_profession', 'mother_designation', 'mother_education', 'mother_contact', 'mother_nid',
+  'mother_office_address', 'mother_yearly_income', 'mother_photo',
+  'guardian_name', 'guardian_relation', 'guardian_profession', 'guardian_designation', 'guardian_education',
+  'guardian_contact', 'guardian_office_address', 'guardian_nid', 'guardian_photo',
+]);
 function chunk(arr, size) {
   const out = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -141,7 +162,7 @@ export async function POST(req) {
   // Reusable Excel-mapping templates aren't circular-scoped and aren't
   // sensitive candidate data -- any committee member (of any circular) may
   // read/save them, but a stranger with no committee role anywhere may not.
-  if ((action === 'listCandidateImportTemplates' || action === 'saveCandidateImportTemplate') && !isFullAdmin) {
+  if ((action === 'listCandidateImportTemplates' || action === 'saveCandidateImportTemplate' || action === 'deleteCandidateImportTemplate') && !isFullAdmin) {
     const anyRow = user_id ? await sbAdmission(`circular_committee_members?user_id=eq.${encodeURIComponent(user_id)}&select=id&limit=1`) : [];
     if (!Array.isArray(anyRow) || !anyRow.length) return _forbidden();
   }
@@ -178,9 +199,9 @@ export async function POST(req) {
     const circRows = await sbAdmission(`exam_circulars?session_id=eq.${id}&select=id`);
     const circIds = (Array.isArray(circRows) ? circRows : []).map(c => c.id);
     if (circIds.length) {
-      const candRows = await sbAdmission(`exam_candidates?circular_id=in.(${circIds.join(',')})&select=id&limit=1`);
+      const candRows = await sbAdmission(`admission_applications?circular_id=in.(${circIds.join(',')})&select=id&limit=1`);
       if (Array.isArray(candRows) && candRows.length) {
-        return NextResponse.json({ error: 'This session has candidates under it — remove them first before deleting the session.' });
+        return NextResponse.json({ error: 'This session has applications/candidates under it — remove them first before deleting the session.' });
       }
     }
     await sbAdmission(`exam_sessions?id=eq.${id}`, 'DELETE');
@@ -276,13 +297,22 @@ export async function POST(req) {
     if (res?.error) return NextResponse.json({ error: res.error });
     return NextResponse.json({ id: res?.[0]?.id });
   }
+  if (action === 'deleteCandidateImportTemplate') {
+    const id = parseInt(payload.id, 10) || 0;
+    if (!id) return NextResponse.json({ error: 'Missing id' });
+    await sbAdmission(`candidate_import_templates?id=eq.${id}`, 'DELETE');
+    return NextResponse.json({ success: true });
+  }
 
   // ── Excel upload -> upsert-by-external_key ───────────────────────────────
   // Native PostgREST upsert (on_conflict + Prefer: resolution=merge-duplicates)
   // only overwrites the columns actually present in the posted JSON -- since
-  // photo_url/room_id/seat_no/scan fields are never included here, an
-  // existing candidate's allocation/photo/scan state survives re-imports
-  // untouched, while modeled fields + extra_fields get refreshed.
+  // photo/room_id/seat_no/scan/status/tracking_id/index_id fields are never
+  // included here, an existing application's allocation/photo/scan/
+  // processing state survives re-imports untouched, while identity/form
+  // fields + extra_fields get refreshed. Targets admission_applications
+  // (Part 8 merge) -- status stays at the table default ('Pending') for a
+  // brand-new row and is never touched on update.
   // Shared upsert core -- used by the manual uploadMappedCandidates action
   // below AND by the VortiBD automated sync path (_runVortibdSync), so both
   // ever only have ONE upsert implementation to keep correct.
@@ -292,7 +322,7 @@ export async function POST(req) {
 
     const circRows = await sbAdmission(`exam_circulars?id=eq.${circularId}&select=bounds`);
     const bounds = (Array.isArray(circRows) && circRows[0] && circRows[0].bounds) || {};
-    // Maps an exam_candidates modeled field to the bounds key it's checked
+    // Maps a CORE_FIELD to the bounds key it's checked
     // against -- "category" here is whatever the admin mapped the Excel's
     // Category column to, checked against the circular's bound
     // student_category values (the school's own roster taxonomy).
@@ -317,8 +347,12 @@ export async function POST(req) {
         if (mismatches.length < 50) mismatches.push({ row: i + 1, external_key, reason: mismatchReason });
         continue;
       }
-      const row = { circular_id: circularId, external_key, updated_at: new Date().toISOString() };
-      MODELED_FIELDS.forEach(f => { if (r[f] !== undefined && r[f] !== '') row[f] = r[f]; });
+      // r's top-level keys (besides extra_fields/external_key) were already
+      // routed by _applyTemplateMapping/the browser's _admCandBuildMappedRows
+      // to be exactly CORE_FIELDS or BUILTIN_FORM_FIELD_KEYS -- i.e. real
+      // column names -- so copying every one of them verbatim is safe here.
+      const row = { circular_id: circularId, source: 'imported', external_key, updated_at: new Date().toISOString() };
+      Object.keys(r).forEach(f => { if (f !== 'extra_fields' && f !== 'external_key' && r[f] !== undefined && r[f] !== '') row[f] = r[f]; });
       row.extra_fields = (r.extra_fields && typeof r.extra_fields === 'object') ? r.extra_fields : {};
       clean.push(row);
     }
@@ -331,7 +365,7 @@ export async function POST(req) {
     // Existing-key lookup WITHIN this circular, chunked to keep each GET's URL short.
     const existingKeys = new Set();
     for (const part of chunk(clean.map(r => r.external_key), 150)) {
-      const q = `exam_candidates?circular_id=eq.${circularId}&external_key=in.(${part.map(k => encodeURIComponent(k)).join(',')})&select=external_key`;
+      const q = `admission_applications?circular_id=eq.${circularId}&external_key=in.(${part.map(k => encodeURIComponent(k)).join(',')})&select=external_key`;
       const res = await sbAdmission(q);
       if (Array.isArray(res)) res.forEach(x => existingKeys.add(x.external_key));
     }
@@ -339,7 +373,7 @@ export async function POST(req) {
     const updated_count = clean.length - new_count;
 
     for (const part of chunk(clean, 500)) {
-      await sbAdmission('exam_candidates?on_conflict=circular_id,external_key', 'POST', part, { Prefer: 'resolution=merge-duplicates,return=minimal' });
+      await sbAdmission('admission_applications?on_conflict=circular_id,external_key', 'POST', part, { Prefer: 'resolution=merge-duplicates,return=minimal' });
     }
 
     const batch = await sbAdmission('candidate_import_batches', 'POST', {
@@ -376,14 +410,14 @@ export async function POST(req) {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ candidates: [] });
     if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'candidates', 'view')) return _forbidden();
-    let q = `exam_candidates?select=*&circular_id=eq.${circularId}&order=created_at.desc&limit=5000`;
+    let q = `admission_applications?select=*&circular_id=eq.${circularId}&order=created_at.desc&limit=5000`;
     if (payload.class)    q += `&class=eq.${encodeURIComponent(payload.class)}`;
     if (payload.category) q += `&category=eq.${encodeURIComponent(payload.category)}`;
     if (payload.room_id)  q += `&room_id=eq.${parseInt(payload.room_id, 10) || 0}`;
     if (payload.unallocated_only) q += `&room_id=is.null`;
     if (payload.search) {
       const s = encodeURIComponent(payload.search.trim());
-      q += `&or=(token.ilike.*${s}*,candidate_name.ilike.*${s}*,external_key.ilike.*${s}*)`;
+      q += `&or=(token.ilike.*${s}*,name_english.ilike.*${s}*,name_bangla.ilike.*${s}*,external_key.ilike.*${s}*)`;
     }
     const rows = await sbAdmission(q);
     if (rows?.error) return NextResponse.json({ error: rows.error });
@@ -392,12 +426,20 @@ export async function POST(req) {
   if (action === 'deleteCandidate') {
     const candId = parseInt(payload.id, 10) || 0;
     if (!isFullAdmin) {
-      const rows = await sbAdmission(`exam_candidates?id=eq.${candId}&select=circular_id`);
+      const rows = await sbAdmission(`admission_applications?id=eq.${candId}&select=circular_id`);
       const circularId = (Array.isArray(rows) && rows[0]) ? rows[0].circular_id : null;
       if (!_tabOk(false, await _getCommitteePerms(user_id, circularId), 'candidates', 'edit')) return _forbidden();
     }
-    await sbAdmission(`exam_candidates?id=eq.${candId}`, 'DELETE');
+    await sbAdmission(`admission_applications?id=eq.${candId}`, 'DELETE');
     return NextResponse.json({ success: true });
+  }
+  if (action === 'deleteCandidates') {
+    const circularId = parseInt(payload.circular_id, 10) || 0;
+    const ids = Array.isArray(payload.ids) ? payload.ids.map(i => parseInt(i, 10)).filter(Boolean) : [];
+    if (!ids.length) return NextResponse.json({ error: 'No candidates selected' });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'candidates', 'edit')) return _forbidden();
+    await sbAdmission(`admission_applications?id=in.(${ids.join(',')})&circular_id=eq.${circularId}`, 'DELETE');
+    return NextResponse.json({ success: true, count: ids.length });
   }
 
   // ── Rooms ────────────────────────────────────────────────────────────────
@@ -460,7 +502,7 @@ export async function POST(req) {
   }
 
   // ── Seat allocation engine ───────────────────────────────────────────────
-  // criteria: { sort_by: 'token'|'candidate_name'|field, sort_dir: 'asc'|'desc',
+  // criteria: { sort_by: 'token'|'name_english'|field, sort_dir: 'asc'|'desc',
   //             group_by: ''|'class'|'category', filters: {class?, category?},
   //             room_ids: [in fill order] }
   // Fills each room to capacity in room_ids order; when group_by is set,
@@ -481,7 +523,7 @@ export async function POST(req) {
     const roomsById = {}; roomsRes.forEach(r => { roomsById[r.id] = r; });
     const orderedRooms = roomIds.map(id => roomsById[id]).filter(Boolean);
 
-    let q = `exam_candidates?select=id,token,candidate_name,class,category,external_key&circular_id=eq.${circularId}&limit=10000`;
+    let q = `admission_applications?select=id,token,name_english,class,category,external_key&circular_id=eq.${circularId}&limit=10000`;
     if (criteria.filters?.class)    q += `&class=eq.${encodeURIComponent(criteria.filters.class)}`;
     if (criteria.filters?.category) q += `&category=eq.${encodeURIComponent(criteria.filters.category)}`;
     const candidates = await sbAdmission(q);
@@ -520,7 +562,7 @@ export async function POST(req) {
 
     const now = new Date().toISOString();
     for (const u of updates) {
-      await sbAdmission(`exam_candidates?id=eq.${u.id}`, 'PATCH', {
+      await sbAdmission(`admission_applications?id=eq.${u.id}`, 'PATCH', {
         room_id: u.room_id, seat_no: u.seat_no, allocation_run_id: runId, updated_at: now,
       });
     }
@@ -538,7 +580,7 @@ export async function POST(req) {
       }
       if (!_tabOk(false, await _getCommitteePerms(user_id, circularId), 'alloc', 'edit')) return _forbidden();
     }
-    const q = runId ? `exam_candidates?allocation_run_id=eq.${runId}` : `exam_candidates?circular_id=eq.${circularId}&allocation_run_id=not.is.null`;
+    const q = runId ? `admission_applications?allocation_run_id=eq.${runId}` : `admission_applications?circular_id=eq.${circularId}&allocation_run_id=not.is.null`;
     await sbAdmission(q, 'PATCH', { room_id: null, seat_no: null, allocation_run_id: null, updated_at: new Date().toISOString() });
     if (runId) await sbAdmission(`seat_allocation_runs?id=eq.${runId}`, 'PATCH', { cleared_at: new Date().toISOString() });
     return NextResponse.json({ success: true });
@@ -547,26 +589,24 @@ export async function POST(req) {
   // ── Photo bulk upload by admin-selected match field ──────────────────────
   // VortiBD's own "download all candidate photos" export comes as four
   // separate folders (applicant/father/mother/local guardian), so the admin
-  // uploads each folder's files as its own batch, picking which of the four
-  // photo columns that batch fills. Matching is no longer limited to the 3
-  // fixed columns either -- any custom field from a saved mapping template
-  // (e.g. "Applicant ID", if that's what the photos are actually named
-  // after) works too, sent as match_field "extra:<field label>" and read
-  // out of the candidate's extra_fields jsonb via PostgREST's ->> operator.
-  const PHOTO_FIELDS = ['photo_url', 'father_photo_url', 'mother_photo_url', 'guardian_photo_url'];
-  const PHOTO_MATCH_COLUMNS = ['token', 'external_key', 'candidate_name', 'class', 'category', 'version', 'mobile'];
+  // uploads each folder's files as its own batch, picking which of the
+  // native photo columns (shared with the native application editor) that
+  // batch fills. Matching accepts any CORE_FIELD/built-in Form Field column
+  // directly, or a custom (non-built-in) Form Field via "extra:<field key>"
+  // read out of extra_fields via PostgREST's ->> operator.
+  const PHOTO_FIELDS = ['student_photo', 'father_photo', 'mother_photo', 'guardian_photo'];
   if (action === 'bulkPhotoUploadByMatchKey') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
     if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'photos', 'edit')) return _forbidden();
-    const photoField = PHOTO_FIELDS.includes(payload.photo_field) ? payload.photo_field : 'photo_url';
+    const photoField = PHOTO_FIELDS.includes(payload.photo_field) ? payload.photo_field : 'student_photo';
     const rawMatchField = String(payload.match_field || 'token');
     let filterKey;
     if (rawMatchField.startsWith('extra:')) {
-      const label = rawMatchField.slice(6);
-      if (!label) return NextResponse.json({ error: 'Invalid match field.' });
-      filterKey = `extra_fields->>${encodeURIComponent(label)}`;
-    } else if (PHOTO_MATCH_COLUMNS.includes(rawMatchField)) {
+      const key = rawMatchField.slice(6);
+      if (!key) return NextResponse.json({ error: 'Invalid match field.' });
+      filterKey = `extra_fields->>${encodeURIComponent(key)}`;
+    } else if (CORE_FIELDS.includes(rawMatchField) || rawMatchField === 'external_key' || BUILTIN_FORM_FIELD_KEYS.has(rawMatchField)) {
       filterKey = rawMatchField;
     } else {
       return NextResponse.json({ error: 'Invalid match field.' });
@@ -578,7 +618,7 @@ export async function POST(req) {
     for (const job of jobs) {
       const value = String(job.match_value || '').trim();
       if (!value || !job.photo_base64) { failed.push(job.match_value || '(blank)'); continue; }
-      const res = await sbAdmission(`exam_candidates?circular_id=eq.${circularId}&${filterKey}=eq.${encodeURIComponent(value)}`, 'PATCH',
+      const res = await sbAdmission(`admission_applications?circular_id=eq.${circularId}&${filterKey}=eq.${encodeURIComponent(value)}`, 'PATCH',
         { [photoField]: job.photo_base64, updated_at: new Date().toISOString() });
       if (res && res.error) failed.push(value); else succeeded++;
     }
@@ -595,14 +635,14 @@ export async function POST(req) {
       if (!_tabOk(false, await _getCommitteePerms(user_id, circularId), 'print', 'view')) return _forbidden();
     }
     const room = await sbAdmission(`exam_rooms?id=eq.${roomId}`);
-    const cands = await sbAdmission(`exam_candidates?room_id=eq.${roomId}&select=token,candidate_name,seat_no,photo_url,class,category&order=seat_no.asc`);
+    const cands = await sbAdmission(`admission_applications?room_id=eq.${roomId}&select=token,name_english,seat_no,student_photo,class,category&order=seat_no.asc`);
     return NextResponse.json({ room: room?.[0] || null, candidates: Array.isArray(cands) ? cands : [] });
   }
   if (action === 'getTokenListData') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ candidates: [] });
     if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'print', 'view')) return _forbidden();
-    let q = `exam_candidates?select=token,candidate_name,class,category,room_id,seat_no&circular_id=eq.${circularId}&order=token.asc&limit=5000`;
+    let q = `admission_applications?select=token,name_english,class,category,room_id,seat_no&circular_id=eq.${circularId}&order=token.asc&limit=5000`;
     if (payload.class)    q += `&class=eq.${encodeURIComponent(payload.class)}`;
     if (payload.category) q += `&category=eq.${encodeURIComponent(payload.category)}`;
     if (payload.room_id)  q += `&room_id=eq.${parseInt(payload.room_id, 10) || 0}`;
@@ -622,12 +662,17 @@ export async function POST(req) {
     if (scope.room_id && String(c.room_id) !== String(scope.room_id)) return false;
     return true;
   }
+  // Tries token -> external_key -> tracking_id -> index_id in turn, so the
+  // same Scan tool works for both VortiBD-sourced and native, admin-created
+  // applications (Part 8 merge) in one pass.
   async function findCandidateByCode(circularId, code) {
     const c = encodeURIComponent(String(code || '').trim());
     if (!c || !circularId) return null;
-    let rows = await sbAdmission(`exam_candidates?circular_id=eq.${circularId}&token=eq.${c}&select=*`);
-    if (!Array.isArray(rows) || !rows.length) rows = await sbAdmission(`exam_candidates?circular_id=eq.${circularId}&external_key=eq.${c}&select=*`);
-    return (Array.isArray(rows) && rows[0]) ? rows[0] : null;
+    for (const field of ['token', 'external_key', 'tracking_id', 'index_id']) {
+      const rows = await sbAdmission(`admission_applications?circular_id=eq.${circularId}&${field}=eq.${c}&select=*`);
+      if (Array.isArray(rows) && rows.length) return rows[0];
+    }
+    return null;
   }
   if (action === 'lookupCandidateByToken') {
     const circularId = parseInt(payload.circular_id, 10);
@@ -653,7 +698,7 @@ export async function POST(req) {
     const data = action === 'scanSubmission'
       ? { submission_scan_status: 'collected', submission_scanned_at: now }
       : { attendance_scan_status: 'present', attendance_scanned_at: now };
-    const res = await sbAdmission(`exam_candidates?id=eq.${candidate.id}`, 'PATCH', { ...data, updated_at: now });
+    const res = await sbAdmission(`admission_applications?id=eq.${candidate.id}`, 'PATCH', { ...data, updated_at: now });
     if (res?.error) return NextResponse.json({ error: res.error });
     return NextResponse.json({ success: true, candidate: { ...candidate, ...data } });
   }
@@ -704,10 +749,10 @@ export async function POST(req) {
   }
   async function applyCandidateTag(candidateId, tagKey, value) {
     await sbAdmission('candidate_tag_scans', 'POST', { candidate_id: candidateId, tag_key: tagKey, value });
-    const rows = await sbAdmission(`exam_candidates?id=eq.${candidateId}&select=tags`);
+    const rows = await sbAdmission(`admission_applications?id=eq.${candidateId}&select=tags`);
     const currentTags = (Array.isArray(rows) && rows[0] && rows[0].tags) || {};
     const tags = { ...currentTags, [tagKey]: value };
-    await sbAdmission(`exam_candidates?id=eq.${candidateId}`, 'PATCH', { tags, updated_at: new Date().toISOString() });
+    await sbAdmission(`admission_applications?id=eq.${candidateId}`, 'PATCH', { tags, updated_at: new Date().toISOString() });
     return tags;
   }
   if (action === 'scanTagCandidate') {
@@ -730,7 +775,7 @@ export async function POST(req) {
     const tagKey = String(payload.tag_key || '').trim();
     if (!candidateId || !tagKey) return NextResponse.json({ error: 'Missing candidate or tag section.' });
     if (!isFullAdmin) {
-      const candRows = await sbAdmission(`exam_candidates?id=eq.${candidateId}&select=circular_id`);
+      const candRows = await sbAdmission(`admission_applications?id=eq.${candidateId}&select=circular_id`);
       const circularId = (Array.isArray(candRows) && candRows[0]) ? candRows[0].circular_id : null;
       if (!_tabOk(false, await _getCommitteePerms(user_id, circularId), 'candidates', 'edit')) return _forbidden();
     }
@@ -742,7 +787,7 @@ export async function POST(req) {
     const tagKey = String(payload.tag_key || '').trim();
     if (!candidateId || !tagKey) return NextResponse.json({ history: [] });
     if (!isFullAdmin) {
-      const candRows = await sbAdmission(`exam_candidates?id=eq.${candidateId}&select=circular_id`);
+      const candRows = await sbAdmission(`admission_applications?id=eq.${candidateId}&select=circular_id`);
       const circularId = (Array.isArray(candRows) && candRows[0]) ? candRows[0].circular_id : null;
       const perms = await _getCommitteePerms(user_id, circularId);
       if (!_tabOk(false, perms, 'candidates', 'view') && !_tabOk(false, perms, 'scan', 'view')) return _forbidden();
@@ -912,7 +957,11 @@ export async function POST(req) {
   // template stores {rowId: headerText} (by header TEXT, not column index,
   // so it survives column reordering across uploads), applied here against
   // freshly-parsed VortiBD headers/rows exactly the same way a manual
-  // re-upload already applies a saved template today.
+  // re-upload already applies a saved template today. rowId is now either a
+  // CORE_FIELD/built-in Form Field key (a real admission_applications
+  // column, written directly) or a custom Form Field's own key (goes to
+  // extra_fields, keyed by that stable key -- field_labels is legacy, only
+  // consulted for an old template saved before this scheme existed).
   function _applyTemplateMapping(headers, rows, template) {
     const mapping = template.mapping || {};
     const fieldLabels = template.field_labels || {};
@@ -922,7 +971,8 @@ export async function POST(req) {
         const colIdx = headers.indexOf(headerText);
         if (colIdx < 0) continue;
         const val = String(r[colIdx] ?? '').trim();
-        if (MODELED_FIELDS.includes(rowId)) obj[rowId] = val; else obj.extra_fields[fieldLabels[rowId] || rowId] = val;
+        if (CORE_FIELDS.includes(rowId) || BUILTIN_FORM_FIELD_KEYS.has(rowId)) obj[rowId] = val;
+        else obj.extra_fields[fieldLabels[rowId] || rowId] = val;
       }
       const pkHeader = mapping[template.primary_key_field];
       const pkIdx = pkHeader ? headers.indexOf(pkHeader) : -1;
