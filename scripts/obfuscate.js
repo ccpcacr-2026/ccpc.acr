@@ -511,7 +511,7 @@ const RESERVED = [
   '_admCandRunAllocation','_admCandClearAllocation',
   '_admCandTplBulkApply','_admCandSaveTemplateMap',
   '_admCandPrintSignatureSheet','_admCandPrintTokenList','_admCandBulkUpload',
-  '_admCandScanShowMode','_admCandScanSetScope','_admCandScanStart','_admCandScanStop','_admCandScanManualLookup',
+  '_admCandScanShowMode','_admCandScanSetScope','_admCandScanStart','_admCandScanStop','_admCandScanManualLookup','_admCandScanChooseInput',
   '_admCandCopyApplyLink',
   '_admCandTagDefTypeChange','_admCandTagDefSave','_admCandTagDefDelete','_admCandScanTagDefChange','_admCandScanLockTag',
   '_admCandTagFilterDefChange','_admCandShowTagHistory',

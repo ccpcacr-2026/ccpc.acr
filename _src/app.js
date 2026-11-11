@@ -42116,12 +42116,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _admFilterState = { class: new Set(), category: new Set(), status: new Set(), source: new Set() };
   function _admFilterDims() {
     const distinct = fn => [...new Set(_admAllApps.map(fn).filter(Boolean))].sort();
-    return [
+    const dims = [
       { key: 'class', label: 'Class', values: distinct(a => a.class) },
       { key: 'category', label: 'Category', values: distinct(a => a.category) },
       { key: 'status', label: 'Status', values: ADM_STATUSES },
       { key: 'source', label: 'Source', values: ['native', 'imported', 'online'] },
     ];
+    // Admin-defined Custom Tags (Scan tab) become filter dimensions here too,
+    // so whatever gets tagged while scanning is immediately filterable --
+    // 'tag:<key>' matches the same prefix the committee scan_options grants
+    // already use elsewhere in this module.
+    (_admCandTagDefs || []).forEach(d => {
+      const values = d.type === 'toggle' ? ['yes'] : d.type === 'dropdown' ? (d.options || []) : distinct(a => (a.tags || {})[d.key]);
+      if (values.length) dims.push({ key: 'tag:' + d.key, label: d.label, values });
+    });
+    return dims;
   }
   function _admToggleFilterPanel() {
     const panel = document.getElementById('admFilterPanel');
@@ -42137,7 +42146,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (badge) { badge.textContent = n || ''; badge.classList.toggle('hidden', !n); }
   }
   function toggleAdmFilter(dimKey, value) {
-    const set = _admFilterState[dimKey];
+    const set = _admFilterState[dimKey] || (_admFilterState[dimKey] = new Set());
     set.has(value) ? set.delete(value) : set.add(value);
     _admRenderFilterPanel();
     _admFilterApps();
@@ -42482,6 +42491,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (st.category.size && !st.category.has(a.category)) return false;
       if (st.status.size && !st.status.has(a.status)) return false;
       if (st.source.size && !st.source.has(a.source || 'native')) return false;
+      for (const dimKey in st) {
+        if (!dimKey.startsWith('tag:') || !st[dimKey].size) continue;
+        const v = (a.tags || {})[dimKey.slice(4)];
+        if (!st[dimKey].has(v === true ? 'yes' : String(v || ''))) return false;
+      }
       return true;
     });
     filtered = _admSortApps(filtered, sortBy);
@@ -44353,7 +44367,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _admCandEditingRoomId = null;
   let _admCandRoomExcelHeaders = [], _admCandRoomExcelRows = [];
   let _admCandScanStream = null, _admCandScanTimer = null, _admCandScanBusy = false;
-  let _admCandScanMode = 'submission', _admCandScanScope = {};
+  let _admCandScanMode = 'submission', _admCandScanScope = {}, _admCandScanInputMode = null;
   let _admCandTagDefs = [], _admCandScanTagKey = null, _admCandScanTagValue = null;
   let _admCandMyAccess = { is_full_admin: true, circulars: {} }, _admCandMyPerms = null;
 
@@ -45082,10 +45096,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="adm-cand-scan" class="hidden">
-        <div class="flex gap-1 mb-4" id="admCandScanModeTabs">
-          <button class="adm-ftab adm-ftab-on" data-scan-opt="submission" onclick="_admCandScanShowMode('submission', this)">Form Submission Scan</button>
-          <button class="adm-ftab" data-scan-opt="attendance" onclick="_admCandScanShowMode('attendance', this)">Exam Attendance Scan</button>
-          <button class="adm-ftab" id="admCandScanTagsModeBtn" onclick="_admCandScanShowMode('tags', this)">Custom Tags</button>
+        <div class="flex flex-col sm:flex-row gap-1.5 mb-4" id="admCandScanModeTabs">
+          <button class="adm-ftab adm-ftab-on w-full sm:w-auto text-center" data-scan-opt="submission" onclick="_admCandScanShowMode('submission', this)">Form Submission Scan</button>
+          <button class="adm-ftab w-full sm:w-auto text-center" data-scan-opt="attendance" onclick="_admCandScanShowMode('attendance', this)">Exam Attendance Scan</button>
+          <button class="adm-ftab w-full sm:w-auto text-center" id="admCandScanTagsModeBtn" onclick="_admCandScanShowMode('tags', this)">Custom Tags</button>
         </div>
         <div id="admCandTagsPanel" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-3">
           <div class="flex items-center justify-between mb-2">
@@ -45120,16 +45134,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="_admCandScanSetScope()" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase">Lock Scope</button>
           </div>
           <p id="admCandScanScopeNote" class="text-xs text-emerald-600 font-bold mb-3"></p>
-          <div class="flex items-center gap-2 mb-3 flex-wrap">
-            <button id="admCandScanStartBtn" onclick="_admCandScanStart()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase">Start Camera</button>
-            <button id="admCandScanStopBtn" onclick="_admCandScanStop()" class="hidden px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase">Stop</button>
-            <div class="flex-1 flex gap-2 min-w-[220px]">
-              <input type="text" id="admCandScanManualCode" placeholder="Or type the code/token manually" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-              <button onclick="_admCandScanManualLookup()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">Go</button>
+          <div id="admCandScanChooser" class="flex flex-col sm:flex-row gap-2 mb-3">
+            <button onclick="_admCandScanChooseInput('camera')" class="flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-3 sm:py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest"><i data-lucide="camera" class="h-3.5 w-3.5"></i> Open Camera</button>
+            <button onclick="_admCandScanChooseInput('manual')" class="flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-3 sm:py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest"><i data-lucide="keyboard" class="h-3.5 w-3.5"></i> Manual</button>
+          </div>
+          <div id="admCandScanCameraBox" class="hidden">
+            <div class="flex items-center gap-2 mb-3">
+              <button onclick="_admCandScanStop()" class="flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i> Back</button>
+            </div>
+            <video id="admCandScanVideo" class="hidden rounded-xl w-full max-w-sm" muted playsinline></video>
+            <canvas id="admCandScanCanvas" class="hidden"></canvas>
+          </div>
+          <div id="admCandScanManualBox" class="hidden">
+            <div class="flex items-center gap-2 mb-3">
+              <button onclick="_admCandScanStop()" class="flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i> Back</button>
+            </div>
+            <div class="flex gap-2 max-w-sm">
+              <input type="text" id="admCandScanManualCode" placeholder="Type the code/token" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+              <button onclick="_admCandScanManualLookup()" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase">Go</button>
             </div>
           </div>
-          <video id="admCandScanVideo" class="hidden rounded-xl w-full max-w-sm" muted playsinline></video>
-          <canvas id="admCandScanCanvas" class="hidden"></canvas>
           <p id="admCandScanNote" class="text-xs text-slate-500 mt-2"></p>
           <div id="admCandScanResult" class="hidden mt-3"></div>
         </div>
@@ -46693,6 +46717,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admCandTagDefs = res.definitions || [];
       _admCandRenderTagDefList();
       _admCandPopulateScanTagDefSelect();
+      _admRenderFilterPanel(); // no-op if the Applications filter panel isn't open; keeps its tag dims current if it is
     } catch (e) {}
   }
   function _admCandRenderTagDefList() {
@@ -46755,8 +46780,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (def.type !== 'toggle' && !value) { if (note) note.textContent = 'Set a value first.'; return; }
     _admCandScanTagKey = def.key;
     _admCandScanTagValue = value;
-    if (note) note.textContent = `Locked: ${def.label} = ${value === true ? 'yes' : value} — scan candidates now.`;
-    _admCandScanStart();
+    if (note) note.textContent = `Locked: ${def.label} = ${value === true ? 'yes' : value} — choose how to scan below.`;
+    _admCandScanStop(); // resets to the Open Camera / Manual chooser, nothing was running yet
   }
   function _admCandScanSetScope() {
     _admCandScanScope = {
@@ -46767,6 +46792,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const note = document.getElementById('admCandScanScopeNote');
     const parts = Object.entries(_admCandScanScope).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`);
     if (note) note.textContent = parts.length ? `Scope locked: ${parts.join(', ')}` : 'Scope cleared — any candidate will be accepted.';
+  }
+  // Entry point for the "Open Camera" / "Manual" chooser -- picking one hides
+  // the chooser and reveals just that box (never both at once), so a phone
+  // screen in the field shows one clear next step instead of a camera
+  // preview and a text input competing for space.
+  function _admCandScanChooseInput(mode) {
+    if (_admCandScanMode === 'tags' && !_admCandScanTagKey) {
+      const tagNote = document.getElementById('admCandScanTagNote'); if (tagNote) tagNote.textContent = 'Lock a tag section first.';
+      return;
+    }
+    _admCandScanInputMode = mode;
+    document.getElementById('admCandScanChooser')?.classList.add('hidden');
+    document.getElementById('admCandScanCameraBox')?.classList.toggle('hidden', mode !== 'camera');
+    document.getElementById('admCandScanManualBox')?.classList.toggle('hidden', mode !== 'manual');
+    if (mode === 'camera') _admCandScanStart();
+    else document.getElementById('admCandScanManualCode')?.focus();
   }
   async function _admCandScanStart() {
     if (!_admCandRequireCircular()) return;
@@ -46783,8 +46824,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     video.srcObject = _admCandScanStream;
     video.classList.remove('hidden');
     await video.play();
-    document.getElementById('admCandScanStartBtn').classList.add('hidden');
-    document.getElementById('admCandScanStopBtn').classList.remove('hidden');
     if (note) note.textContent = 'Point the camera at a QR code…';
     const canvas = document.getElementById('admCandScanCanvas');
     canvas.width = 400; canvas.height = 300;
@@ -46797,13 +46836,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (code && code.data) { _admCandScanBusy = true; _admCandHandleScannedCode(code.data.trim()); }
     }, 150);
   }
+  // Also doubles as "back to chooser" (called by both boxes' Back button, and
+  // by _admCandScanLockTag/_admCandScanShowMode to reset cleanly) -- safe to
+  // call even when nothing is running.
   function _admCandScanStop() {
     if (_admCandScanTimer) { clearInterval(_admCandScanTimer); _admCandScanTimer = null; }
     if (_admCandScanStream) { _admCandScanStream.getTracks().forEach(t => t.stop()); _admCandScanStream = null; }
     const video = document.getElementById('admCandScanVideo');
     if (video) { video.pause(); video.srcObject = null; video.classList.add('hidden'); }
-    document.getElementById('admCandScanStartBtn')?.classList.remove('hidden');
-    document.getElementById('admCandScanStopBtn')?.classList.add('hidden');
+    _admCandScanInputMode = null;
+    document.getElementById('admCandScanCameraBox')?.classList.add('hidden');
+    document.getElementById('admCandScanManualBox')?.classList.add('hidden');
+    document.getElementById('admCandScanChooser')?.classList.remove('hidden');
     const note = document.getElementById('admCandScanNote'); if (note) note.textContent = '';
     _admCandScanBusy = false;
   }
@@ -46817,7 +46861,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!code) return;
     _admCandResolveScan(code);
   }
-  async function _admCandResolveScan(code) {
+  // A QR code may encode a full URL from the external system (e.g. VortiBD's
+  // own "https://vortibd.com/54321") rather than a bare token -- the real
+  // tracking ID is just the last path segment. Normalizing here means camera
+  // scans AND manual-typed/pasted URLs both resolve the same way, with no
+  // per-system config needed -- whatever the QR/paste contains, only the
+  // final /segment (or the raw value, if it isn't URL-shaped at all) is used.
+  function _admCandExtractScanCode(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return s;
+    const looksLikeUrl = /^[a-z][a-z0-9+.-]*:\/\//i.test(s) || /^[a-z0-9-]+(\.[a-z0-9-]+)+\//i.test(s);
+    if (!looksLikeUrl) return s;
+    try {
+      const u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(s) ? s : 'https://' + s);
+      const segments = u.pathname.split('/').filter(Boolean);
+      return segments.length ? segments[segments.length - 1].trim() : s;
+    } catch (e) { return s; }
+  }
+  async function _admCandResolveScan(rawCode) {
+    const code = _admCandExtractScanCode(rawCode);
     const note = document.getElementById('admCandScanNote');
     if (_admCandScanMode === 'tags' && !_admCandScanTagKey) { if (note) note.textContent = 'Lock a tag section first.'; return; }
     if (note) note.textContent = 'Looking up ' + code + '…';
@@ -46832,6 +46894,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       }
       if (note) note.textContent = 'Marked — keep scanning for the next one.';
       _admCandRenderScanResult(r.candidate, false);
+      // Keep the Applications tab's in-memory roster (and its tag filter
+      // dimensions/pills) current immediately, the same way every other
+      // mutation in this module patches _admAllApps in place rather than
+      // waiting for a full reload -- so a freshly-scanned tag is filterable
+      // right away, not just after switching away and back.
+      if (_admCandScanMode === 'tags' && r.candidate) {
+        const app = _admAllApps.find(x => x.id === r.candidate.id);
+        if (app) app.tags = r.candidate.tags || {};
+        _admRenderFilterPanel();
+      }
     } catch (e) {
       if (note) note.textContent = e.message || 'Lookup failed';
     }
