@@ -44741,7 +44741,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Class. Keys here are already run through normImportKey (lowercase, no
   // spaces/underscores/hyphens). Checked before the generic fuzzy fallback.
   const ADM_CAND_HEADER_ALIASES = {
-    trackingno: 'token', studentid: 'token', applicantid: 'token', rollno: 'token', roll: 'token',
+    // NOTE: "rollno"/"roll" deliberately NOT aliased to token -- real VortiBD
+    // exports carry both a TrackingNo (the real external identity) AND a
+    // separate RollNo (plain class roll number, not unique/stable), so
+    // guessing RollNo as the identity field would be wrong when TrackingNo
+    // isn't present in a given export.
+    trackingno: 'token', studentid: 'token', applicantid: 'token',
     studentname: 'name_english', candidatename: 'name_english', applicantname: 'name_english', name: 'name_english',
     studentnamebangla: 'name_bangla', namebangla: 'name_bangla',
     programname: 'class', classname: 'class', program: 'class',
@@ -44750,22 +44755,30 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     mobileno: 'mobile', contactno: 'mobile', phone: 'mobile', phoneno: 'mobile', mobilenumber: 'mobile', cellno: 'mobile',
     dob: 'date_of_birth', dateofbirth: 'date_of_birth', birthdate: 'date_of_birth',
     bloodgroup: 'blood_group', blood: 'blood_group',
+    religionname: 'religion', gendername: 'gender',
     presentaddress: 'present_address', currentaddress: 'present_address',
-    permanentaddress: 'permanent_address', permaddress: 'permanent_address',
+    permanentaddress: 'permanent_address', permaddress: 'permanent_address', parmanentaddress: 'permanent_address',
     fathername: 'father_name', fathersname: 'father_name',
     fathercontact: 'father_contact', fathermobile: 'father_contact', fatherphone: 'father_contact',
     fatherprofession: 'father_profession', fatheroccupation: 'father_profession',
     fathernid: 'father_nid', fatherdesignation: 'father_designation',
+    fathereducationalqualification: 'father_education', fatherannualincome: 'father_yearly_income',
     mothername: 'mother_name', mothersname: 'mother_name',
     mothercontact: 'mother_contact', mothermobile: 'mother_contact', motherphone: 'mother_contact',
     motherprofession: 'mother_profession', motheroccupation: 'mother_profession',
     mothernid: 'mother_nid', motherdesignation: 'mother_designation',
-    guardianname: 'guardian_name', guardiancontact: 'guardian_contact', guardianmobile: 'guardian_contact',
-    guardianrelation: 'guardian_relation', guardiannid: 'guardian_nid',
+    mothereducationalqualification: 'mother_education', motherannualincome: 'mother_yearly_income',
+    guardianname: 'guardian_name', legalguardianname: 'guardian_name',
+    guardiancontact: 'guardian_contact', guardianmobile: 'guardian_contact',
+    guardianrelation: 'guardian_relation', relationwithguardian: 'guardian_relation',
+    guardianoccupation: 'guardian_profession', guardiannid: 'guardian_nid',
     gender: 'gender', sex: 'gender',
     religion: 'religion', nationality: 'nationality',
-    lastclass: 'last_class', lastinstitute: 'last_institute', lastversion: 'last_version', lastschool: 'last_institute',
-    height: 'height', birthregno: 'birth_reg_no', birthregistrationno: 'birth_reg_no',
+    lastclass: 'last_class', lastexam: 'last_class',
+    lastinstitute: 'last_institute', lastschool: 'last_institute', lastschoolname: 'last_institute',
+    lastversion: 'last_version',
+    interestedclubs: 'co_curricular',
+    height: 'height', birthregno: 'birth_reg_no', birthregistrationno: 'birth_reg_no', birthid: 'birth_reg_no',
     emergencycontact: 'emergency_contact',
   };
   // Generic fuzzy fallback for anything the alias table and exact match both
