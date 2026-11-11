@@ -41893,14 +41893,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <div class="flex gap-1 mb-4 overflow-x-auto pb-1" id="adm-cand-tabs">
             <button class="adm-ftab" data-id="adm-cand-import" onclick="_admCandShowTab('adm-cand-import',this)">Import &amp; Mapping</button>
-            <button class="adm-ftab" data-id="adm-cand-list" onclick="_admCandShowTab('adm-cand-list',this)">Candidates</button>
             <button class="adm-ftab" data-id="adm-cand-rooms" onclick="_admCandShowTab('adm-cand-rooms',this)">Rooms</button>
             <button class="adm-ftab" data-id="adm-cand-alloc" onclick="_admCandShowTab('adm-cand-alloc',this)">Seat Allocation</button>
-            <button class="adm-ftab" data-id="adm-cand-templates" onclick="_admCandShowTab('adm-cand-templates',this)">Templates</button>
-            <button class="adm-ftab" data-id="adm-cand-print" onclick="_admCandShowTab('adm-cand-print',this)">Printing</button>
-            <button class="adm-ftab" data-id="adm-cand-photos" onclick="_admCandShowTab('adm-cand-photos',this)">Photos</button>
             <button class="adm-ftab" data-id="adm-cand-scan" onclick="_admCandShowTab('adm-cand-scan',this)">Scan</button>
-            <button class="adm-ftab hidden" id="admCandCommitteeTabBtn" onclick="_admCandShowTab('adm-cand-committee',this)">Committee</button>
+            <button class="adm-ftab" data-id="adm-cand-setup" onclick="_admCandShowTab('adm-cand-setup',this)">Circular Setup</button>
           </div>
           <div id="adm-cand-sections"></div>
         </div>
@@ -44582,16 +44578,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return !!(_admCandMyPerms && Array.isArray(_admCandMyPerms.scan_options) && _admCandMyPerms.scan_options.includes(key));
   }
   const _ADM_CAND_TAB_FOR_DATA_ID = {
-    'adm-cand-import': 'import', 'adm-cand-list': 'candidates', 'adm-cand-rooms': 'rooms',
+    'adm-cand-import': 'import', 'adm-cand-rooms': 'rooms',
     'adm-cand-alloc': 'alloc', 'adm-cand-templates': 'templates', 'adm-cand-print': 'print',
     'adm-cand-photos': 'photos', 'adm-cand-scan': 'scan',
   };
   function _admCandApplyTabGating() {
     document.querySelectorAll('#adm-cand-tabs .adm-ftab[data-id]').forEach(btn => {
       const tab = _ADM_CAND_TAB_FOR_DATA_ID[btn.getAttribute('data-id')];
-      btn.classList.toggle('hidden', !_admCandCan(tab, 'view'));
+      if (tab) btn.classList.toggle('hidden', !_admCandCan(tab, 'view'));
     });
     document.getElementById('admCandCommitteeTabBtn')?.classList.toggle('hidden', !_admCandMyAccess.is_full_admin);
+    // Circular Setup bundles Template Setup/Committee Setup/Printing/Photos
+    // as its own inner sub-tab bar -- gate each sub-tab the same way the
+    // outer bar's tabs are gated, then hide "Circular Setup" itself (the
+    // outer button) only if every one of its sub-tabs would be hidden too.
+    document.querySelectorAll('#adm-cand-setup-tabs .adm-ftab[data-id]').forEach(btn => {
+      const tab = _ADM_CAND_TAB_FOR_DATA_ID[btn.getAttribute('data-id')];
+      if (tab) btn.classList.toggle('hidden', !_admCandCan(tab, 'view'));
+    });
+    const anySetupVisible = !!document.querySelector('#adm-cand-setup-tabs .adm-ftab[data-id]:not(.hidden)');
+    document.querySelector('#adm-cand-tabs .adm-ftab[data-id="adm-cand-setup"]')?.classList.toggle('hidden', !anySetupVisible);
     document.querySelectorAll('#admCandScanModeTabs .adm-ftab[data-scan-opt]').forEach(btn => {
       btn.classList.toggle('hidden', !_admCandCanScanOption(btn.getAttribute('data-scan-opt')));
     });
@@ -44627,17 +44633,38 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admCandShowTab(id, btn) {
     document.querySelectorAll('#adm-cand-sections > div').forEach(el => el.classList.add('hidden'));
     document.querySelectorAll('#adm-cand-tabs .adm-ftab').forEach(el => el.classList.remove('adm-ftab-on'));
-    const el = document.getElementById(id); if (el) el.classList.remove('hidden');
     if (btn) btn.classList.add('adm-ftab-on');
-    if (id === 'adm-cand-list') _admCandLoadList();
-    else if (id === 'adm-cand-rooms') _admCandLoadRooms();
+    // Circular Setup has no content div of its own -- it's Template Setup/
+    // Committee Setup/Printing/Photos bundled behind one outer button, same
+    // idiom as the Exam module's "Term / Exam Setup" tab bundling several
+    // panels. Showing it means: reveal the inner sub-tab bar, then delegate
+    // to whichever of its sub-tabs is (or should become) active.
+    if (id === 'adm-cand-setup') {
+      document.getElementById('adm-cand-setup-tabs')?.classList.remove('hidden');
+      const activeSub = document.querySelector('#adm-cand-setup-tabs .adm-ftab.adm-ftab-on:not(.hidden)')
+        || document.querySelector('#adm-cand-setup-tabs .adm-ftab:not(.hidden)');
+      if (activeSub) _admCandShowSetupSubTab(activeSub.getAttribute('data-id'), activeSub);
+      return;
+    }
+    const el = document.getElementById(id); if (el) el.classList.remove('hidden');
+    if (id === 'adm-cand-rooms') _admCandLoadRooms();
     else if (id === 'adm-cand-alloc') { _admCandLoadRooms(); _admCandPopulateFilterDropdowns(); }
-    else if (id === 'adm-cand-templates') _admCandLoadTemplateMapTab();
-    else if (id === 'adm-cand-print') { _admCandLoadRooms(); _admCandPopulatePrintDropdowns(); }
     else if (id === 'adm-cand-scan') _admCandPopulateFilterDropdowns();
-    else if (id === 'adm-cand-committee') _admCandLoadCommitteeTab();
     else if (id === 'adm-cand-import') { _admCandLoadFormFieldsForMapping(); _admCandLoadTemplates().then(_admCandLoadVortibdPanel); }
-    else if (id === 'adm-cand-photos') { _admCandLoadFormFieldsForMapping().then(_admCandPopulatePhotoMatchFieldOptions); }
+  }
+  // Inner sub-tab bar for the "Circular Setup" outer tab: Template Setup/
+  // Committee Setup/Printing/Photos. Only hides/shows the 4 setup panels
+  // themselves -- _admCandShowTab already hid every OTHER top-level panel
+  // (and every other top-level tab button) before delegating here.
+  function _admCandShowSetupSubTab(subId, btn) {
+    ['adm-cand-templates', 'adm-cand-print', 'adm-cand-photos', 'adm-cand-committee'].forEach(pid => document.getElementById(pid)?.classList.add('hidden'));
+    document.querySelectorAll('#adm-cand-setup-tabs .adm-ftab').forEach(el => el.classList.remove('adm-ftab-on'));
+    document.getElementById(subId)?.classList.remove('hidden');
+    if (btn) btn.classList.add('adm-ftab-on');
+    if (subId === 'adm-cand-templates') _admCandLoadTemplateMapTab();
+    else if (subId === 'adm-cand-print') { _admCandLoadRooms(); _admCandPopulatePrintDropdowns(); }
+    else if (subId === 'adm-cand-photos') { _admCandLoadFormFieldsForMapping().then(_admCandPopulatePhotoMatchFieldOptions); }
+    else if (subId === 'adm-cand-committee') _admCandLoadCommitteeTab();
   }
 
   function _admCandRenderSections() {
@@ -44815,6 +44842,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>
 
+      <div id="adm-cand-setup-tabs" class="hidden flex gap-1 mb-4 overflow-x-auto pb-1">
+        <button class="adm-ftab" data-id="adm-cand-templates" onclick="_admCandShowSetupSubTab('adm-cand-templates',this)">Template Setup</button>
+        <button class="adm-ftab hidden" id="admCandCommitteeTabBtn" data-id="adm-cand-committee" onclick="_admCandShowSetupSubTab('adm-cand-committee',this)">Committee Setup</button>
+        <button class="adm-ftab" data-id="adm-cand-print" onclick="_admCandShowSetupSubTab('adm-cand-print',this)">Printing</button>
+        <button class="adm-ftab" data-id="adm-cand-photos" onclick="_admCandShowSetupSubTab('adm-cand-photos',this)">Photos</button>
+      </div>
       <div id="adm-cand-templates" class="hidden">
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
           <p class="text-xs text-slate-400 mb-4">Pick which Form &amp; Admit Card template (from the Form/Admit Designer in Settings) applies to each class/version/category combination this circular covers. Rows with no override use the Default. Selection only — printing from this circular still uses the signature sheet/token list in the Printing tab, not the designer layout, until that's wired up.</p>
