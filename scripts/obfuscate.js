@@ -439,7 +439,7 @@ const RESERVED = [
 
   // Admission Admin (native port of ccpc-admission) — app.html's sidebar
   // onclick + every onclick/onchange string built inside loadAdmissionAdminView()
-  'loadAdmissionAdminView','_admShowView','_admShowSection','_admFilterApps','_admFilterAppsDebounced',
+  'loadAdmissionAdminView','_admShowView','_admShowTopTab','_admShowSection','_admFilterApps','_admFilterAppsDebounced',
   '_admLoadNewApplication','_admLoadForm','_admDeleteApp','_admChangeStatus',
   '_admToggleRowSelect','_admToggleSelectAll','_admClearBulkSelection','_admApplyBulkStatus','_admBulkDeleteSelected','_admTableGoPage',
   '_admToggleFilterPanel','toggleAdmFilter','clearAdmFilters',

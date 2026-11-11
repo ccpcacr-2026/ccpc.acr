@@ -41778,6 +41778,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <button onclick="_admCandSwitchCircular()" class="ml-auto px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">Switch Circular</button>
       </div>
 
+      <div class="hidden flex gap-1 mb-4 overflow-x-auto pb-1" id="adm-top-tabs">
+        <button class="adm-ftab" data-id="dashboard" onclick="_admShowView('dashboard')">Dashboard</button>
+        <button class="adm-ftab" data-id="adm-cand-import" onclick="_admShowTopTab('adm-cand-import',this)">Import &amp; Mapping</button>
+        <button class="adm-ftab" data-id="adm-cand-rooms" onclick="_admShowTopTab('adm-cand-rooms',this)">Rooms</button>
+        <button class="adm-ftab" data-id="adm-cand-alloc" onclick="_admShowTopTab('adm-cand-alloc',this)">Seat Allocation</button>
+        <button class="adm-ftab" data-id="adm-cand-scan" onclick="_admShowTopTab('adm-cand-scan',this)">Scan</button>
+        <button class="adm-ftab" data-id="adm-cand-setup" onclick="_admShowTopTab('adm-cand-setup',this)">Circular Setup</button>
+        <button class="adm-ftab" data-id="settings" onclick="_admOpenSettings()">Settings</button>
+      </div>
+
       <div id="admAdminDashboard" class="hidden">
         <div class="flex flex-wrap items-center gap-2 mb-3">
           <input type="text" id="adm-search-input" placeholder="Search name, tracking ID…" oninput="_admFilterAppsDebounced()"
@@ -41798,12 +41808,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </button>
           <button onclick="_admExportCsv()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="download" class="h-3.5 w-3.5"></i> Export CSV
-          </button>
-          <button id="adm-open-candidates-btn" onclick="_admOpenCandidates()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
-            <i data-lucide="users" class="h-3.5 w-3.5"></i> Candidates
-          </button>
-          <button id="adm-open-settings-btn" onclick="_admOpenSettings()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
-            <i data-lucide="settings" class="h-3.5 w-3.5"></i> Settings
           </button>
         </div>
         <div id="admFilterPanel" class="hidden mb-3 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
@@ -41860,10 +41864,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="admAdminSettings" class="hidden">
-        <div class="flex items-center gap-3 mb-4 flex-wrap">
-          <button onclick="_admShowView('dashboard')" class="flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i> Back</button>
-          <h2 class="font-black text-slate-800 text-sm">Admission Settings</h2>
-        </div>
         <div class="flex gap-1 mb-4 overflow-x-auto pb-1" id="adm-settabs">
           <button class="adm-ftab" data-id="adm-set-index" onclick="_admShowSettingsTab('adm-set-index',this)">Index Pattern</button>
           <button class="adm-ftab" data-id="adm-set-fields" onclick="_admShowSettingsTab('adm-set-fields',this)">Form Fields</button>
@@ -41879,27 +41879,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="admAdminCandidates" class="hidden">
-        <div class="flex items-center gap-3 mb-4 flex-wrap">
-          <button onclick="_admShowView('dashboard')" class="flex items-center gap-1.5 px-3 py-2 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i> Back</button>
-          <h2 class="font-black text-slate-800 text-sm">External Candidates</h2>
-        </div>
-
-        <div id="admCandMainArea" class="hidden">
-          <div class="flex items-center gap-2 flex-wrap mb-4 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5">
-            <span class="text-[10px] uppercase text-slate-400 font-bold">Session / Circular</span>
-            <b id="admCandActiveCircularName" class="text-xs font-black text-slate-800"></b>
-            <button id="admCandCopyLinkBtn" onclick="_admCandCopyApplyLink()" class="hidden px-3 py-1.5 border border-slate-200 text-blue-600 rounded-lg text-[10px] font-black uppercase">Copy Application Link</button>
-            <button onclick="_admCandSwitchCircular()" class="ml-auto px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">Switch Circular</button>
-          </div>
-          <div class="flex gap-1 mb-4 overflow-x-auto pb-1" id="adm-cand-tabs">
-            <button class="adm-ftab" data-id="adm-cand-import" onclick="_admCandShowTab('adm-cand-import',this)">Import &amp; Mapping</button>
-            <button class="adm-ftab" data-id="adm-cand-rooms" onclick="_admCandShowTab('adm-cand-rooms',this)">Rooms</button>
-            <button class="adm-ftab" data-id="adm-cand-alloc" onclick="_admCandShowTab('adm-cand-alloc',this)">Seat Allocation</button>
-            <button class="adm-ftab" data-id="adm-cand-scan" onclick="_admCandShowTab('adm-cand-scan',this)">Scan</button>
-            <button class="adm-ftab" data-id="adm-cand-setup" onclick="_admCandShowTab('adm-cand-setup',this)">Circular Setup</button>
-          </div>
-          <div id="adm-cand-sections"></div>
-        </div>
+        <button id="admCandCopyLinkBtn" onclick="_admCandCopyApplyLink()" class="hidden mb-3 px-3 py-1.5 border border-slate-200 text-blue-600 rounded-lg text-[10px] font-black uppercase">Copy Application Link</button>
+        <div id="adm-cand-sections"></div>
       </div>`;
     lucide.createIcons();
     _admRenderFormSections();
@@ -41913,6 +41894,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('admAdminForm').classList.toggle('hidden', which !== 'form');
     document.getElementById('admAdminSettings').classList.toggle('hidden', which !== 'settings');
     document.getElementById('admAdminCandidates').classList.toggle('hidden', which !== 'candidates');
+    // Dashboard/Settings sit directly in the shared top-level tab bar
+    // (#adm-top-tabs) alongside the Candidates-side tabs -- keep its active
+    // highlight in sync here too. The Candidates-side tabs manage their own
+    // highlight via _admShowTopTab (which calls this with 'candidates').
+    if (which === 'dashboard' || which === 'settings') {
+      document.querySelectorAll('#adm-top-tabs .adm-ftab').forEach(el => el.classList.remove('adm-ftab-on'));
+      document.querySelector(`#adm-top-tabs .adm-ftab[data-id="${which}"]`)?.classList.add('adm-ftab-on');
+    }
+  }
+  // Entry point for the 5 Candidates-side tabs living in the shared
+  // top-level bar (Import & Mapping/Rooms/Seat Allocation/Scan/Circular
+  // Setup) -- shows the Candidates container, then delegates to
+  // _admCandShowTab exactly as before for which panel within it shows.
+  function _admShowTopTab(subId, btn) {
+    _admShowView('candidates');
+    document.querySelectorAll('#adm-top-tabs .adm-ftab').forEach(el => el.classList.remove('adm-ftab-on'));
+    _admCandShowTab(subId, btn);
   }
   function _admShowSettingsTab(id, btn) {
     document.querySelectorAll('#adm-setsections > div').forEach(el => el.classList.add('hidden'));
@@ -44201,20 +44199,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (_admCandMyAccess.is_full_admin) _admCandLoadSessions();
     else _admCandShowMyCircularsGate();
   }
-  // The "Candidates" toolbar button -- the gate/committee-check already ran
-  // at module entry, so this just switches which already-scoped view shows.
-  function _admOpenCandidates() {
-    _admShowView('candidates');
-    document.getElementById('admCandMainArea')?.classList.remove('hidden');
-    _admCandLoadTemplates();
-    const firstTab = document.querySelector('#adm-cand-tabs .adm-ftab:not(.hidden)');
-    if (firstTab && !document.querySelector('#adm-cand-tabs .adm-ftab-on')) firstTab.click();
-  }
   function _admHideAllGatesAndViews() {
     document.getElementById('admCandSessionGate')?.classList.add('hidden');
     document.getElementById('admCandMyCircularsGate')?.classList.add('hidden');
     document.getElementById('admCandCircularGate')?.classList.add('hidden');
     document.getElementById('admModuleCircularBar')?.classList.add('hidden');
+    document.getElementById('adm-top-tabs')?.classList.add('hidden');
     ['admAdminDashboard', 'admAdminForm', 'admAdminSettings', 'admAdminCandidates'].forEach(id => document.getElementById(id)?.classList.add('hidden'));
   }
   // Committee members never see the Session/Circular admin gates (listSessions
@@ -44511,7 +44501,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         _admCandResetCircularForm();
         _admCandRenderCircularList();
         if (_admCandActiveCircularId === res.id) {
-          const nameEl = document.getElementById('admCandActiveCircularName');
+          const nameEl = document.getElementById('admModuleActiveCircularName');
           if (nameEl) nameEl.textContent = name;
         }
       } else {
@@ -44538,9 +44528,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const displayName = c ? c.name : (myEntry ? myEntry.name : '');
     const displaySession = sess ? sess.name : (myEntry ? myEntry.session_name : '');
     const fullName = (displaySession ? displaySession + ' / ' : '') + displayName + (summary ? ` (${summary})` : '');
-    const nameEl = document.getElementById('admCandActiveCircularName'); if (nameEl) nameEl.textContent = fullName;
     const moduleNameEl = document.getElementById('admModuleActiveCircularName'); if (moduleNameEl) moduleNameEl.textContent = fullName;
     document.getElementById('admModuleCircularBar')?.classList.remove('hidden');
+    document.getElementById('adm-top-tabs')?.classList.remove('hidden');
     document.getElementById('admCandCopyLinkBtn')?.classList.toggle('hidden', !(c && c.mode === 'online'));
     _admCandLoadRooms();
     _admCandLoadTagDefs();
@@ -44561,9 +44551,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _admApplyModuleTabGating() {
     document.getElementById('adm-new-app-btn')?.classList.toggle('hidden', !_admModuleCan('applications', 'edit'));
-    const anyCandidatesTab = _admCandMyAccess.is_full_admin || ['import', 'candidates', 'rooms', 'alloc', 'templates', 'print', 'photos', 'scan'].some(t => _admCandCan(t, 'view'));
-    document.getElementById('adm-open-candidates-btn')?.classList.toggle('hidden', !anyCandidatesTab);
-    document.getElementById('adm-open-settings-btn')?.classList.toggle('hidden', !_admModuleCan('admin_settings', 'view'));
+    document.querySelector('#adm-top-tabs .adm-ftab[data-id="dashboard"]')?.classList.toggle('hidden', !_admModuleCan('applications', 'view'));
+    document.querySelector('#adm-top-tabs .adm-ftab[data-id="settings"]')?.classList.toggle('hidden', !_admModuleCan('admin_settings', 'view'));
   }
   // Tab-level visibility + Scan-mode/section filtering for committee members
   // (full admins always pass). The server re-checks every one of these on
@@ -44583,7 +44572,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     'adm-cand-photos': 'photos', 'adm-cand-scan': 'scan',
   };
   function _admCandApplyTabGating() {
-    document.querySelectorAll('#adm-cand-tabs .adm-ftab[data-id]').forEach(btn => {
+    // Import & Mapping/Rooms/Seat Allocation/Scan/Circular Setup now live in
+    // the shared top-level bar (#adm-top-tabs) alongside Dashboard/Settings
+    // (which _admApplyModuleTabGating gates separately -- this loop skips
+    // them since they have no entry in _ADM_CAND_TAB_FOR_DATA_ID).
+    document.querySelectorAll('#adm-top-tabs .adm-ftab[data-id]').forEach(btn => {
       const tab = _ADM_CAND_TAB_FOR_DATA_ID[btn.getAttribute('data-id')];
       if (tab) btn.classList.toggle('hidden', !_admCandCan(tab, 'view'));
     });
@@ -44597,7 +44590,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (tab) btn.classList.toggle('hidden', !_admCandCan(tab, 'view'));
     });
     const anySetupVisible = !!document.querySelector('#adm-cand-setup-tabs .adm-ftab[data-id]:not(.hidden)');
-    document.querySelector('#adm-cand-tabs .adm-ftab[data-id="adm-cand-setup"]')?.classList.toggle('hidden', !anySetupVisible);
+    document.querySelector('#adm-top-tabs .adm-ftab[data-id="adm-cand-setup"]')?.classList.toggle('hidden', !anySetupVisible);
     document.querySelectorAll('#admCandScanModeTabs .adm-ftab[data-scan-opt]').forEach(btn => {
       btn.classList.toggle('hidden', !_admCandCanScanOption(btn.getAttribute('data-scan-opt')));
     });
@@ -44631,8 +44624,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
   }
   function _admCandShowTab(id, btn) {
+    // Active-tab highlighting across the whole shared top-level bar is
+    // handled by _admShowTopTab (the only caller) before this runs -- this
+    // just marks the one button it was given.
     document.querySelectorAll('#adm-cand-sections > div').forEach(el => el.classList.add('hidden'));
-    document.querySelectorAll('#adm-cand-tabs .adm-ftab').forEach(el => el.classList.remove('adm-ftab-on'));
     if (btn) btn.classList.add('adm-ftab-on');
     // Circular Setup has no content div of its own -- it's Template Setup/
     // Committee Setup/Printing/Photos bundled behind one outer button, same
