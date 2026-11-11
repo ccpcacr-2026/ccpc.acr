@@ -39,6 +39,30 @@ async function sbAdmission(path, method = 'GET', body = null, extraHeaders = {})
   return text ? JSON.parse(text) : null;
 }
 
+// Part 9: cross-schema read/write into the Inventory module's rooms/
+// buildings tables -- the portal-wide Rooms registry this module's own
+// Rooms tab now shares with the regular Exam module's Seat Plan feature and
+// Inventory Admin itself. Self-contained copy of
+// app/api/inventory-admin/route.js's own sbInventory() (no shared import,
+// matching this repo's convention).
+async function sbInventory(path, method = 'GET', body = null) {
+  const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    method,
+    headers: {
+      apikey: SB_KEY,
+      Authorization: `Bearer ${SB_KEY}`,
+      'Content-Type': 'application/json',
+      ...(method !== 'GET' ? { Prefer: 'return=representation' } : {}),
+      'Accept-Profile': 'inventory',
+      'Content-Profile': 'inventory',
+    },
+    ...(body !== null ? { body: JSON.stringify(body) } : {}),
+  });
+  const text = await res.text();
+  if (!res.ok) return { error: text };
+  return text ? JSON.parse(text) : null;
+}
+
 // Fresh per-request check against teacher_staff.app_users -- never trust a cached role.
 async function _getUserRoles(userId) {
   if (!userId) return [];
@@ -458,44 +482,69 @@ export async function POST(req) {
   }
 
   // ── Rooms ────────────────────────────────────────────────────────────────
+  // Part 9: rooms are no longer circular-scoped data on admission.exam_rooms
+  // -- they're the portal-wide inventory.rooms/buildings registry, shared
+  // with the regular Exam module's own Seat Plan feature and Inventory
+  // Admin itself (see migration_admission_rooms_use_inventory.sql). Every
+  // action here still requires circular_id, purely to gate the action
+  // against that circular's own 'rooms' committee permission -- same as any
+  // other shared, low-sensitivity resource already handled this way (see
+  // the saved-import-template gate a few lines up).
   if (action === 'listRooms') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ rooms: [] });
     if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'rooms', 'view')) return _forbidden();
-    const rows = await sbAdmission(`exam_rooms?select=*&circular_id=eq.${circularId}&order=room_name.asc`);
-    return NextResponse.json({ rooms: Array.isArray(rows) ? rows : [] });
+    const [rooms, buildings] = await Promise.all([
+      sbInventory('rooms?select=id,name,capacity,building_id&order=name.asc'),
+      sbInventory('buildings?select=id,name'),
+    ]);
+    if (rooms?.error) return NextResponse.json({ error: rooms.error });
+    const buildingById = {};
+    (Array.isArray(buildings) ? buildings : []).forEach(b => { buildingById[b.id] = b.name; });
+    const mapped = (Array.isArray(rooms) ? rooms : []).map(r => ({
+      id: r.id, room_name: r.name, capacity: r.capacity, building: r.building_id ? (buildingById[r.building_id] || null) : null,
+    }));
+    return NextResponse.json({ rooms: mapped });
   }
   if (action === 'saveRoom') {
-    const { id, room_name, capacity, notes, building } = payload;
-    let circularId = parseInt(payload.circular_id, 10);
-    if (!id && !circularId) return NextResponse.json({ error: 'Pick a circular first.' });
-    if (!isFullAdmin) {
-      if (!circularId && id) {
-        const existing = await sbAdmission(`exam_rooms?id=eq.${parseInt(id, 10)}&select=circular_id`);
-        circularId = (Array.isArray(existing) && existing[0]) ? existing[0].circular_id : null;
-      }
-      if (!_tabOk(false, await _getCommitteePerms(user_id, circularId), 'rooms', 'edit')) return _forbidden();
-    }
+    const { id, room_name, capacity, building } = payload;
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'rooms', 'edit')) return _forbidden();
     if (!room_name || !capacity) return NextResponse.json({ error: 'Room name and capacity are required.' });
-    const data = { room_name, capacity: parseInt(capacity, 10) || 0, notes: notes || null, building: building || null, updated_at: new Date().toISOString() };
+    let building_id = null;
+    const buildingName = String(building || '').trim();
+    if (buildingName) {
+      const existingB = await sbInventory(`buildings?name=eq.${encodeURIComponent(buildingName)}&select=id`);
+      if (Array.isArray(existingB) && existingB[0]) building_id = existingB[0].id;
+      else {
+        const newB = await sbInventory('buildings', 'POST', { name: buildingName });
+        if (newB?.error) return NextResponse.json({ error: newB.error });
+        building_id = newB?.[0]?.id || null;
+      }
+    }
+    const data = { name: room_name, capacity: parseInt(capacity, 10) || 0, building_id };
     if (id) {
-      const res = await sbAdmission(`exam_rooms?id=eq.${parseInt(id, 10)}`, 'PATCH', data);
+      const res = await sbInventory(`rooms?id=eq.${parseInt(id, 10)}`, 'PATCH', data);
       if (res?.error) return NextResponse.json({ error: res.error });
       return NextResponse.json({ id });
     }
-    data.circular_id = circularId;
-    const res = await sbAdmission('exam_rooms', 'POST', data);
+    const res = await sbInventory('rooms', 'POST', data);
     if (res?.error) return NextResponse.json({ error: res.error });
     return NextResponse.json({ id: res?.[0]?.id });
   }
   if (action === 'deleteRoom') {
     const roomId = parseInt(payload.id, 10) || 0;
+    const circularId = parseInt(payload.circular_id, 10);
     if (!isFullAdmin) {
-      const rows = await sbAdmission(`exam_rooms?id=eq.${roomId}&select=circular_id`);
-      const circularId = (Array.isArray(rows) && rows[0]) ? rows[0].circular_id : null;
-      if (!_tabOk(false, await _getCommitteePerms(user_id, circularId), 'rooms', 'edit')) return _forbidden();
+      if (!circularId || !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'rooms', 'edit')) return _forbidden();
     }
-    await sbAdmission(`exam_rooms?id=eq.${roomId}`, 'DELETE');
+    // Standard FK integrity (not app-level checks) decides what happens if
+    // this room is still in use -- an allocated candidate/student or an
+    // Inventory holder-assignment record -- whatever each of those
+    // constraints already specifies (ON DELETE SET NULL/CASCADE/restrict).
+    const res = await sbInventory(`rooms?id=eq.${roomId}`, 'DELETE');
+    if (res?.error) return NextResponse.json({ error: res.error });
     return NextResponse.json({ success: true });
   }
   if (action === 'uploadRoomData') {
@@ -505,14 +554,29 @@ export async function POST(req) {
     const rows = Array.isArray(payload.rows) ? payload.rows : [];
     if (!rows.length) return NextResponse.json({ error: 'No rows to import.' });
     const clean = rows.map(r => ({
-      circular_id: circularId,
-      room_name: String(r.room_name || '').trim(),
+      name: String(r.room_name || '').trim(),
       capacity: parseInt(r.capacity, 10) || 0,
-      updated_at: new Date().toISOString(),
-    })).filter(r => r.room_name && r.capacity > 0);
+    })).filter(r => r.name && r.capacity > 0);
     if (!clean.length) return NextResponse.json({ error: 'No valid rows (need a room name and a positive capacity).' });
-    const res = await sbAdmission('exam_rooms?on_conflict=circular_id,room_name', 'POST', clean, { Prefer: 'resolution=merge-duplicates,return=minimal' });
-    if (res?.error) return NextResponse.json({ error: res.error });
+    // inventory.rooms has no unique constraint on name to upsert against via
+    // on_conflict (it isn't this feature's own table) -- look existing rooms
+    // up by name instead, splitting into updates (PATCH by id) and inserts
+    // (POST), same net effect as an upsert.
+    const existingByName = {};
+    for (const part of chunk(clean.map(r => r.name), 150)) {
+      const res = await sbInventory(`rooms?select=id,name&name=in.(${part.map(n => encodeURIComponent(n)).join(',')})`);
+      if (Array.isArray(res)) res.forEach(r => { existingByName[r.name] = r.id; });
+    }
+    const toInsert = clean.filter(r => !existingByName[r.name]);
+    const toUpdate = clean.filter(r => existingByName[r.name]);
+    if (toInsert.length) {
+      const res = await sbInventory('rooms', 'POST', toInsert);
+      if (res?.error) return NextResponse.json({ error: res.error });
+    }
+    for (const r of toUpdate) {
+      const res = await sbInventory(`rooms?id=eq.${existingByName[r.name]}`, 'PATCH', { capacity: r.capacity });
+      if (res?.error) return NextResponse.json({ error: res.error });
+    }
     return NextResponse.json({ success: true, count: clean.length });
   }
 
@@ -533,7 +597,7 @@ export async function POST(req) {
     const roomIds = Array.isArray(criteria.room_ids) ? criteria.room_ids.map(n => parseInt(n, 10)).filter(Boolean) : [];
     if (!roomIds.length) return NextResponse.json({ error: 'Pick at least one room.' });
 
-    const roomsRes = await sbAdmission(`exam_rooms?id=in.(${roomIds.join(',')})&circular_id=eq.${circularId}&select=id,room_name,capacity`);
+    const roomsRes = await sbInventory(`rooms?id=in.(${roomIds.join(',')})&select=id,capacity`);
     if (!Array.isArray(roomsRes) || !roomsRes.length) return NextResponse.json({ error: 'Rooms not found.' });
     const roomsById = {}; roomsRes.forEach(r => { roomsById[r.id] = r; });
     const orderedRooms = roomIds.map(id => roomsById[id]).filter(Boolean);
@@ -643,15 +707,18 @@ export async function POST(req) {
   // ── Printing ─────────────────────────────────────────────────────────────
   if (action === 'getSignatureSheetData') {
     const roomId = parseInt(payload.room_id, 10);
-    if (!roomId) return NextResponse.json({ error: 'Missing room.' });
-    if (!isFullAdmin) {
-      const roomRows = await sbAdmission(`exam_rooms?id=eq.${roomId}&select=circular_id`);
-      const circularId = (Array.isArray(roomRows) && roomRows[0]) ? roomRows[0].circular_id : null;
-      if (!_tabOk(false, await _getCommitteePerms(user_id, circularId), 'print', 'view')) return _forbidden();
-    }
-    const room = await sbAdmission(`exam_rooms?id=eq.${roomId}`);
-    const cands = await sbAdmission(`admission_applications?room_id=eq.${roomId}&select=token,name_english,seat_no,student_photo,class,category&order=seat_no.asc`);
-    return NextResponse.json({ room: room?.[0] || null, candidates: Array.isArray(cands) ? cands : [] });
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!roomId || !circularId) return NextResponse.json({ error: 'Missing room or circular.' });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'print', 'view')) return _forbidden();
+    const room = await sbInventory(`rooms?id=eq.${roomId}&select=id,name,capacity`);
+    // room_id alone isn't enough to scope this any more -- rooms are shared
+    // portal-wide, so two different circulars could both have allocated
+    // candidates into the same physical room at different times. Always
+    // filter by this circular too, or a signature sheet could silently mix
+    // in another circular's candidates.
+    const cands = await sbAdmission(`admission_applications?room_id=eq.${roomId}&circular_id=eq.${circularId}&select=token,name_english,seat_no,student_photo,class,category&order=seat_no.asc`);
+    const roomOut = room?.[0] ? { id: room[0].id, room_name: room[0].name, capacity: room[0].capacity } : null;
+    return NextResponse.json({ room: roomOut, candidates: Array.isArray(cands) ? cands : [] });
   }
   if (action === 'getTokenListData') {
     const circularId = parseInt(payload.circular_id, 10);

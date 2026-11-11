@@ -13224,6 +13224,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { id: 'ex-process', label: 'Result Process' },
     { id: 'ex-grades', label: 'Grade Setup' },
     { id: 'ex-board', label: 'Board Exam Records' },
+    { id: 'ex-seatplan', label: 'Seat Plan' },
   ];
   let _exTerms = [];
   let _classPatterns = [];       // exam classes (class + group from the student database), labelled
@@ -13517,6 +13518,64 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </table>
         </div>
       </div>
+
+      <div id="ex-seatplan" style="display:none">
+        <div class="flex items-baseline gap-3 mb-3 mt-2"><h3 class="text-sm font-black text-slate-800 uppercase tracking-widest">Rooms</h3><span class="text-[11px] font-bold text-slate-400">Shared with Admission's own Rooms tab and Inventory Admin — a room added anywhere shows up everywhere</span></div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-5">
+          <div class="flex items-center gap-3 flex-wrap mb-3">
+            <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exseat-room-name" id="exSeatRoomName" placeholder="Room name" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="width:160px">
+            <input type="number" id="exSeatRoomCapacity" placeholder="Capacity" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="width:100px">
+            <select id="exSeatRoomBuilding" onchange="_exSeatRoomBuildingSelectChange(this)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="width:160px">
+              <option value="">— None —</option>
+            </select>
+            <button onclick="_exSeatRoomSave()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Save Room</button>
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:260px">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Room</th><th class="py-2 px-3">Building</th><th class="py-2 px-3">Capacity</th><th class="py-2 px-3 text-right">Actions</th></tr></thead>
+              <tbody id="exSeatRoomsBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="flex items-baseline gap-3 mb-3"><h3 class="text-sm font-black text-slate-800 uppercase tracking-widest">Seat Allocation</h3><span class="text-[11px] font-bold text-slate-400">One exam = one class/section's own roster, resolved live from the student database</span></div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-5">
+          <div class="grid md:grid-cols-2 gap-4 mb-3">
+            <div>
+              <label class="text-[10px] uppercase text-slate-400 font-bold">Exam</label>
+              <select id="exSeatExamSelect" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mt-1"><option value="">— Pick an exam —</option></select>
+            </div>
+            <div>
+              <label class="text-[10px] uppercase text-slate-400 font-bold">Sort students by</label>
+              <select id="exSeatSortBy" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mt-1">
+                <option value="roll">Roll</option><option value="student_name">Name</option><option value="section">Section</option>
+              </select>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="text-[10px] uppercase text-slate-400 font-bold">Group by (optional — keeps each group together across rooms)</label>
+            <select id="exSeatGroupBy" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs mt-1">
+              <option value="">— None —</option><option value="section">Section</option>
+            </select>
+          </div>
+          <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">Rooms (fill in this order)</p>
+          <div id="exSeatAllocRoomPicker" class="flex flex-wrap gap-2 mb-3"></div>
+          <div class="flex items-center gap-2">
+            <button onclick="_exSeatRunAllocation()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase">Run Allocation</button>
+            <button onclick="_exSeatClearAllocation()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase">Clear</button>
+          </div>
+          <div id="exSeatAllocResult" class="mt-3 text-xs text-slate-500 font-bold"></div>
+        </div>
+
+        <div class="flex items-baseline gap-3 mb-3"><h3 class="text-sm font-black text-slate-800 uppercase tracking-widest">Printing</h3></div>
+        <div class="bg-white rounded-2xl border border-slate-200 p-4">
+          <div class="flex items-center gap-2 flex-wrap">
+            <select id="exSeatPrintRoomSelect" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">All rooms</option></select>
+            <button onclick="_exSeatPrintSignatureSheet()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase">Print Signature Sheet</button>
+            <button onclick="_exSeatPrintRoomList()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase">Print Room List</button>
+          </div>
+        </div>
+      </div>
     `;
     lucide.createIcons();
     _loadClassPatternsList();
@@ -13542,8 +13601,202 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       'ex-process': () => { loadExamSetupList(); rbInit(); },
       'ex-grades': loadGradeScales,
       'ex-board': loadBoardExamRecords,
+      'ex-seatplan': _exSeatLoadTab,
     };
     if (loaders[tabId]) loaders[tabId]();
+  }
+
+  // ── Seat Plan (Part 9) ────────────────────────────────────────────────────
+  // Rooms are the shared inventory.rooms/buildings registry -- same tables
+  // Admission's own Rooms tab and Inventory Admin use (a room added from any
+  // of the three shows up in all of them immediately). Allocation itself
+  // (who sits where for a given exam) is this module's own.
+  let _exSeatRooms = [], _exSeatEditingRoomId = null;
+  function _exSeatLoadTab() {
+    loadExamSetupList();
+    _exSeatPopulateExamSelect();
+    _exSeatLoadRooms();
+  }
+  async function _exSeatLoadRooms() {
+    try {
+      const res = await _adminFetch('listExamRooms', {});
+      _exSeatRooms = (res && res.result === 'success' && res.rooms) || [];
+      _exSeatRenderRoomsTable();
+      _exSeatPopulateRoomBuildingSelect();
+      _exSeatRenderAllocRoomPicker();
+      _exSeatPopulatePrintRoomSelect();
+    } catch (e) {}
+  }
+  function _exSeatPopulateExamSelect() {
+    const sel = document.getElementById('exSeatExamSelect');
+    if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— Pick an exam —</option>' + _examList.map(e =>
+      `<option value="${e.id}">${_escHtml(e.exam_terms?.name || '')} · ${_escHtml(e.name || e.exam_patterns?.name || '')} · ${_escHtml(e.class_patterns?.name || _examClassLabel(e.pattern_id))}</option>`
+    ).join('');
+    sel.value = cur;
+  }
+  function _exSeatRenderRoomsTable() {
+    const body = document.getElementById('exSeatRoomsBody');
+    if (!body) return;
+    if (!_exSeatRooms.length) { body.innerHTML = '<tr><td colspan="4" class="py-6 px-3 text-center text-slate-400 text-xs">No rooms yet.</td></tr>'; return; }
+    body.innerHTML = _exSeatRooms.map(r => `<tr class="border-t border-slate-100">
+      <td class="py-2 px-3 font-bold">${_escHtml(r.room_name)}</td>
+      <td class="py-2 px-3 text-slate-500">${r.building ? _escHtml(r.building) : '<span class="text-slate-300">—</span>'}</td>
+      <td class="py-2 px-3">${r.capacity}</td>
+      <td class="py-2 px-3 text-right">
+        <button onclick="_exSeatRoomEdit(${r.id})" class="text-blue-600 text-[10px] font-black uppercase mr-2">Edit</button>
+        <button onclick="_exSeatRoomDelete(${r.id})" class="text-red-500 text-[10px] font-black uppercase">Delete</button>
+      </td>
+    </tr>`).join('');
+  }
+  function _exSeatPopulateRoomBuildingSelect() {
+    const sel = document.getElementById('exSeatRoomBuilding');
+    if (!sel) return;
+    const cur = sel.value;
+    const known = [...new Set(_exSeatRooms.map(r => r.building).filter(Boolean))].sort();
+    sel.innerHTML = '<option value="">— None —</option>' + known.map(b => `<option value="${_escHtml(b)}">${_escHtml(b)}</option>`).join('') + '<option value="__other__">Other…</option>';
+    sel.value = cur;
+  }
+  function _exSeatRoomBuildingSelectChange(sel) {
+    if (sel.value !== '__other__') return;
+    const label = (prompt('Name this building:') || '').trim();
+    if (!label) { sel.value = ''; return; }
+    const opt = document.createElement('option');
+    opt.value = label; opt.textContent = label; opt.selected = true;
+    sel.insertBefore(opt, sel.lastElementChild);
+  }
+  async function _exSeatRoomSave() {
+    const room_name = document.getElementById('exSeatRoomName').value.trim();
+    const capacity = document.getElementById('exSeatRoomCapacity').value.trim();
+    const building = document.getElementById('exSeatRoomBuilding')?.value || '';
+    if (!room_name || !capacity) { showToast('Enter a room name and capacity', 'error'); return; }
+    try {
+      const res = await _adminFetch('saveExamRoom', { id: _exSeatEditingRoomId || undefined, room_name, capacity, building });
+      if (res.result !== 'success') { showToast(res.message || 'Failed', 'error'); return; }
+      document.getElementById('exSeatRoomName').value = '';
+      document.getElementById('exSeatRoomCapacity').value = '';
+      document.getElementById('exSeatRoomBuilding').value = '';
+      _exSeatEditingRoomId = null;
+      showToast('Room saved', 'success');
+      _exSeatLoadRooms();
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  function _exSeatRoomEdit(id) {
+    const room = _exSeatRooms.find(r => r.id === id);
+    if (!room) return;
+    document.getElementById('exSeatRoomName').value = room.room_name;
+    document.getElementById('exSeatRoomCapacity').value = room.capacity;
+    const sel = document.getElementById('exSeatRoomBuilding');
+    if (sel) sel.value = room.building || '';
+    _exSeatEditingRoomId = id;
+  }
+  function _exSeatRoomDelete(id) {
+    showConfirm('Delete this room? It is shared with Admission and Inventory Admin.', async () => {
+      try {
+        const res = await _adminFetch('deleteExamRoom', { id });
+        if (res.result !== 'success') { showToast(res.message || 'Failed', 'error'); return; }
+        showToast('Room deleted', 'success');
+        _exSeatLoadRooms();
+      } catch (e) { showToast(e.message || 'Failed', 'error'); }
+    });
+  }
+  function _exSeatRenderAllocRoomPicker() {
+    const host = document.getElementById('exSeatAllocRoomPicker');
+    if (!host) return;
+    host.innerHTML = _exSeatRooms.map(r => `<label class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer">
+      <input type="checkbox" class="exSeatAllocRoomChk" value="${r.id}"> ${_escHtml(r.room_name)} (${r.capacity})${r.building ? ` <span class="text-slate-400 font-normal">— ${_escHtml(r.building)}</span>` : ''}
+    </label>`).join('') || '<p class="text-xs text-slate-400">No rooms yet — add some above.</p>';
+  }
+  function _exSeatPopulatePrintRoomSelect() {
+    const sel = document.getElementById('exSeatPrintRoomSelect');
+    if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">All rooms</option>' + _exSeatRooms.map(r => `<option value="${r.id}">${_escHtml(r.room_name)}</option>`).join('');
+    sel.value = cur;
+  }
+  async function _exSeatRunAllocation() {
+    const examId = parseInt(document.getElementById('exSeatExamSelect').value, 10);
+    if (!examId) { showToast('Pick an exam first', 'error'); return; }
+    const roomIds = Array.from(document.querySelectorAll('.exSeatAllocRoomChk:checked')).map(c => parseInt(c.value, 10));
+    if (!roomIds.length) { showToast('Pick at least one room', 'error'); return; }
+    const criteria = {
+      sort_by: document.getElementById('exSeatSortBy').value,
+      sort_dir: 'asc',
+      group_by: document.getElementById('exSeatGroupBy').value || '',
+      room_ids: roomIds,
+    };
+    try {
+      const res = await _adminFetch('runExamSeatAllocation', { exam_id: examId, criteria });
+      if (res.result !== 'success') { showToast(res.message || 'Failed', 'error'); return; }
+      const el = document.getElementById('exSeatAllocResult');
+      if (el) el.textContent = `Allocated ${res.allocated} student(s)${res.overflow ? ` — ${res.overflow} could not be seated (not enough room capacity)` : ''}.`;
+      showToast('Allocation complete', 'success');
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  function _exSeatClearAllocation() {
+    const examId = parseInt(document.getElementById('exSeatExamSelect').value, 10);
+    if (!examId) { showToast('Pick an exam first', 'error'); return; }
+    showConfirm("Clear this exam's seat allocation?", async () => {
+      try {
+        const res = await _adminFetch('clearExamSeatAllocation', { exam_id: examId });
+        if (res.result !== 'success') { showToast(res.message || 'Failed', 'error'); return; }
+        showToast('Cleared', 'success');
+        const el = document.getElementById('exSeatAllocResult'); if (el) el.textContent = '';
+      } catch (e) { showToast(e.message || 'Failed', 'error'); }
+    });
+  }
+  async function _exSeatPrintSignatureSheet() {
+    const examId = parseInt(document.getElementById('exSeatExamSelect').value, 10);
+    if (!examId) { showToast('Pick an exam first', 'error'); return; }
+    const roomId = document.getElementById('exSeatPrintRoomSelect').value;
+    if (!roomId) { showToast('Pick a specific room to print a signature sheet for', 'error'); return; }
+    try {
+      const res = await _adminFetch('getExamSeatPlanData', { exam_id: examId, room_id: roomId });
+      if (res.result !== 'success') { showToast(res.message || 'Failed', 'error'); return; }
+      if (!res.students.length) { showToast('No students allocated to this room', 'error'); return; }
+      _exSeatBuildSignatureSheetHtml(res.room, res.students);
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  function _exSeatBuildSignatureSheetHtml(room, students) {
+    const rows = students.map((s, i) => `<tr>
+      <td>${i + 1}</td>
+      <td>${_escHtml(s.seat_no || '')}</td>
+      <td>${_escHtml(s.student_name || '')}</td>
+      <td>${_escHtml(s.roll || '')}</td>
+      <td>${_escHtml(s.class || '')}${s.section ? '-' + _escHtml(s.section) : ''}</td>
+      <td style="width:120px"><div style="border-top:1px solid #1e293b;height:8mm"></div></td>
+    </tr>`).join('');
+    const body = `
+      <h1 style="font-size:16px;margin:0 0 2px">${_escHtml(room?.room_name || 'Room')} — Signature Sheet</h1>
+      <p style="font-size:10px;color:#6b7280;margin:0 0 10px">${students.length} student(s) — Printed ${new Date().toLocaleString()}</p>
+      <table><thead><tr><th>SL</th><th>Seat</th><th>Name</th><th>Roll</th><th>Class</th><th>Signature</th></tr></thead><tbody>${rows}</tbody></table>`;
+    const css = `@page { size: A4 portrait; margin: 12mm; }
+      table { width:100%; border-collapse:collapse; font-size:11px; }
+      th, td { border:1px solid #cbd5e1; padding:4px 6px; text-align:left; }
+      th { background:#f1f5f9; text-transform:uppercase; font-size:9px; }`;
+    _gfOpenPrintWindow(`${room?.room_name || 'Room'} — Signature Sheet`, body, css);
+  }
+  async function _exSeatPrintRoomList() {
+    const examId = parseInt(document.getElementById('exSeatExamSelect').value, 10);
+    if (!examId) { showToast('Pick an exam first', 'error'); return; }
+    const roomId = document.getElementById('exSeatPrintRoomSelect').value || undefined;
+    try {
+      const res = await _adminFetch('getExamSeatPlanData', { exam_id: examId, room_id: roomId });
+      if (res.result !== 'success') { showToast(res.message || 'Failed', 'error'); return; }
+      if (!res.students.length) { showToast('No students allocated yet', 'error'); return; }
+      const rows = res.students.map(s => `<tr>
+        <td>${_escHtml((_exSeatRooms.find(r => r.id === s.room_id) || {}).room_name || '')}</td>
+        <td>${_escHtml(s.seat_no || '')}</td>
+        <td>${_escHtml(s.student_name || '')}</td>
+        <td>${_escHtml(s.roll || '')}</td>
+        <td>${_escHtml(s.class || '')}${s.section ? '-' + _escHtml(s.section) : ''}</td>
+      </tr>`).join('');
+      const body = `<h1 style="font-size:16px;margin:0 0 10px">Seat Plan — Room List</h1>
+        <table><thead><tr><th>Room</th><th>Seat</th><th>Name</th><th>Roll</th><th>Class</th></tr></thead><tbody>${rows}</tbody></table>`;
+      const css = `@page { size: A4 portrait; margin: 12mm; } table { width:100%; border-collapse:collapse; font-size:11px; } th, td { border:1px solid #cbd5e1; padding:4px 6px; text-align:left; } th { background:#f1f5f9; text-transform:uppercase; font-size:9px; }`;
+      _gfOpenPrintWindow('Seat Plan — Room List', body, css);
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
 
   // ── Term Setup ──────────────────────────────────────────────────────────
@@ -45769,7 +46022,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   async function _admCandRoomDelete(id) {
     if (!confirm('Delete this room? Candidates allocated to it will need re-allocation.')) return;
-    try { await _admCandFetch('deleteRoom', { id }); showToast('Room deleted', 'success'); _admCandLoadRooms(); } catch (e) { showToast(e.message || 'Failed', 'error'); }
+    try { await _admCandFetch('deleteRoom', { id, circular_id: _admCandActiveCircularId }); showToast('Room deleted', 'success'); _admCandLoadRooms(); } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
   function _admCandRoomHandleImportFile(e) {
     const file = e.target.files[0];
@@ -46077,7 +46330,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const roomId = parseInt(document.getElementById('admCandPrintRoomSelect').value, 10);
     if (!roomId) { showToast('Pick a room', 'error'); return; }
     try {
-      const res = await _admCandFetch('getSignatureSheetData', { room_id: roomId });
+      const res = await _admCandFetch('getSignatureSheetData', { room_id: roomId, circular_id: _admCandActiveCircularId });
       if (res.error) { showToast(res.error, 'error'); return; }
       if (!res.candidates.length) { showToast('No candidates allocated to this room', 'error'); return; }
       _admCandBuildSignatureSheetHtml(res.room, res.candidates);

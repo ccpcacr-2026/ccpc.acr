@@ -251,6 +251,35 @@ async function sbExam(path, method = 'GET', body = null, extraHeaders = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+// Part 9: cross-schema read/write into the Inventory module's rooms/
+// buildings tables -- the portal-wide Rooms registry this module's new Seat
+// Plan feature shares with Admission's own Rooms tab and Inventory Admin
+// itself. Self-contained copy of app/api/inventory-admin/route.js's own
+// sbInventory() (no shared import, matching this repo's convention).
+async function sbInventory(path, method = 'GET', body = null, extraHeaders = {}) {
+  const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    method,
+    headers: {
+      apikey: SB_KEY,
+      Authorization: `Bearer ${SB_KEY}`,
+      'Content-Type': 'application/json',
+      ...(method !== 'GET' ? { Prefer: 'return=representation' } : {}),
+      'Accept-Profile': 'inventory',
+      'Content-Profile': 'inventory',
+      ...extraHeaders,
+    },
+    ...(body !== null ? { body: JSON.stringify(body) } : {}),
+  });
+  const text = await res.text();
+  if (!res.ok) return { error: text };
+  return text ? JSON.parse(text) : null;
+}
+function chunk(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 // Read-only window into the `accounts` schema, so a fee head can be linked
 // to the real income ledger it posts to (see sync_fee_types_from_ledgers).
 // Deliberately GET-only — Accounts owns its own writes via
@@ -766,6 +795,11 @@ const ADMIN_TAB_ACTIONS = {
     'process_exam_result', 'prepare_result', 'get_result_templates', 'save_result_template', 'delete_result_template',
     'get_grade_scales', 'save_grade_scale', 'delete_grade_scale',
     'save_board_exam_record', 'get_board_exam_records',
+    // Seat Plan (Part 9) -- shares the Rooms registry with Admission's own
+    // Rooms tab and Inventory Admin (inventory.rooms/buildings), but
+    // allocation itself (exam.exam_seat_assignments) is this module's own.
+    'listExamRooms', 'saveExamRoom', 'deleteExamRoom',
+    'runExamSeatAllocation', 'clearExamSeatAllocation', 'getExamSeatPlanData',
   ]),
   // Leave Management lives under the Payroll nav tab (its "Leave" sub-tab) —
   // one toggle controls both, matching what the tab actually shows.
@@ -5216,6 +5250,163 @@ export async function POST(req) {
     const r = await sbExam(`exams?id=eq.${encodeURIComponent(id)}`, 'DELETE');
     if (r?.error) return NextResponse.json({ result: 'error', message: r.error });
     return NextResponse.json({ result: 'success' });
+  }
+
+  // ── Seat Plan (Part 9) ───────────────────────────────────────────────────
+  // Rooms are the portal-wide inventory.rooms/buildings registry -- the same
+  // one Admission's own Rooms tab now uses (see
+  // migration_admission_rooms_use_inventory.sql) and Inventory Admin always
+  // has -- a room added from any of the three shows up in all of them.
+  // Allocation itself (who sits where for THIS exam) is this module's own:
+  // exam.exam_seat_assignments/exam_seat_allocation_runs (see
+  // migration_exam_seat_plan.sql).
+  if (action === 'listExamRooms') {
+    const [rooms, buildings] = await Promise.all([
+      sbInventory('rooms?select=id,name,capacity,building_id&order=name.asc'),
+      sbInventory('buildings?select=id,name'),
+    ]);
+    if (rooms?.error) return NextResponse.json({ result: 'error', message: rooms.error });
+    const buildingById = {};
+    (Array.isArray(buildings) ? buildings : []).forEach(b => { buildingById[b.id] = b.name; });
+    const mapped = (Array.isArray(rooms) ? rooms : []).map(r => ({
+      id: r.id, room_name: r.name, capacity: r.capacity, building: r.building_id ? (buildingById[r.building_id] || null) : null,
+    }));
+    return NextResponse.json({ result: 'success', rooms: mapped });
+  }
+  if (action === 'saveExamRoom') {
+    const { id, room_name, capacity, building } = payload;
+    if (!room_name || !capacity) return NextResponse.json({ result: 'error', message: 'Room name and capacity are required.' });
+    let building_id = null;
+    const buildingName = String(building || '').trim();
+    if (buildingName) {
+      const existingB = await sbInventory(`buildings?name=eq.${encodeURIComponent(buildingName)}&select=id`);
+      if (Array.isArray(existingB) && existingB[0]) building_id = existingB[0].id;
+      else {
+        const newB = await sbInventory('buildings', 'POST', { name: buildingName });
+        if (newB?.error) return NextResponse.json({ result: 'error', message: newB.error });
+        building_id = newB?.[0]?.id || null;
+      }
+    }
+    const data = { name: room_name, capacity: parseInt(capacity, 10) || 0, building_id };
+    if (id) {
+      const res = await sbInventory(`rooms?id=eq.${parseInt(id, 10)}`, 'PATCH', data);
+      if (res?.error) return NextResponse.json({ result: 'error', message: res.error });
+      return NextResponse.json({ result: 'success', id });
+    }
+    const res = await sbInventory('rooms', 'POST', data);
+    if (res?.error) return NextResponse.json({ result: 'error', message: res.error });
+    return NextResponse.json({ result: 'success', id: res?.[0]?.id });
+  }
+  if (action === 'deleteExamRoom') {
+    const roomId = parseInt(payload.id, 10) || 0;
+    const res = await sbInventory(`rooms?id=eq.${roomId}`, 'DELETE');
+    if (res?.error) return NextResponse.json({ result: 'error', message: res.error });
+    return NextResponse.json({ result: 'success' });
+  }
+  // Every student currently matching this exam's class pattern scope --
+  // same resolution _examClassList/get_exams' student counts already use,
+  // just for one exam instead of every pattern at once. No roster/
+  // registration table exists or is created here; membership is always
+  // computed fresh from students_data.
+  async function _resolveExamRoster(examId) {
+    const examRows = await sbExam(`exams?id=eq.${encodeURIComponent(examId)}&select=id,pattern_id`);
+    const exam = Array.isArray(examRows) && examRows[0];
+    if (!exam) return { error: 'Exam not found.' };
+    const pattern = await _patternById(exam.pattern_id);
+    if (!pattern) return { error: "This exam's class list no longer exists." };
+    const year = await _examYear(exam);
+    const roster = await _rosterForClass(pattern, null, year);
+    if (roster && roster.error) return { error: roster.error };
+    return { roster };
+  }
+  if (action === 'runExamSeatAllocation') {
+    const examId = parseInt(payload.exam_id, 10);
+    if (!examId) return NextResponse.json({ result: 'error', message: 'Pick an exam first.' });
+    const criteria = payload.criteria || {};
+    const roomIds = Array.isArray(criteria.room_ids) ? criteria.room_ids.map(n => parseInt(n, 10)).filter(Boolean) : [];
+    if (!roomIds.length) return NextResponse.json({ result: 'error', message: 'Pick at least one room.' });
+
+    const roomsRes = await sbInventory(`rooms?id=in.(${roomIds.join(',')})&select=id,capacity`);
+    if (!Array.isArray(roomsRes) || !roomsRes.length) return NextResponse.json({ result: 'error', message: 'Rooms not found.' });
+    const roomsById = {}; roomsRes.forEach(r => { roomsById[r.id] = r; });
+    const orderedRooms = roomIds.map(id => roomsById[id]).filter(Boolean);
+
+    const { error: rosterErr, roster } = await _resolveExamRoster(examId);
+    if (rosterErr) return NextResponse.json({ result: 'error', message: rosterErr });
+    if (!roster || !roster.length) return NextResponse.json({ result: 'error', message: 'No matching students for this exam.' });
+
+    const sortBy = criteria.sort_by || 'roll';
+    const dir = criteria.sort_dir === 'desc' ? -1 : 1;
+    const cmp = (a, b) => String(a[sortBy] ?? '').localeCompare(String(b[sortBy] ?? ''), undefined, { numeric: true }) * dir;
+
+    let ordered;
+    if (criteria.group_by) {
+      const groups = {};
+      roster.forEach(st => { const k = st[criteria.group_by] || ''; (groups[k] = groups[k] || []).push(st); });
+      ordered = Object.keys(groups).sort().flatMap(k => groups[k].sort(cmp));
+    } else {
+      ordered = roster.slice().sort(cmp);
+    }
+
+    const run = await sbExam('exam_seat_allocation_runs', 'POST', {
+      exam_id: examId, criteria_json: criteria, room_ids: roomIds, student_count: ordered.length,
+    });
+    if (run?.error) return NextResponse.json({ result: 'error', message: run.error });
+    const runId = run?.[0]?.id;
+
+    let cursor = 0, roomIdx = 0, seatInRoom = 0, overflow = 0;
+    const assignments = [];
+    while (cursor < ordered.length && roomIdx < orderedRooms.length) {
+      const room = orderedRooms[roomIdx];
+      const slice = ordered.slice(cursor, cursor + (room.capacity - seatInRoom));
+      slice.forEach((st, i) => assignments.push({
+        exam_id: examId, student_id: st.student_id, room_id: room.id, seat_no: String(seatInRoom + i + 1),
+        allocation_run_id: runId, updated_at: new Date().toISOString(),
+      }));
+      cursor += slice.length;
+      seatInRoom += slice.length;
+      if (seatInRoom >= room.capacity) { roomIdx++; seatInRoom = 0; }
+    }
+    if (cursor < ordered.length) overflow = ordered.length - cursor;
+
+    for (const part of chunk(assignments, 500)) {
+      const res = await sbExam('exam_seat_assignments?on_conflict=exam_id,student_id', 'POST', part, { Prefer: 'resolution=merge-duplicates,return=minimal' });
+      if (res?.error) return NextResponse.json({ result: 'error', message: res.error });
+    }
+    return NextResponse.json({ result: 'success', allocation_run_id: runId, allocated: assignments.length, overflow });
+  }
+  if (action === 'clearExamSeatAllocation') {
+    const examId = parseInt(payload.exam_id, 10);
+    const runId = parseInt(payload.allocation_run_id, 10);
+    if (!examId && !runId) return NextResponse.json({ result: 'error', message: 'Pick an exam first.' });
+    const q = runId ? `exam_seat_assignments?allocation_run_id=eq.${runId}` : `exam_seat_assignments?exam_id=eq.${examId}`;
+    await sbExam(q, 'DELETE');
+    if (runId) await sbExam(`exam_seat_allocation_runs?id=eq.${runId}`, 'PATCH', { cleared_at: new Date().toISOString() });
+    else await sbExam(`exam_seat_allocation_runs?exam_id=eq.${examId}&cleared_at=is.null`, 'PATCH', { cleared_at: new Date().toISOString() });
+    return NextResponse.json({ result: 'success' });
+  }
+  // Printing: one room's seated students for this exam (Signature Sheet),
+  // or every seated student for the exam (Token/Room list).
+  if (action === 'getExamSeatPlanData') {
+    const examId = parseInt(payload.exam_id, 10);
+    if (!examId) return NextResponse.json({ result: 'error', message: 'Pick an exam first.' });
+    let q = `exam_seat_assignments?exam_id=eq.${examId}&select=student_id,room_id,seat_no&order=seat_no.asc`;
+    if (payload.room_id) q += `&room_id=eq.${parseInt(payload.room_id, 10) || 0}`;
+    const [assignments, room] = await Promise.all([
+      sbExam(q),
+      payload.room_id ? sbInventory(`rooms?id=eq.${parseInt(payload.room_id, 10) || 0}&select=id,name,capacity`) : Promise.resolve(null),
+    ]);
+    if (assignments?.error) return NextResponse.json({ result: 'error', message: assignments.error });
+    const rows = Array.isArray(assignments) ? assignments : [];
+    if (!rows.length) return NextResponse.json({ result: 'success', room: room?.[0] ? { id: room[0].id, room_name: room[0].name, capacity: room[0].capacity } : null, students: [] });
+    const roster = await sbAllRows(`students_data?student_id=in.(${rows.map(r => encodeURIComponent(r.student_id)).join(',')})&select=student_id,student_name,roll,class,section`);
+    const byId = {}; (Array.isArray(roster) ? roster : []).forEach(s => { byId[s.student_id] = s; });
+    const students = rows.map(r => ({ ...byId[r.student_id], student_id: r.student_id, seat_no: r.seat_no, room_id: r.room_id }));
+    return NextResponse.json({
+      result: 'success',
+      room: room?.[0] ? { id: room[0].id, room_name: room[0].name, capacity: room[0].capacity } : null,
+      students,
+    });
   }
 
   // ── Marks Entry Setup — which subject+component+section sheets are open

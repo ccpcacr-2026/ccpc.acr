@@ -266,6 +266,8 @@ const RESERVED = [
   'processExamResult','toggleResultBreakdown',
   'saveGradeScale','deleteGradeScale',
   'saveBoardExamRecord',
+  '_exSeatRoomBuildingSelectChange','_exSeatRoomSave','_exSeatRoomEdit','_exSeatRoomDelete',
+  '_exSeatRunAllocation','_exSeatClearAllocation','_exSeatPrintSignatureSheet','_exSeatPrintRoomList',
   // Payroll tab native port
   'loadAdminPayrollView','switchPayrollTab','saveSalaryStructure','runPayroll',
   'approveLeave','_prRefreshPersonLivePreview',
