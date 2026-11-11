@@ -41811,7 +41811,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </button>
         </div>
         <div id="admFilterPanel" class="hidden mb-3 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
-        <div id="adm-stats-row" class="flex flex-wrap items-center gap-2 mb-3"></div>
+        <div id="adm-stats-row" class="mb-3"></div>
         <div id="adm-bulk-action-bar" class="hidden flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 mb-3">
           <span id="adm-bulk-count" class="text-xs font-bold text-blue-700">0 selected</span>
           <select id="adm-bulk-status-select" class="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold" style="width:160px">
@@ -42134,11 +42134,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     set.has(value) ? set.delete(value) : set.add(value);
     _admRenderFilterPanel();
     _admFilterApps();
+    if (dimKey === 'status') _admLoadStats(); // keeps the stat tiles' active-ring in sync
   }
   function clearAdmFilters() {
     Object.values(_admFilterState).forEach(s => s.clear());
     _admRenderFilterPanel();
     _admFilterApps();
+    _admLoadStats();
   }
   function _admRenderFilterPanel() {
     const host = document.getElementById('admFilterPanel');
@@ -42155,16 +42157,85 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).join('') + (_admFilterActiveCount() ? `<button type="button" onclick="clearAdmFilters()" class="text-[10px] font-black text-red-600 uppercase hover:underline">Clear all filters</button>` : '');
     _admUpdateFilterBadge();
   }
-  async function _admLoadStats() {
-    try {
-      const r = await _admAdminFetch('getStats', { circular_id: _admCandActiveCircularId });
-      if (!r.stats) return;
-      const s = r.stats;
-      const chip = (label, val, color) => `<span class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600">${label}: <b style="color:${color}">${val}</b></span>`;
-      document.getElementById('adm-stats-row').innerHTML =
-        chip('Total', s.total, '#1e293b') + chip('Pending', s.pending, '#d97706') +
-        chip('Admitted', s.admitted, '#059669') + chip('Rejected', s.rejected, '#dc2626');
-    } catch (e) {}
+  // Status tile colors reuse the exact same amber/blue/emerald/red families
+  // already assigned to each status everywhere else on this screen
+  // (ADM_STATUS_COLORS, the table's own status badge/select) -- one status,
+  // one color, everywhere, rather than inventing a second palette for the
+  // dashboard. Source-breakdown colors (native/imported/online) are new but
+  // fixed per value for the same reason -- same identity, same color, in
+  // every chart that shows it.
+  const ADM_STATUS_TILES = {
+    'Pending':          { icon: 'clock',          bg: 'bg-amber-50',   text: 'text-amber-700',   iconBg: 'bg-amber-100 text-amber-600',   ring: 'ring-amber-300' },
+    'Called for Test':  { icon: 'calendar-check',  bg: 'bg-blue-50',    text: 'text-blue-700',    iconBg: 'bg-blue-100 text-blue-600',     ring: 'ring-blue-300' },
+    'Admitted':         { icon: 'check-circle-2',  bg: 'bg-emerald-50', text: 'text-emerald-700', iconBg: 'bg-emerald-100 text-emerald-600', ring: 'ring-emerald-300' },
+    'Rejected':         { icon: 'x-circle',        bg: 'bg-red-50',     text: 'text-red-700',     iconBg: 'bg-red-100 text-red-600',       ring: 'ring-red-300' },
+  };
+  const ADM_SOURCE_BAR_COLORS = { native: 'bg-slate-500', imported: 'bg-indigo-500', online: 'bg-teal-500' };
+  function _admClearStatusFilter() {
+    _admFilterState.status.clear();
+    _admRenderFilterPanel();
+    _admFilterApps();
+  }
+  function _admBreakdownList(dimKey, label, barColorFn) {
+    const counts = {};
+    _admAllApps.forEach(a => {
+      const v = (dimKey === 'source' ? (a.source || 'native') : a[dimKey]) || '—';
+      counts[v] = (counts[v] || 0) + 1;
+    });
+    const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    if (!entries.length) {
+      return `<div class="bg-white rounded-2xl border border-slate-100 p-4">
+        <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">${_escHtml(label)}</p>
+        <p class="text-xs text-slate-400">No data yet</p>
+      </div>`;
+    }
+    const max = entries[0][1];
+    const top = entries.slice(0, 6);
+    const restCount = entries.slice(6).reduce((sum, [, c]) => sum + c, 0);
+    const rows = top.map(([k, c]) => `
+      <div class="flex items-center gap-2">
+        <span class="w-24 shrink-0 text-xs font-bold text-slate-600 truncate" title="${_escHtml(k)}">${_escHtml(k)}</span>
+        <div class="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden"><div class="h-full rounded-full ${barColorFn(k)}" style="width:${Math.max(4, Math.round(c / max * 100))}%"></div></div>
+        <span class="w-7 text-right text-xs font-black text-slate-700 tabular-nums">${c}</span>
+      </div>`).join('');
+    return `<div class="bg-white rounded-2xl border border-slate-100 p-4">
+      <p class="text-[10px] uppercase text-slate-400 font-bold mb-2.5">${_escHtml(label)}</p>
+      <div class="space-y-2">${rows}</div>
+      ${restCount ? `<p class="text-[10px] text-slate-400 font-bold mt-2">+${restCount} more</p>` : ''}
+    </div>`;
+  }
+  function _admLoadStats() {
+    const apps = _admAllApps;
+    const byStatus = {}; ADM_STATUSES.forEach(s => byStatus[s] = 0);
+    apps.forEach(a => { if (byStatus[a.status] !== undefined) byStatus[a.status]++; });
+    const totalTile = `<button type="button" onclick="_admClearStatusFilter()"
+      class="group flex-1 min-w-[130px] text-left bg-slate-800 rounded-2xl px-4 py-3.5 transition-all hover:-translate-y-0.5 hover:shadow-lg ${!_admFilterState.status.size ? 'ring-2 ring-offset-1 ring-slate-800' : ''}">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-[10px] font-black uppercase tracking-widest text-slate-300">Total</span>
+        <span class="w-7 h-7 rounded-lg flex items-center justify-center bg-white/10 text-white"><i data-lucide="users" class="h-3.5 w-3.5"></i></span>
+      </div>
+      <p class="text-2xl font-black text-white tabular-nums">${apps.length}</p>
+    </button>`;
+    const statusTiles = ADM_STATUSES.map(s => {
+      const c = ADM_STATUS_TILES[s];
+      const active = _admFilterState.status.has(s);
+      return `<button type="button" onclick='toggleAdmFilter("status", ${JSON.stringify(s)})'
+        class="group flex-1 min-w-[130px] text-left ${c.bg} rounded-2xl px-4 py-3.5 transition-all hover:-translate-y-0.5 hover:shadow-lg ${active ? `ring-2 ring-offset-1 ${c.ring}` : ''}">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-[10px] font-black uppercase tracking-widest ${c.text}">${_escHtml(s)}</span>
+          <span class="w-7 h-7 rounded-lg flex items-center justify-center ${c.iconBg}"><i data-lucide="${c.icon}" class="h-3.5 w-3.5"></i></span>
+        </div>
+        <p class="text-2xl font-black ${c.text} tabular-nums">${byStatus[s]}</p>
+      </button>`;
+    }).join('');
+    document.getElementById('adm-stats-row').innerHTML = `
+      <div class="flex flex-wrap gap-2.5 mb-3">${totalTile}${statusTiles}</div>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        ${_admBreakdownList('class', 'By Class', () => 'bg-blue-500')}
+        ${_admBreakdownList('category', 'By Category', () => 'bg-violet-500')}
+        ${_admBreakdownList('source', 'By Source', k => ADM_SOURCE_BAR_COLORS[k] || 'bg-slate-400')}
+      </div>`;
+    if (window.lucide) lucide.createIcons();
   }
   let _admLastFiltered = [];
   let _admTablePage = 0;
