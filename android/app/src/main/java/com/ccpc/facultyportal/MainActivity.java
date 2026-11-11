@@ -1,18 +1,34 @@
 package com.ccpc.facultyportal;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.view.ViewGroup;
+import android.webkit.PermissionRequest;
 import android.webkit.WebView;
 import androidx.activity.OnBackPressedCallback;
+import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.BridgeWebChromeClient;
 
 public class MainActivity extends BridgeActivity {
+    // Bridges the WebView's own getUserMedia permission prompt (the Scan
+    // tab's QR camera, called as plain page JS via navigator.mediaDevices --
+    // not a Capacitor plugin) into Android's runtime permission system.
+    // Without this, WebView's default WebChromeClient.onPermissionRequest
+    // does nothing, so every getUserMedia() call hangs/fails regardless of
+    // what the user taps in the page itself.
+    private static final int CAMERA_PERMISSION_REQUEST_CODE = 9201;
+    private PermissionRequest pendingCameraRequest;
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -83,5 +99,40 @@ public class MainActivity extends BridgeActivity {
                 );
             }
         });
+
+        // See the field comments above -- grants the WebView's own
+        // getUserMedia() camera request once the Android runtime permission
+        // is actually held, requesting it first if not.
+        getBridge().getWebView().setWebChromeClient(new BridgeWebChromeClient(getBridge()) {
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                boolean needsCamera = false;
+                for (String r : request.getResources()) {
+                    if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)) needsCamera = true;
+                }
+                if (!needsCamera) { super.onPermissionRequest(request); return; }
+                runOnUiThread(() -> {
+                    if (ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                        request.grant(request.getResources());
+                    } else {
+                        pendingCameraRequest = request;
+                        ActivityCompat.requestPermissions(MainActivity.this, new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST_CODE);
+                    }
+                });
+            }
+        });
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == CAMERA_PERMISSION_REQUEST_CODE && pendingCameraRequest != null) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                pendingCameraRequest.grant(pendingCameraRequest.getResources());
+            } else {
+                pendingCameraRequest.deny();
+            }
+            pendingCameraRequest = null;
+        }
     }
 }

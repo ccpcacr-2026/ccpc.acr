@@ -32,4 +32,10 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Needed for the Scan tab's QR camera (navigator.mediaDevices.getUserMedia
+         inside the WebView); see MainActivity's onPermissionRequest override,
+         which bridges this into the WebView's own getUserMedia permission grant.
+         Declared not-required so devices without a camera can still install. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>

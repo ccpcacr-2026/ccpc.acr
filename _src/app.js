@@ -44414,6 +44414,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       document.head.appendChild(s);
     });
   }
+  // Shared by both camera-scan flows in this file (Part 1's native Scan tab
+  // and the Candidates module's dynamic Scan Options) -- a getUserMedia
+  // rejection is overwhelmingly a permission problem in practice, so this
+  // offers a one-tap retry (meaningful whenever the OS/browser hasn't
+  // permanently locked the decision yet) plus manual-fallback instructions
+  // for when it has. retryFnName is the already-RESERVED function name
+  // (as a bare string) to re-invoke on tap -- e.g. '_admStartScan'.
+  function _admShowCameraPermissionError(note, e, retryFnName) {
+    if (!note) return;
+    const name = e && e.name;
+    if (name === 'NotFoundError' || name === 'DevicesNotFoundError') { note.textContent = 'No camera found on this device.'; return; }
+    if (name === 'NotReadableError' || name === 'TrackStartError') { note.textContent = 'The camera is busy or unavailable — close any other app using it and try again.'; return; }
+    note.innerHTML = `
+      <span class="text-red-600 font-bold">Camera access was denied.</span>
+      <button type="button" onclick="${retryFnName}()" class="ml-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Grant Camera Permission</button>
+      <br><span class="text-slate-400">If this keeps failing: in the app, open your phone's Settings → Apps → CCPC Portal → Permissions → Camera → Allow. In a web browser, tap the padlock/site-info icon next to the address bar → Permissions → Camera → Allow. Then try again.</span>`;
+  }
   async function _admStartScan() {
     const note = document.getElementById('adm-scan-note');
     if (note) note.textContent = 'Loading scanner…';
@@ -44421,7 +44438,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     try {
       _admScanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
     } catch (e) {
-      if (note) note.textContent = 'Could not access the camera — check browser permission.';
+      _admShowCameraPermissionError(note, e, '_admStartScan');
       return;
     }
     const video = document.getElementById('adm-scan-video');
@@ -47186,7 +47203,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     try {
       _admCandScanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
     } catch (e) {
-      if (note) note.textContent = 'Could not access the camera — check browser permission.';
+      _admShowCameraPermissionError(note, e, '_admCandScanStart');
       return;
     }
     const video = document.getElementById('admCandScanVideo');
