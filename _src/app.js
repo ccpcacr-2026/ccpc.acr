@@ -45656,7 +45656,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // "SB-101" -> School Building), not a separate stored field -- matches how
   // the school's existing manual seat-plan spreadsheet already names rooms,
   // so nothing needs re-entering for rooms that already follow it.
-  const ADM_CAND_BUILDING_PREFIXES = { SB: 'School Building', HB: 'Honors Building', CB: 'College Building', MB: 'Main Building' };
+  const ADM_CAND_BUILDING_PREFIXES = { SB: 'School Building', HB: 'Honors Building', CB: 'College Building', MB: 'Main Building', JB: 'Junior Block' };
   function _admCandRoomBuildingLabel(roomName) {
     const m = /^([A-Za-z]{2,3})[-_\s]/.exec(String(roomName || '').trim());
     return (m && ADM_CAND_BUILDING_PREFIXES[m[1].toUpperCase()]) || '';
