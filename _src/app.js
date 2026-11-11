@@ -41530,13 +41530,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <input type="text" id="adm-search-input" placeholder="Search name, tracking ID…" oninput="_admFilterApps()"
             class="flex-1 min-w-[160px] px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500">
           <select id="adm-filter-class" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
-            <option value="">All Classes</option>${ADM_CLASSES.map(c => `<option>${c}</option>`).join('')}
+            <option value="">All Classes</option>
+          </select>
+          <select id="adm-filter-category" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
+            <option value="">All Categories</option>
           </select>
           <select id="adm-filter-status" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
             <option value="">All Status</option>${ADM_STATUSES.map(s => `<option>${s}</option>`).join('')}
           </select>
           <select id="adm-filter-source" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
             <option value="">All Sources</option><option value="native">Native</option><option value="imported">Imported</option><option value="online">Online</option>
+          </select>
+          <select id="adm-sort-by" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
+            <option value="created_desc">Newest First</option>
+            <option value="created_asc">Oldest First</option>
+            <option value="name_asc">Name (A-Z)</option>
+            <option value="name_desc">Name (Z-A)</option>
+            <option value="class_asc">Class</option>
+            <option value="category_asc">Category</option>
+            <option value="status_asc">Status</option>
+            <option value="tracking_asc">Tracking ID</option>
           </select>
           <button id="adm-new-app-btn" onclick="_admLoadNewApplication()" class="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all">
             <i data-lucide="plus" class="h-3.5 w-3.5"></i> New Application
@@ -41576,7 +41589,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <tbody id="adm-app-table-body"><tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr></tbody>
           </table>
         </div>
-        <p id="adm-app-count" class="text-[10px] text-slate-400 font-bold mt-3 text-right"></p>
+        <div class="flex items-center justify-between mt-3 flex-wrap gap-2">
+          <p id="adm-app-count" class="text-[10px] text-slate-400 font-bold"></p>
+          <div id="adm-app-pagination" class="flex items-center gap-2"></div>
+        </div>
       </div>
 
       <div id="admAdminForm" class="hidden">
@@ -41839,9 +41855,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const res = await _admAdminFetch('listApplications', { circular_id: _admCandActiveCircularId });
       if (res.error) { showToast(res.error, 'error'); return; }
       _admAllApps = res.applications || [];
-      _admRenderTable(_admAllApps);
+      _admPopulateFilterDropdowns();
+      _admTablePage = 0;
+      _admFilterApps();
       _admLoadStats();
     } catch (e) { showToast(e.message || 'Could not load applications', 'error'); }
+  }
+  // Class/Category filter options are derived from the applications actually
+  // loaded (not a fixed school-wide class list), same pattern the Candidates
+  // tab's own filter dropdowns already use -- keeps them accurate for
+  // whatever this circular's data actually contains.
+  function _admPopulateFilterDropdowns() {
+    const classes = [...new Set(_admAllApps.map(a => a.class).filter(Boolean))].sort();
+    const cats = [...new Set(_admAllApps.map(a => a.category).filter(Boolean))].sort();
+    const fill = (id, opts, placeholder) => {
+      const el = document.getElementById(id); if (!el) return;
+      const cur = el.value;
+      el.innerHTML = `<option value="">${placeholder}</option>` + opts.map(o => `<option value="${_escHtml(o)}">${_escHtml(o)}</option>`).join('');
+      el.value = cur;
+    };
+    fill('adm-filter-class', classes, 'All Classes');
+    fill('adm-filter-category', cats, 'All Categories');
   }
   async function _admLoadStats() {
     try {
@@ -41855,6 +41889,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     } catch (e) {}
   }
   let _admLastFiltered = [];
+  let _admTablePage = 0;
+  const ADM_TABLE_PAGE_SIZE = 200;
   function _admRenderTable(apps) {
     _admLastFiltered = apps;
     const tbody = document.getElementById('adm-app-table-body');
@@ -41863,11 +41899,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!apps.length) {
       tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-10 text-center text-slate-400 text-sm">No applications found.</td></tr>';
       document.getElementById('adm-app-count').textContent = '';
+      document.getElementById('adm-app-pagination').innerHTML = '';
       _admRenderBulkBar();
       return;
     }
+    const totalPages = Math.max(1, Math.ceil(apps.length / ADM_TABLE_PAGE_SIZE));
+    if (_admTablePage >= totalPages) _admTablePage = totalPages - 1;
+    if (_admTablePage < 0) _admTablePage = 0;
+    const pageApps = apps.slice(_admTablePage * ADM_TABLE_PAGE_SIZE, _admTablePage * ADM_TABLE_PAGE_SIZE + ADM_TABLE_PAGE_SIZE);
     document.getElementById('adm-app-count').textContent = `${apps.length} record${apps.length > 1 ? 's' : ''}`;
-    tbody.innerHTML = apps.map(a => `
+    tbody.innerHTML = pageApps.map(a => `
       <tr class="border-t border-slate-50 hover:bg-slate-50/80 transition-all cursor-pointer" onclick="_admLoadForm(${a.id})">
         <td class="px-3 py-3" onclick="event.stopPropagation()"><input type="checkbox" class="adm-row-select" data-id="${a.id}" ${_admSelectedIds.has(a.id) ? 'checked' : ''} onchange="_admToggleRowSelect(${a.id},this.checked)"></td>
         <td class="px-3 py-3"><span class="font-black text-blue-600 text-xs font-mono">${_escHtml(a.tracking_id || a.token || '—')}</span><br><span class="text-[9px] text-slate-400">${_escHtml(a.index_id || (a.source !== 'native' ? a.source : '') || '')}</span></td>
@@ -41889,6 +41930,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </tr>`).join('');
     lucide.createIcons();
     _admRenderBulkBar();
+    _admRenderTablePagination(totalPages, apps.length);
+  }
+  function _admRenderTablePagination(totalPages, total) {
+    const el = document.getElementById('adm-app-pagination');
+    if (!el) return;
+    if (totalPages <= 1) { el.innerHTML = ''; return; }
+    const from = _admTablePage * ADM_TABLE_PAGE_SIZE + 1;
+    const to = Math.min(total, from + ADM_TABLE_PAGE_SIZE - 1);
+    el.innerHTML = `
+      <button onclick="_admTableGoPage(${_admTablePage - 1})" ${_admTablePage === 0 ? 'disabled' : ''} class="px-2.5 py-1.5 border border-slate-200 rounded-lg text-[10px] font-black uppercase disabled:opacity-40">Prev</button>
+      <span class="text-[10px] text-slate-500 font-bold">${from}-${to} of ${total} · page ${_admTablePage + 1}/${totalPages}</span>
+      <button onclick="_admTableGoPage(${_admTablePage + 1})" ${_admTablePage >= totalPages - 1 ? 'disabled' : ''} class="px-2.5 py-1.5 border border-slate-200 rounded-lg text-[10px] font-black uppercase disabled:opacity-40">Next</button>
+    `;
+  }
+  function _admTableGoPage(p) {
+    _admTablePage = p;
+    const all = document.getElementById('adm-bulk-select-all'); if (all) all.checked = false;
+    _admRenderTable(_admLastFiltered);
   }
   function _admToggleRowSelect(id, checked) { checked ? _admSelectedIds.add(id) : _admSelectedIds.delete(id); _admRenderBulkBar(); }
   function _admToggleSelectAll(cb) {
@@ -41942,15 +42001,42 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admFilterApps() {
     const q = (document.getElementById('adm-search-input').value || '').toLowerCase();
     const cls = document.getElementById('adm-filter-class').value;
+    const cat = document.getElementById('adm-filter-category')?.value || '';
     const stat = document.getElementById('adm-filter-status').value;
     const src = document.getElementById('adm-filter-source')?.value || '';
-    _admRenderTable(_admAllApps.filter(a => {
+    const sortBy = document.getElementById('adm-sort-by')?.value || 'created_desc';
+    let filtered = _admAllApps.filter(a => {
       if (q && !`${a.name_english || ''} ${a.tracking_id || ''} ${a.index_id || ''} ${a.token || ''}`.toLowerCase().includes(q)) return false;
       if (cls && a.class !== cls) return false;
+      if (cat && a.category !== cat) return false;
       if (stat && a.status !== stat) return false;
       if (src && (a.source || 'native') !== src) return false;
       return true;
-    }));
+    });
+    filtered = _admSortApps(filtered, sortBy);
+    _admTablePage = 0;
+    _admRenderTable(filtered);
+  }
+  function _admSortApps(list, sortBy) {
+    const sepIdx = sortBy.lastIndexOf('_');
+    const field = sortBy.slice(0, sepIdx), dir = sortBy.slice(sepIdx + 1);
+    const mul = dir === 'desc' ? -1 : 1;
+    const keyOf = (a) => {
+      switch (field) {
+        case 'name': return (a.name_english || '').toLowerCase();
+        case 'class': return (a.class || '').toLowerCase();
+        case 'category': return (a.category || '').toLowerCase();
+        case 'status': return (a.status || '').toLowerCase();
+        case 'tracking': return (a.tracking_id || a.token || '').toLowerCase();
+        default: return a.created_at || '';
+      }
+    };
+    return [...list].sort((a, b) => {
+      const ka = keyOf(a), kb = keyOf(b);
+      if (ka < kb) return -1 * mul;
+      if (ka > kb) return 1 * mul;
+      return 0;
+    });
   }
   async function _admChangeStatus(e, id) {
     e.stopPropagation();
