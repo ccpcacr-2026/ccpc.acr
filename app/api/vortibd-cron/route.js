@@ -160,7 +160,12 @@ async function _upsertMappedRows(circularId, rows, meta) {
     }
     if (mismatch) { mismatchCount++; continue; }
     const row = { circular_id: circularId, source: 'imported', external_key, updated_at: new Date().toISOString() };
-    Object.keys(r).forEach(f => { if (f !== 'extra_fields' && f !== 'external_key' && r[f] !== undefined && r[f] !== '') row[f] = r[f]; });
+    // Same fix as app/api/admission-candidates/route.js's _upsertMappedRows:
+    // PostgREST requires every object in a bulk-insert array to share the
+    // same key set (a mismatch fails with PGRST102), and r already has a
+    // uniform key set across every row in one sync -- copy every key it
+    // has, blank value or not, rather than skipping empty-string ones.
+    Object.keys(r).forEach(f => { if (f !== 'extra_fields' && f !== 'external_key' && r[f] !== undefined) row[f] = r[f]; });
     row.extra_fields = (r.extra_fields && typeof r.extra_fields === 'object') ? r.extra_fields : {};
     clean.push(row);
   }

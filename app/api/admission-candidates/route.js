@@ -352,7 +352,16 @@ export async function POST(req) {
       // to be exactly CORE_FIELDS or BUILTIN_FORM_FIELD_KEYS -- i.e. real
       // column names -- so copying every one of them verbatim is safe here.
       const row = { circular_id: circularId, source: 'imported', external_key, updated_at: new Date().toISOString() };
-      Object.keys(r).forEach(f => { if (f !== 'extra_fields' && f !== 'external_key' && r[f] !== undefined && r[f] !== '') row[f] = r[f]; });
+      // PostgREST requires every object in a bulk-insert array to carry the
+      // SAME set of keys (a differing key set across rows fails with
+      // PGRST102 "Object keys must match"). r itself already has a uniform
+      // key set across every row in this one file/sync (both
+      // _applyTemplateMapping and the browser's _admCandBuildMappedRows
+      // apply the identical mapping to every row), so copying a field only
+      // when its value happens to be non-empty was the bug -- blank cells
+      // on different rows produced different key sets. Copy every key r
+      // actually has, blank value or not.
+      Object.keys(r).forEach(f => { if (f !== 'extra_fields' && f !== 'external_key' && r[f] !== undefined) row[f] = r[f]; });
       row.extra_fields = (r.extra_fields && typeof r.extra_fields === 'object') ? r.extra_fields : {};
       clean.push(row);
     }
