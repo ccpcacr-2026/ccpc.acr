@@ -515,7 +515,7 @@ const RESERVED = [
   '_admCandRunAllocation','_admCandClearAllocation','_admCandRenderAllocRoomPicker','_admCandUpdateAllocPreview',
   '_admCandTplBulkApply','_admCandSaveTemplateMap',
   '_admCandPrintSignatureSheet','_admCandPrintTokenList','_admCandBulkUpload',
-  '_admCandScanShowMode','_admCandScanSetScope','_admCandScanStart','_admCandScanStop','_admCandScanManualLookup','_admCandScanChooseInput',
+  '_admCandScanShowMode','_admCandScanSetScope','_admCandScanChangeScope','_admCandScanStart','_admCandScanStop','_admCandScanManualLookup','_admCandScanChooseInput',
   '_admCandCopyApplyLink',
   '_admCandTagDefTypeChange','_admCandTagDefSave','_admCandTagDefDelete','_admCandScanTagDefChange','_admCandScanLockTag',
   '_admCandMarksFieldSave','_admCandMarksFieldDelete','_admCandSubmitMarksForm','_admCandCancelMarksForm',

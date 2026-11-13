@@ -45881,13 +45881,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <p id="admCandScanEmptyNote" class="hidden text-xs text-slate-400 bg-white rounded-2xl border border-slate-100 p-5">No scan options yet — create one above to start scanning.</p>
         <div id="admCandScanScopeBox" class="hidden bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
           <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">Scope — restrict scanning to:</p>
-          <div class="flex gap-2 flex-wrap mb-3">
+          <div id="admCandScanScopeControls" class="flex gap-2 flex-wrap mb-3">
             <select id="admCandScanScopeClass" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold"><option value="">Any Class</option></select>
             <select id="admCandScanScopeCategory" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold"><option value="">Any Category</option></select>
             <select id="admCandScanScopeRoom" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold"><option value="">Any Room</option></select>
             <button onclick="_admCandScanSetScope()" class="px-3 py-2 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase">Lock Scope</button>
           </div>
-          <p id="admCandScanScopeNote" class="text-xs text-emerald-600 font-bold mb-3"></p>
+          <div id="admCandScanScopeLocked" class="hidden flex items-center justify-between gap-2 mb-3">
+            <p id="admCandScanScopeNote" class="text-xs text-emerald-600 font-bold"></p>
+            <button type="button" onclick="_admCandScanChangeScope()" class="text-[10px] font-black uppercase text-slate-400 hover:text-slate-600 shrink-0">Change Scope</button>
+          </div>
           <div id="admCandScanChooser" class="flex flex-col sm:flex-row gap-2 mb-3">
             <button id="admCandScanCameraBtn" onclick="_admCandScanChooseInput('camera')" class="flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-3 sm:py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest"><i data-lucide="camera" class="h-3.5 w-3.5"></i> Open Camera</button>
             <button onclick="_admCandScanChooseInput('manual')" class="flex items-center justify-center gap-1.5 w-full sm:w-auto px-4 py-3 sm:py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest"><i data-lucide="keyboard" class="h-3.5 w-3.5"></i> Manual</button>
@@ -47641,6 +47644,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('admCandScanResult')?.classList.add('hidden');
     const note = document.getElementById('admCandScanScopeNote'); if (note) note.textContent = '';
     _admCandScanScope = {};
+    document.getElementById('admCandScanScopeControls')?.classList.remove('hidden');
+    document.getElementById('admCandScanScopeLocked')?.classList.add('hidden');
     _admCandRenderScanModeTabs();
     _admCandRenderScanOptionPanel();
     // Reset the review table's own filter state too -- a value filter left
@@ -47972,6 +47977,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const note = document.getElementById('admCandScanScopeNote');
     const parts = Object.entries(_admCandScanScope).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`);
     if (note) note.textContent = parts.length ? `Scope locked: ${parts.join(', ')}` : 'Scope cleared — any candidate will be accepted.';
+    // Collapse the pickers once locked -- on a phone this box sat above the
+    // camera/manual chooser permanently, eating screen space for a choice
+    // that's already been made. "Change Scope" reopens it.
+    document.getElementById('admCandScanScopeControls')?.classList.add('hidden');
+    document.getElementById('admCandScanScopeLocked')?.classList.remove('hidden');
+  }
+  function _admCandScanChangeScope() {
+    document.getElementById('admCandScanScopeControls')?.classList.remove('hidden');
+    document.getElementById('admCandScanScopeLocked')?.classList.add('hidden');
   }
   // Entry point for the "Open Camera" / "Manual" chooser -- picking one hides
   // the chooser and reveals just that box (never both at once), so a phone
