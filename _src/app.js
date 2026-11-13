@@ -42525,13 +42525,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const script = document.createElement('script');
       script.src = 'https://cdn.jsdelivr.net/npm/gridstack@14.1.0/dist/gridstack-all.js';
       script.onload = () => {
-        // GridStack does NOT render a widget's `content` string as HTML by
-        // default (it's shown as literal escaped text instead, e.g. "<div
-        // class=..." printed on the page) -- GridStack.renderCB must be set
-        // explicitly before the first init()/load() call for `content` to
-        // actually become the card's innerHTML. Must be set exactly once,
-        // globally, before any grid uses content strings.
-        if (!GridStack.renderCB) GridStack.renderCB = (el, w) => { el.innerHTML = w.content || ''; };
+        // GridStack ships its OWN default renderCB -- (el,w) => el.textContent
+        // = w.content -- a deliberate XSS-safe default that is already
+        // non-null the moment the library loads, so a mere "set it if unset"
+        // guard never fires (confirmed by reading gridstack-all.js itself:
+        // `x.renderCB=(t,e)=>{t&&e?.content&&(t.textContent=e.content)}`).
+        // That default is exactly what was showing our card markup as
+        // literal text on the page instead of rendering it. Must
+        // unconditionally overwrite it (not "set if missing") before any
+        // grid's first init()/load() call, once, globally.
+        GridStack.renderCB = (el, w) => { el.innerHTML = w.content || ''; };
         resolve();
       };
       script.onerror = () => reject(new Error('Could not load the drag/resize library.'));
