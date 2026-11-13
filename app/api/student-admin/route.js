@@ -829,7 +829,7 @@ const ADMIN_TAB_ACTIONS = {
   // (shared utility read, same precedent as get_staff_directory elsewhere
   // in this file — only needs ONE of its tabs to clear).
   students: new Set(['get_student_data_headers', 'search_students', 'bulk_update_students', 'create_student', 'preview_rename_student_id_impact']),
-  history: new Set(['search_edit_history']),
+  history: new Set(['search_edit_history', 'list_portal_visits', 'list_student_portal_visits']),
   photo: new Set(['get_student_basic', 'upload_photo']),
   notices: new Set(['get_notices_admin', 'save_notice', 'delete_notice', 'reorder_notices']),
   import: new Set(['get_student_data_headers', 'preview_bulk_import', 'bulk_import_new_students']),
@@ -2618,6 +2618,59 @@ export async function POST(req) {
     if (!res.ok) return NextResponse.json({ result: 'error', message: text });
     const rows = text ? JSON.parse(text) : [];
     const total = Number((res.headers.get('content-range') || '').split('/')[1]) || rows.length;
+    return NextResponse.json({ result: 'success', rows, total, offset, limit });
+  }
+
+  // ── Portal visit history (History tab's other two sub-views) ────────────
+  // teacher_staff.portal_visit_log is written directly by this repo
+  // (loginAndGetProfile in app/api/exec/route.js) on every successful
+  // teacher/staff login. student.portal_visit_log is written by the
+  // separate ccpc-students repo on every successful student login -- this
+  // route only reads it. Both paginated the same way search_edit_history
+  // is above (offset/limit + count=exact), since both logs grow unbounded.
+  // See migration_portal_visit_logs.sql.
+  if (action === 'list_portal_visits') {
+    const limit = Math.min(Math.max(Number(payload?.limit) || 50, 1), 100);
+    const offset = Math.max(Number(payload?.offset) || 0, 0);
+    const q = String(payload?.query || '').trim();
+    let path = `portal_visit_log?select=*&order=visited_at.desc&limit=${limit}&offset=${offset}`;
+    if (q) path += `&user_id=ilike.*${encodeURIComponent(q)}*`;
+    const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'teacher_staff', Prefer: 'count=exact' },
+    });
+    const text = await res.text();
+    if (!res.ok) return NextResponse.json({ result: 'error', message: text });
+    const rows = text ? JSON.parse(text) : [];
+    const total = Number((res.headers.get('content-range') || '').split('/')[1]) || rows.length;
+    const userIds = [...new Set(rows.map(r => r.user_id))];
+    let names = {};
+    if (userIds.length) {
+      const nameRows = await sb(`users_profile?teacher_id=in.(${userIds.map(encodeURIComponent).join(',')})&select=teacher_id,full_name`, 'GET', null, { 'Accept-Profile': 'teacher_staff' });
+      (Array.isArray(nameRows) ? nameRows : []).forEach(n => { names[n.teacher_id] = n.full_name; });
+    }
+    rows.forEach(r => { r.full_name = names[r.user_id] || null; });
+    return NextResponse.json({ result: 'success', rows, total, offset, limit });
+  }
+  if (action === 'list_student_portal_visits') {
+    const limit = Math.min(Math.max(Number(payload?.limit) || 50, 1), 100);
+    const offset = Math.max(Number(payload?.offset) || 0, 0);
+    const q = String(payload?.query || '').trim();
+    let path = `portal_visit_log?select=*&order=visited_at.desc&limit=${limit}&offset=${offset}`;
+    if (q) path += `&student_id=ilike.*${encodeURIComponent(q)}*`;
+    const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'student', Prefer: 'count=exact' },
+    });
+    const text = await res.text();
+    if (!res.ok) return NextResponse.json({ result: 'error', message: text });
+    const rows = text ? JSON.parse(text) : [];
+    const total = Number((res.headers.get('content-range') || '').split('/')[1]) || rows.length;
+    const studentIds = [...new Set(rows.map(r => r.student_id))];
+    let names = {};
+    if (studentIds.length) {
+      const nameRows = await sb(`students_data?student_id=in.(${studentIds.map(encodeURIComponent).join(',')})&select=student_id,student_name,class,section,roll`);
+      (Array.isArray(nameRows) ? nameRows : []).forEach(n => { names[n.student_id] = n; });
+    }
+    rows.forEach(r => { const n = names[r.student_id]; r.student_name = n?.student_name || null; r.class = n?.class || null; r.section = n?.section || null; r.roll = n?.roll || null; });
     return NextResponse.json({ result: 'success', rows, total, offset, limit });
   }
 

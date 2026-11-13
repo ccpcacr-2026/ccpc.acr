@@ -1155,6 +1155,12 @@ const handlers = {
     const rolesArr = user.role.split(',').map(r => r.trim()).filter(Boolean);
     const auth = { success: true, user_id: user.user_id, role: rolesArr[0], roles: rolesArr, email: user.email, phone: user.phone || '' };
 
+    // Best-effort visit log for the admin "History" view (Student Portal
+    // module, Teacher Visits tab) -- awaited so it actually completes before
+    // this serverless invocation ends, but never allowed to fail the login
+    // itself. migration_portal_visit_logs.sql.
+    try { await supabaseRequest('portal_visit_log', 'post', { user_id: user.user_id }); } catch (e) {}
+
     // For Teacher / Staff: fetch scalar profile in the same serverless invocation
     if (rolesArr.some(r => ['Teacher','Staff'].includes(r))) {
       let pRes = await supabaseRequest(`users_profile?select=*&email=eq.${encodeURIComponent(user.email)}`);

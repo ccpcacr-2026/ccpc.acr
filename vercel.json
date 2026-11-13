@@ -11,6 +11,10 @@
     {
       "path": "/api/vortibd-cron",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/history-cleanup",
+      "schedule": "0 19 * * *"
     }
   ]
 }

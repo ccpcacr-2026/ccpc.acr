@@ -35571,6 +35571,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _historyDebounce = null;
   let _historyOffset   = 0;
   const _historyLimit  = 50;
+  // Teacher/Student Visits reuse the same offset/limit/debounce shape as
+  // Edit History above -- own state per sub-tab so switching back and forth
+  // doesn't lose each one's page position.
+  let _historyTab = 'edits';
+  let _historyTeacherOffset = 0;
+  let _historyStudentOffset = 0;
+  let _historyTeacherDebounce = null;
+  let _historyStudentDebounce = null;
 
   function loadAdminHistoryView() {
     if (!(window._adminTabAccess || []).includes('history')) {
@@ -35582,35 +35590,172 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     setContentHeader('History', 'clock');
     const container = document.getElementById('view-container');
     if (!container) return;
-    _historyOffset = 0;
+    _historyOffset = 0; _historyTeacherOffset = 0; _historyStudentOffset = 0;
     container.innerHTML = `
       <div class="mb-4">
-        <h2 class="text-2xl font-black text-slate-800 tracking-tight">Edit History</h2>
-        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Every change to a student's record, logged automatically</p>
+        <h2 class="text-2xl font-black text-slate-800 tracking-tight">History</h2>
+        <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Student record edits and portal sign-ins — entries older than 3 months are removed automatically</p>
       </div>
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-3">
-        <input type="search" id="historySearch" placeholder="Search Student ID, name, class, section, roll…" oninput="debounceLoadEditHistory()" class="md:col-span-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-history-search">
-        <button onclick="debounceLoadEditHistory(true)" class="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Search</button>
+      <div class="flex gap-1 mb-4 overflow-x-auto pb-1" id="historyTabs">
+        <button class="adm-ftab" data-tab="edits" onclick="_historyShowTab('edits',this)">Edit History</button>
+        <button class="adm-ftab" data-tab="teacher" onclick="_historyShowTab('teacher',this)">Teacher/Staff Visits</button>
+        <button class="adm-ftab" data-tab="student" onclick="_historyShowTab('student',this)">Student Visits</button>
       </div>
-      <div id="historyCount" class="text-xs font-black text-slate-500 mb-2"></div>
-      <div class="overflow-auto border border-slate-200 rounded-xl">
-        <table class="w-full text-left border-collapse text-xs">
-          <thead class="bg-slate-50"><tr>
-            <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Student ID</th>
-            <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Name</th>
-            <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Class</th>
-            <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Section</th>
-            <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Roll</th>
-            <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Changes</th>
-            <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">When</th>
-          </tr></thead>
-          <tbody id="historyBody"></tbody>
-        </table>
+
+      <div id="historyEditsPanel">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-3">
+          <input type="search" id="historySearch" placeholder="Search Student ID, name, class, section, roll…" oninput="debounceLoadEditHistory()" class="md:col-span-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-history-search">
+          <button onclick="debounceLoadEditHistory(true)" class="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Search</button>
+        </div>
+        <div id="historyCount" class="text-xs font-black text-slate-500 mb-2"></div>
+        <div class="overflow-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr>
+              <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Student ID</th>
+              <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Name</th>
+              <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Class</th>
+              <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Section</th>
+              <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Roll</th>
+              <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Changes</th>
+              <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">When</th>
+            </tr></thead>
+            <tbody id="historyBody"></tbody>
+          </table>
+        </div>
+        <div id="historyPagination" class="flex items-center justify-center gap-3 mt-3"></div>
       </div>
-      <div id="historyPagination" class="flex items-center justify-center gap-3 mt-3"></div>
+
+      <div id="historyTeacherPanel" class="hidden">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-3">
+          <input type="search" id="historyTeacherSearch" placeholder="Search Teacher/Staff ID…" oninput="debounceLoadTeacherVisits()" class="md:col-span-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+          <button onclick="debounceLoadTeacherVisits(true)" class="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Search</button>
+        </div>
+        <div id="historyTeacherCount" class="text-xs font-black text-slate-500 mb-2"></div>
+        <div class="overflow-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr>
+              <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">User ID</th>
+              <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Name</th>
+              <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Signed In</th>
+            </tr></thead>
+            <tbody id="historyTeacherBody"></tbody>
+          </table>
+        </div>
+        <div id="historyTeacherPagination" class="flex items-center justify-center gap-3 mt-3"></div>
+      </div>
+
+      <div id="historyStudentPanel" class="hidden">
+        <p class="text-xs text-slate-400 font-bold mb-3" id="historyStudentNote"></p>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-3">
+          <input type="search" id="historyStudentSearch" placeholder="Search Student ID…" oninput="debounceLoadStudentVisits()" class="md:col-span-3 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-bold text-xs" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+          <button onclick="debounceLoadStudentVisits(true)" class="px-3 py-2 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-black transition-all">Search</button>
+        </div>
+        <div id="historyStudentCount" class="text-xs font-black text-slate-500 mb-2"></div>
+        <div class="overflow-auto border border-slate-200 rounded-xl">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-50"><tr>
+              <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Student ID</th>
+              <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Name</th>
+              <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Class</th>
+              <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Section</th>
+              <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Roll</th>
+              <th class="py-2 px-3 text-[10px] font-black uppercase text-slate-400">Signed In</th>
+            </tr></thead>
+            <tbody id="historyStudentBody"></tbody>
+          </table>
+        </div>
+        <div id="historyStudentPagination" class="flex items-center justify-center gap-3 mt-3"></div>
+      </div>
     `;
     lucide.createIcons();
+    document.querySelector('#historyTabs .adm-ftab').classList.add('adm-ftab-on');
     loadEditHistory();
+  }
+  function _historyShowTab(tab, btn) {
+    _historyTab = tab;
+    document.querySelectorAll('#historyTabs .adm-ftab').forEach(el => el.classList.remove('adm-ftab-on'));
+    if (btn) btn.classList.add('adm-ftab-on');
+    document.getElementById('historyEditsPanel')?.classList.toggle('hidden', tab !== 'edits');
+    document.getElementById('historyTeacherPanel')?.classList.toggle('hidden', tab !== 'teacher');
+    document.getElementById('historyStudentPanel')?.classList.toggle('hidden', tab !== 'student');
+    if (tab === 'teacher') loadTeacherVisits();
+    else if (tab === 'student') {
+      const note = document.getElementById('historyStudentNote');
+      if (note) note.textContent = 'Populated once the Student Portal starts recording sign-ins — empty until then is expected, not an error.';
+      loadStudentVisits();
+    }
+  }
+  // Shared by all three sub-tabs' Prev/Next buttons -- same page-number math,
+  // just pointed at whichever one's own container/limit/reload callback.
+  function _historyRenderPager(containerId, total, limit, offset, reload) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    if (total <= limit) { el.innerHTML = ''; return; }
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const curPage = Math.floor(offset / limit) + 1;
+    const btnCls = (enabled) => `px-3 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all ${enabled ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-slate-50 text-slate-300 cursor-not-allowed'}`;
+    el.innerHTML = `
+      <button onclick='${reload}(${Math.max(0, offset - limit)})' ${curPage <= 1 ? 'disabled' : ''} class="${btnCls(curPage > 1)}">Prev</button>
+      <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Page ${curPage} of ${totalPages}</span>
+      <button onclick='${reload}(${offset + limit})' ${curPage >= totalPages ? 'disabled' : ''} class="${btnCls(curPage < totalPages)}">Next</button>
+    `;
+  }
+  function debounceLoadTeacherVisits(immediate) {
+    if (_historyTeacherDebounce) clearTimeout(_historyTeacherDebounce);
+    _historyTeacherOffset = 0;
+    if (immediate) { loadTeacherVisits(); return; }
+    _historyTeacherDebounce = setTimeout(loadTeacherVisits, 350);
+  }
+  function _historyTeacherGoto(offset) { _historyTeacherOffset = offset; loadTeacherVisits(); }
+  function loadTeacherVisits() {
+    const q = (document.getElementById('historyTeacherSearch') || {}).value || '';
+    const body = document.getElementById('historyTeacherBody');
+    const countEl = document.getElementById('historyTeacherCount');
+    if (!body) return;
+    body.innerHTML = '<tr><td colspan="3" class="text-center p-6"><i data-lucide="loader-2" class="h-5 w-5 animate-spin inline text-blue-600"></i></td></tr>';
+    lucide.createIcons();
+    _adminFetch('list_portal_visits', { query: q, offset: _historyTeacherOffset, limit: _historyLimit }).then(res => {
+      if (!res || res.result !== 'success') { body.innerHTML = `<tr><td colspan="3" class="text-center text-red-500 font-bold p-6">${(res && res.message) || 'Could not load visits'}</td></tr>`; document.getElementById('historyTeacherPagination').innerHTML = ''; return; }
+      const rows = res.rows || []; const total = res.total || 0;
+      if (countEl) countEl.textContent = `${total} sign-in${total === 1 ? '' : 's'}${q ? ` matching "${q}"` : ''}`;
+      if (!rows.length) { body.innerHTML = '<tr><td colspan="3" class="text-center text-slate-400 font-bold p-6">No sign-ins found.</td></tr>'; document.getElementById('historyTeacherPagination').innerHTML = ''; return; }
+      body.innerHTML = rows.map(r => `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3 font-black text-slate-700">${_escHtml(r.user_id || '')}</td>
+        <td class="py-1.5 px-3 text-slate-600 font-bold">${_escHtml(r.full_name || '—')}</td>
+        <td class="py-1.5 px-3 text-slate-400 font-bold whitespace-nowrap">${r.visited_at ? new Date(r.visited_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}</td>
+      </tr>`).join('');
+      _historyRenderPager('historyTeacherPagination', total, _historyLimit, _historyTeacherOffset, '_historyTeacherGoto');
+    }).catch(() => { body.innerHTML = '<tr><td colspan="3" class="text-center text-red-500 font-bold p-6">Network error</td></tr>'; });
+  }
+  function debounceLoadStudentVisits(immediate) {
+    if (_historyStudentDebounce) clearTimeout(_historyStudentDebounce);
+    _historyStudentOffset = 0;
+    if (immediate) { loadStudentVisits(); return; }
+    _historyStudentDebounce = setTimeout(loadStudentVisits, 350);
+  }
+  function _historyStudentGoto(offset) { _historyStudentOffset = offset; loadStudentVisits(); }
+  function loadStudentVisits() {
+    const q = (document.getElementById('historyStudentSearch') || {}).value || '';
+    const body = document.getElementById('historyStudentBody');
+    const countEl = document.getElementById('historyStudentCount');
+    if (!body) return;
+    body.innerHTML = '<tr><td colspan="6" class="text-center p-6"><i data-lucide="loader-2" class="h-5 w-5 animate-spin inline text-blue-600"></i></td></tr>';
+    lucide.createIcons();
+    _adminFetch('list_student_portal_visits', { query: q, offset: _historyStudentOffset, limit: _historyLimit }).then(res => {
+      if (!res || res.result !== 'success') { body.innerHTML = `<tr><td colspan="6" class="text-center text-red-500 font-bold p-6">${(res && res.message) || 'Could not load visits'}</td></tr>`; document.getElementById('historyStudentPagination').innerHTML = ''; return; }
+      const rows = res.rows || []; const total = res.total || 0;
+      if (countEl) countEl.textContent = `${total} sign-in${total === 1 ? '' : 's'}${q ? ` matching "${q}"` : ''}`;
+      if (!rows.length) { body.innerHTML = '<tr><td colspan="6" class="text-center text-slate-400 font-bold p-6">No sign-ins found.</td></tr>'; document.getElementById('historyStudentPagination').innerHTML = ''; return; }
+      body.innerHTML = rows.map(r => `<tr class="border-b border-slate-50">
+        <td class="py-1.5 px-3 font-black text-slate-700">${_escHtml(r.student_id || '')}</td>
+        <td class="py-1.5 px-3 text-slate-600 font-bold">${_escHtml(r.student_name || '—')}</td>
+        <td class="py-1.5 px-3 text-slate-600 font-bold">${_escHtml(r.class || '')}</td>
+        <td class="py-1.5 px-3 text-slate-600 font-bold">${_escHtml(r.section || '')}</td>
+        <td class="py-1.5 px-3 text-slate-600 font-bold">${_escHtml(r.roll || '')}</td>
+        <td class="py-1.5 px-3 text-slate-400 font-bold whitespace-nowrap">${r.visited_at ? new Date(r.visited_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}</td>
+      </tr>`).join('');
+      _historyRenderPager('historyStudentPagination', total, _historyLimit, _historyStudentOffset, '_historyStudentGoto');
+    }).catch(() => { body.innerHTML = '<tr><td colspan="6" class="text-center text-red-500 font-bold p-6">Network error</td></tr>'; });
   }
   // debounceLoadEditHistory(true) — an explicit new search (Search button, or
   // Enter) skips the debounce delay; typing still debounces at 350ms. Either

@@ -421,6 +421,7 @@ const RESERVED = [
 
   // History/Photo/Notices/Import native ports (Phase 6, part 2)
   'loadAdminHistoryView','debounceLoadEditHistory','loadEditHistory','_historyPrevPage','_historyNextPage',
+  '_historyShowTab','debounceLoadTeacherVisits','debounceLoadStudentVisits','_historyTeacherGoto','_historyStudentGoto',
   'loadAdminPhotoView','loadStudentForPhoto','handleStudentPhotoSelect','_photoBulkUpload',
   'loadAdminNoticesView','addNoticeRow','previewNotice','saveNoticeRow',
   'deleteNoticeRow','moveNotice',
