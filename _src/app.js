@@ -42695,16 +42695,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <p class="text-[10px] uppercase text-slate-400 font-bold mb-1 pr-4 truncate" title="${_escHtml(c.label)}">${_escHtml(c.label)}</p>
       ${_admCustomCounterRenderBody(norm.conditions, norm.group_by)}`;
   }
-  async function _admCustomCounterSyncGrid() {
+  async function _admCustomCounterSyncGrid(force) {
     const toolbar = document.getElementById('adm-custom-counters-cards-toolbar');
     const host = document.getElementById('adm-custom-counters-cards');
     if (!host || !toolbar) return;
     // Called this exact way (data refreshed, re-sync) every ~20s by the
     // live dashboard poll too -- skip while the admin is mid-drag so a
     // background refresh can never snap a card back to its last-saved spot
-    // out from under them. Re-entering arrange mode already re-syncs once
-    // on its own (_admCustomCounterStartArrange), so nothing here is stale.
-    if (_admCustomCounterArranging && _admCustomCounterGrid) return;
+    // out from under them. BUT: Start/Cancel/Save Arrange call this with
+    // force=true specifically to flip static<->editable -- without that
+    // escape hatch, _admCustomCounterStartArrange's OWN call landed here
+    // with _admCustomCounterArranging already true (it sets the flag right
+    // before calling this) and _admCustomCounterGrid already existing (from
+    // the initial view-mode render), so the guard below fired immediately
+    // and Rearrange silently did nothing at all -- confirmed live.
+    if (!force && _admCustomCounterArranging && _admCustomCounterGrid) return;
     if (!_admCustomCounters.length) {
       toolbar.classList.add('hidden');
       host.innerHTML = '';
@@ -42754,11 +42759,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admCustomCounterStartArrange() {
     if (!_admCandMyAccess.is_full_admin) return;
     _admCustomCounterArranging = true;
-    _admCustomCounterSyncGrid();
+    _admCustomCounterSyncGrid(true);
   }
   function _admCustomCounterCancelArrange() {
     _admCustomCounterArranging = false;
-    _admCustomCounterSyncGrid();
+    _admCustomCounterSyncGrid(true);
   }
   async function _admCustomCounterSaveArrange() {
     if (!_admCustomCounterGrid) return;
@@ -42771,7 +42776,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       showToast('Layout saved', 'success');
     } catch (e) { showToast(e.message || 'Could not save layout', 'error'); }
     _admCustomCounterArranging = false;
-    _admCustomCounterSyncGrid();
+    _admCustomCounterSyncGrid(true);
   }
 
   // ── Admin-configurable Applicant table columns ───────────────────────────
