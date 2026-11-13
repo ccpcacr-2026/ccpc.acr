@@ -1597,3 +1597,37 @@ button { user-select: none; }
 .pp-selfld-item { display:inline-block; padding:2px 7px; font-size:9.5px; font-weight:600; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:5px; cursor:pointer; color:#475569; transition:all .12s; user-select:none; }
 .pp-selfld-item:hover { background:#e0e7ff; border-color:#a5b4fc; color:#3730a3; }
 .pp-selfld-on { background:#dbeafe; border-color:#93c5fd; color:#1d4ed8; font-weight:900; }
+
+/* Custom Count cards (GridStack, Dashboard Rearrange mode) -- GridStack's
+   own default resize handles are a tiny (20px) low-contrast gray icon on
+   corners and a fully INVISIBLE hit-strip on edges (by design, meant to
+   just change the mouse cursor on hover) -- reported live as "nothing
+   showing to resize". Replaced with large, solid, high-contrast handles
+   that are impossible to miss and easy to grab on a touchscreen, and
+   forced permanently visible (no hover/device-detection dependency). */
+#adm-custom-counters-cards .grid-stack-item > .ui-resizable-handle {
+  opacity: 1 !important;
+}
+#adm-custom-counters-cards .grid-stack-item > .ui-resizable-nw,
+#adm-custom-counters-cards .grid-stack-item > .ui-resizable-ne,
+#adm-custom-counters-cards .grid-stack-item > .ui-resizable-se,
+#adm-custom-counters-cards .grid-stack-item > .ui-resizable-sw {
+  width: 26px !important; height: 26px !important;
+  background-color: #2563eb !important;
+  background-image: none !important;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 5px rgba(15,23,42,.4);
+}
+#adm-custom-counters-cards .grid-stack-item > .ui-resizable-n,
+#adm-custom-counters-cards .grid-stack-item > .ui-resizable-s {
+  height: 10px !important;
+  background: rgba(37,99,235,.3) !important;
+  border-radius: 5px;
+}
+#adm-custom-counters-cards .grid-stack-item > .ui-resizable-e,
+#adm-custom-counters-cards .grid-stack-item > .ui-resizable-w {
+  width: 10px !important;
+  background: rgba(37,99,235,.3) !important;
+  border-radius: 5px;
+}
