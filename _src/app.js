@@ -42704,9 +42704,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _admCustomCounterArranging = false;
   function _admCustomCounterCardInnerHtml(c) {
     const norm = _admCustomCounterNormalize(c.filters || {});
+    // Body wrapped in its own flex-1/min-h-0/centered box so a short body
+    // (a single number) centers in whatever extra height the admin resizes
+    // the card to, instead of pinning to the top and leaving dead white
+    // space below -- a tall body (the grouped-combinations table) already
+    // scrolls internally via its own max-h-72 overflow-y-auto wrapper
+    // (_admCustomCounterRenderBody), so min-h-0 here just lets that work
+    // correctly inside a flex column rather than fighting it.
     return `${_admCandMyAccess.is_full_admin ? `<button type="button" onclick="_admCustomCounterDeleteCard(${c.id})" class="absolute top-2 right-2 text-slate-300 hover:text-red-500 text-xs">&times;</button>` : ''}
-      <p class="text-[10px] uppercase text-slate-400 font-bold mb-1 pr-4 truncate" title="${_escHtml(c.label)}">${_escHtml(c.label)}</p>
-      ${_admCustomCounterRenderBody(norm.conditions, norm.group_by)}`;
+      <p class="text-[10px] uppercase text-slate-400 font-bold mb-1 pr-4 truncate shrink-0" title="${_escHtml(c.label)}">${_escHtml(c.label)}</p>
+      <div class="flex-1 min-h-0 flex items-center w-full">${_admCustomCounterRenderBody(norm.conditions, norm.group_by)}</div>`;
   }
   async function _admCustomCounterSyncGrid(force) {
     const toolbar = document.getElementById('adm-custom-counters-cards-toolbar');
@@ -42748,7 +42755,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         y: l ? l.y : (wide ? i * 4 : Math.floor(i / 3) * 4),
         w: l ? l.w : (wide ? 12 : 4),
         h: l ? l.h : 4,
-        content: `<div class="bg-white rounded-2xl border border-slate-100 p-4 relative h-full overflow-auto">${_admCustomCounterCardInnerHtml(c)}</div>`,
+        // overflow-hidden (not overflow-auto) -- this wrapper's own scroll
+        // was never actually needed (the grouped-table body already scrolls
+        // itself via its own max-h-72 overflow-y-auto, see
+        // _admCustomCounterRenderBody) and was the real source of a
+        // reported-live spurious scrollbar/dead white space when a card got
+        // resized taller than its short content. flex/flex-col here plus
+        // the flex-1/items-center wrapper _admCustomCounterCardInnerHtml
+        // puts around the body now centers a short body (a single number)
+        // in whatever extra height the card is resized to, instead of
+        // leaving it pinned to the top.
+        content: `<div class="bg-white rounded-2xl border border-slate-100 p-4 relative h-full overflow-hidden flex flex-col">${_admCustomCounterCardInnerHtml(c)}</div>`,
       };
     });
     if (!_admCustomCounterGrid) {
