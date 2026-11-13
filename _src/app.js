@@ -42590,7 +42590,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     if (!_admCustomCounterGrid) {
       host.innerHTML = '<div class="grid-stack"></div>';
-      _admCustomCounterGrid = GridStack.init({ column: 12, cellHeight: 60, margin: 6, staticGrid: !_admCustomCounterArranging, float: true }, host.querySelector('.grid-stack'));
+      _admCustomCounterGrid = GridStack.init({
+        column: 12, cellHeight: 60, margin: 6, staticGrid: !_admCustomCounterArranging, float: true,
+        // Defaults are a single bottom-right-corner handle, shown only on
+        // :hover on non-mobile devices (GridStack's own device check, which
+        // doesn't always agree with what's actually a touchscreen) -- "no
+        // way to resize" was really "the one tiny handle is invisible until
+        // you happen to hover exactly over it". All 8 handles, always
+        // visible, regardless of device.
+        resizable: { handles: 'all' },
+        alwaysShowResizeHandle: true,
+      }, host.querySelector('.grid-stack'));
     }
     _admCustomCounterGrid.setStatic(!_admCustomCounterArranging);
     _admCustomCounterGrid.load(items, true);
