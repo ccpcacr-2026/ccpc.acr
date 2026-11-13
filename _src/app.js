@@ -42618,12 +42618,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Single big number with no Group By fields picked; a combination-wise
   // breakdown table otherwise -- every combination gets its own row, no
   // top-N cap (a tall table scrolls inside the card instead of truncating).
-  function _admCustomCounterRenderBody(conditions, groupFields) {
+  function _admCustomCounterRenderBody(conditions, groupFields, fill) {
     if (!groupFields.length) return `<p class="text-2xl font-black text-slate-800 tabular-nums">${_admCustomCounterCountFor(conditions)}</p>`;
     const rows = _admCustomCounterGroupedCounts(conditions, groupFields);
     if (!rows.length) return '<p class="text-xs text-slate-400">No matching data.</p>';
     const labels = groupFields.map(_admCustomCounterFieldLabel);
-    return `<div class="max-h-72 overflow-y-auto">
+    // fill=true (GridStack card body, a sized ancestor) lets the table use
+    // the card's own resized height instead of a fixed cap, so dragging a
+    // card taller shows more rows before any scrollbar kicks in. The
+    // builder's live preview below the condition/group-by pickers has no
+    // bounded ancestor, so it keeps the fixed max-h-72 cap there (fill
+    // omitted/false).
+    const scrollCls = fill ? 'h-full overflow-y-auto' : 'max-h-72 overflow-y-auto';
+    return `<div class="${scrollCls}">
       <table class="w-full text-xs">
         <thead><tr class="text-left text-slate-400 font-bold uppercase text-[9px]">${labels.map(l => `<th class="pr-3 pb-1">${_escHtml(l)}</th>`).join('')}<th class="pb-1 text-right">Count</th></tr></thead>
         <tbody>${rows.map(r => `<tr class="border-t border-slate-50">${r.parts.map(p => `<td class="pr-3 py-1 font-bold text-slate-700">${_escHtml(p)}</td>`).join('')}<td class="py-1 text-right font-black text-slate-800 tabular-nums">${r.count}</td></tr>`).join('')}</tbody>
@@ -42704,16 +42711,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _admCustomCounterArranging = false;
   function _admCustomCounterCardInnerHtml(c) {
     const norm = _admCustomCounterNormalize(c.filters || {});
-    // Body wrapped in its own flex-1/min-h-0/centered box so a short body
-    // (a single number) centers in whatever extra height the admin resizes
-    // the card to, instead of pinning to the top and leaving dead white
-    // space below -- a tall body (the grouped-combinations table) already
-    // scrolls internally via its own max-h-72 overflow-y-auto wrapper
-    // (_admCustomCounterRenderBody), so min-h-0 here just lets that work
-    // correctly inside a flex column rather than fighting it.
+    const isTable = !!(norm.group_by && norm.group_by.length);
+    // Ungrouped body is a short single number -- centered in whatever
+    // extra height the card is resized to, instead of pinning to the top
+    // with dead white space below. A grouped body (the combinations table)
+    // instead FILLS the available height via fill=true above (h-full, not
+    // a fixed max-h-72 cap) and is top-aligned with its own internal
+    // scroll -- centering a height-filling table makes no sense, and a
+    // fixed cap left unused height below it when the card was resized
+    // taller than the cap, showing a scrollbar even though the card had
+    // room to just show more rows.
+    const bodyWrapCls = isTable ? 'flex-1 min-h-0 w-full' : 'flex-1 min-h-0 flex items-center w-full';
     return `${_admCandMyAccess.is_full_admin ? `<button type="button" onclick="_admCustomCounterDeleteCard(${c.id})" class="absolute top-2 right-2 text-slate-300 hover:text-red-500 text-xs">&times;</button>` : ''}
       <p class="text-[10px] uppercase text-slate-400 font-bold mb-1 pr-4 truncate shrink-0" title="${_escHtml(c.label)}">${_escHtml(c.label)}</p>
-      <div class="flex-1 min-h-0 flex items-center w-full">${_admCustomCounterRenderBody(norm.conditions, norm.group_by)}</div>`;
+      <div class="${bodyWrapCls}">${_admCustomCounterRenderBody(norm.conditions, norm.group_by, true)}</div>`;
   }
   async function _admCustomCounterSyncGrid(force) {
     const toolbar = document.getElementById('adm-custom-counters-cards-toolbar');
