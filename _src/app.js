@@ -160,7 +160,20 @@
   (function () {
     const THRESHOLD = 70; // px of downward drag, measured from the top, before release triggers a reload
     let startY = null, dy = 0, indicator = null;
-    function scrollTopNow() { return (document.scrollingElement || document.documentElement).scrollTop; }
+    // The actual scrolling element is #main-scroll-area (the content pane
+    // next to the sidebar, app.html) -- <body> itself is overflow-hidden
+    // and never scrolls, so document.scrollingElement.scrollTop was always
+    // 0 regardless of how far the admin had scrolled down a real view. That
+    // made the "only pull from the very top" check below a no-op: it armed
+    // on every touch, anywhere in a scrolled page, so any downward drag --
+    // not just a genuine pull-to-refresh gesture -- could trigger a reload
+    // (reported live). Falls back to the old document-level check only if
+    // that element isn't found for some reason (e.g. still on the login
+    // screen, before #main-scroll-area exists at all).
+    function scrollTopNow() {
+      const el = document.getElementById('main-scroll-area');
+      return el ? el.scrollTop : (document.scrollingElement || document.documentElement).scrollTop;
+    }
     function ensureIndicator() {
       if (indicator) return indicator;
       const style = document.createElement('style');
