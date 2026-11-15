@@ -364,7 +364,12 @@ export async function POST(req) {
     // extra round trip -- see getApplicationsFingerprint below, which the
     // Dashboard's background poll checks against that baseline instead of
     // re-pulling every column of every row on a fixed timer.
-    let q = `admission_applications?select=id,tracking_id,index_id,token,source,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,room_id,seat_no,scan_values,created_at,updated_at,date_of_birth,gender,blood_group,present_address,permanent_address,father_name,father_profession,father_designation,father_contact,father_office_address,mother_name,mother_profession,mother_designation,mother_contact,mother_office_address,guardian_name,guardian_contact,guardian_relation&circular_id=eq.${circularId}&order=created_at.desc`;
+    // extra_fields included so custom Form Fields (e.g. a VortiBD "Roll No."
+    // column mapped onto a custom field during import) actually have data to
+    // show in the Applications table -- without it, the column picker's
+    // "Custom (mapped)" fields always rendered blank regardless of whether
+    // real data had been imported into them.
+    let q = `admission_applications?select=id,tracking_id,index_id,token,source,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,room_id,seat_no,scan_values,extra_fields,created_at,updated_at,date_of_birth,gender,blood_group,present_address,permanent_address,father_name,father_profession,father_designation,father_contact,father_office_address,mother_name,mother_profession,mother_designation,mother_contact,mother_office_address,guardian_name,guardian_contact,guardian_relation&circular_id=eq.${circularId}&order=created_at.desc`;
     if (payload.class)   q += `&class=eq.${encodeURIComponent(payload.class)}`;
     if (payload.status)  q += `&status=eq.${encodeURIComponent(payload.status)}`;
     if (payload.source)  q += `&source=eq.${encodeURIComponent(payload.source)}`;
