@@ -10,7 +10,7 @@ android {
     namespace = "com.ccpc.facultyportal"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.ccpc.facultyportal"
+        applicationId "com.insti_gen.ccpc_portal"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
