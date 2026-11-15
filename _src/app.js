@@ -42963,9 +42963,50 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'mother_contact', label: "Mother's Contact", render: a => a.mother_contact ? `<p class="text-xs text-slate-500">${_escHtml(a.mother_contact)}</p>` : '' },
     { key: 'mother_address', label: "Mother's Office Address", render: a => a.mother_office_address ? `<p class="text-xs text-slate-500">${_escHtml(a.mother_office_address)}</p>` : '' },
     { key: 'guardian_name', label: "Guardian's Name", render: a => a.guardian_name ? `<p class="text-xs text-slate-700 font-bold">${_escHtml(a.guardian_name)}${a.guardian_relation ? ' (' + _escHtml(a.guardian_relation) + ')' : ''}</p>` : '' },
+    { key: 'guardian_designation', label: "Guardian's Profession/Designation", render: a => { const v = [a.guardian_profession, a.guardian_designation].filter(Boolean).join(', '); return v ? `<p class="text-xs text-slate-500">${_escHtml(v)}</p>` : ''; } },
     { key: 'guardian_contact', label: "Guardian's Contact", render: a => a.guardian_contact ? `<p class="text-xs text-slate-500">${_escHtml(a.guardian_contact)}</p>` : '' },
+    { key: 'guardian_address', label: "Guardian's Office Address", render: a => a.guardian_office_address ? `<p class="text-xs text-slate-500">${_escHtml(a.guardian_office_address)}</p>` : '' },
+    { key: 'index_id', label: 'Index ID', render: a => a.index_id ? `<p class="text-xs text-slate-600 font-mono">${_escHtml(a.index_id)}</p>` : '' },
     { key: 'scan_values', label: 'Scan/Tag Results', render: a => { const badges = _admScanValuesCompact(a.scan_values).map(({ label, shown }) => `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[9px] font-bold whitespace-nowrap">${_escHtml(label)}: ${_escHtml(shown)}</span>`).join(''); return badges ? `<div class="flex flex-wrap gap-1">${badges}</div>` : ''; } },
   ];
+  // Everything above is a hand-curated composite (combines several raw
+  // columns, or formats one specially). Any OTHER real column on the
+  // application row -- present or future, native or VortiBD-synced -- is
+  // picked up here automatically from a loaded row's own keys, so the
+  // column picker never again lags behind the real schema (this is what
+  // made "Index No." possible to add as a Form Field that could never
+  // actually hold real data -- a real column should always be offered
+  // directly instead). Excludes keys already composited above, structural/
+  // internal columns, and anything object/array-shaped (those need a
+  // dedicated renderer, not generic text).
+  const ADM_APP_FIELD_AUTO_EXCLUDE = new Set([
+    'id', 'circular_id', 'created_at', 'updated_at', 'extra_fields', 'scan_values', 'tags',
+    'academic_records', 'siblings',
+    'student_photo', 'father_photo', 'mother_photo', 'guardian_photo',
+    'tracking_id', 'name_english', 'name_bangla', 'class', 'category', 'version', 'session', 'status', 'source', 'mobile',
+    'room_id', 'room_name', 'room_no', 'seat_no', 'allocation_run_id',
+    'father_name', 'father_contact', 'father_profession', 'father_designation', 'father_office_address',
+    'mother_name', 'mother_contact', 'mother_profession', 'mother_designation', 'mother_office_address',
+    'guardian_name', 'guardian_contact', 'guardian_profession', 'guardian_designation', 'guardian_office_address', 'guardian_relation',
+    'present_address', 'permanent_address', 'blood_group', 'gender', 'date_of_birth', 'index_id',
+    'submission_scan_status', 'submission_scanned_at', 'attendance_scan_status', 'attendance_scanned_at',
+    'token', 'external_key', 'last_scanned_at',
+  ]);
+  const ADM_FIELD_LABEL_OVERRIDES = { id: 'ID', nid: 'NID', dob: 'DOB', sms: 'SMS' };
+  function _admHumanizeFieldKey(key) {
+    return key.split('_').map(w => ADM_FIELD_LABEL_OVERRIDES[w.toLowerCase()] || (w.charAt(0).toUpperCase() + w.slice(1))).join(' ');
+  }
+  function _admAppFieldAutoCatalog() {
+    const sample = _admAllApps[0];
+    if (!sample) return [];
+    return Object.keys(sample)
+      .filter(k => !k.startsWith('_') && !ADM_APP_FIELD_AUTO_EXCLUDE.has(k) && typeof sample[k] !== 'object')
+      .map(k => ({
+        key: 'auto:' + k,
+        label: _admHumanizeFieldKey(k),
+        render: a => { const v = a[k]; return (v !== null && v !== undefined && v !== '') ? `<p class="text-xs text-slate-600">${_escHtml(String(v))}</p>` : ''; },
+      }));
+  }
   // Any custom Form Field the admin has defined (built_in: false -- e.g. a
   // "Roll" field registered on the spot while mapping a VortiBD Excel
   // column, see _admCandDefineNewFormField) becomes a selectable/renderable
@@ -42981,7 +43022,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       label: f.label,
       render: a => { const v = (a.extra_fields || {})[f.key]; return (v !== undefined && v !== null && v !== '') ? `<p class="text-xs text-slate-600">${_escHtml(String(v))}</p>` : ''; },
     }));
-    return ADM_APP_FIELD_CATALOG_BUILTIN.concat(customs);
+    return ADM_APP_FIELD_CATALOG_BUILTIN.concat(_admAppFieldAutoCatalog()).concat(customs);
   }
   function _admAppFieldLabel(key) { const f = _admAppFieldCatalog().find(x => x.key === key); return f ? f.label : key; }
   function _admAppFieldRender(key, a) { const f = _admAppFieldCatalog().find(x => x.key === key); return f ? (f.render(a) || '') : ''; }
@@ -43043,6 +43084,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <select onchange="_admAppColumnsAddField(${ci}, this.value)" class="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[10px]">
               <option value="">+ Add field…</option>
               <optgroup label="Built-in">${ADM_APP_FIELD_CATALOG_BUILTIN.map(f => `<option value="${f.key}">${_escHtml(f.label)}</option>`).join('')}</optgroup>
+              ${(() => { const autos = _admAppFieldAutoCatalog(); return autos.length ? `<optgroup label="More Fields">${autos.map(f => `<option value="${f.key}">${_escHtml(f.label)}</option>`).join('')}</optgroup>` : ''; })()}
               ${_admCandFormFieldDefs.some(f => !f.built_in) ? `<optgroup label="Custom (mapped)">${_admCandFormFieldDefs.filter(f => !f.built_in).map(f => `<option value="extra:${_escHtml(f.key)}">${_escHtml(f.label)}</option>`).join('')}</optgroup>` : ''}
             </select>
           </div>`).join('')}
@@ -43206,24 +43248,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admSearchDebounceTimer = setTimeout(_admFilterApps, 220);
   }
   // Every field worth matching on, not just the handful of columns an admin
-  // happens to have configured visible right now -- a search for a mobile
-  // number (or any other real data point) must find it on the whole
-  // already-loaded roster (_admAllApps is the full circular, not one page;
-  // see sbAdmissionAllRows) regardless of which columns are on screen.
+  // happens to have configured visible right now, and not a hand-maintained
+  // list that drifts from the real schema -- a search for a mobile number
+  // (or any other real data point, present or future) must find it on the
+  // whole already-loaded roster (_admAllApps is the full circular, not one
+  // page; see sbAdmissionAllRows) regardless of which columns are on screen.
+  // Every own string/number property on the row qualifies automatically;
+  // large/structural/blob columns are skipped by type (photos are base64
+  // strings, so they're explicitly excluded too, to avoid searching pixel
+  // data) or because they're objects (academic_records/siblings), handled
+  // below as their own case.
+  const ADM_APP_SEARCH_EXCLUDE = new Set(['id', 'circular_id', 'student_photo', 'father_photo', 'mother_photo', 'guardian_photo']);
   function _admAppSearchHaystack(a) {
     if (a.__searchHay) return a.__searchHay;
-    const parts = [
-      a.name_english, a.name_bangla, a.tracking_id, a.index_id, a.token, a.external_key, a.mobile,
-      a.class, a.category, a.version, a.session, a.status, a.source,
-      a.father_name, a.father_contact, a.father_profession, a.father_designation, a.father_office_address, a.father_nid,
-      a.mother_name, a.mother_contact, a.mother_profession, a.mother_designation, a.mother_office_address, a.mother_nid,
-      a.guardian_name, a.guardian_contact, a.guardian_relation, a.guardian_profession, a.guardian_designation,
-      a.present_address, a.permanent_address, a.blood_group, a.gender, a.date_of_birth, a.religion, a.nationality,
-      a.birth_reg_no, a.emergency_contact, a.last_class, a.last_version, a.last_institute,
-      a.room_name, a.room_no, a.seat_no,
-    ];
-    if (a.extra_fields) parts.push(...Object.values(a.extra_fields));
-    return (a.__searchHay = parts.filter(v => v !== null && v !== undefined && v !== '').join(' ').toLowerCase());
+    const parts = [];
+    Object.keys(a).forEach(k => {
+      if (k.startsWith('_') || ADM_APP_SEARCH_EXCLUDE.has(k)) return;
+      const v = a[k];
+      if (v === null || v === undefined || v === '') return;
+      if (typeof v === 'string' || typeof v === 'number') parts.push(v);
+      else if (k === 'extra_fields' && v && typeof v === 'object') parts.push(...Object.values(v));
+    });
+    return (a.__searchHay = parts.join(' ').toLowerCase());
   }
   let _admSearchQuery = '';
   // Wraps the active search term in <mark> wherever it appears in a cell's
