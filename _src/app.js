@@ -46051,6 +46051,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div class="flex gap-2 items-center flex-wrap">
               <input type="text" id="admCandScanDataSearch" placeholder="Search name/tracking ID…" oninput="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
               <select id="admCandScanDataValueFilter" onchange="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></select>
+              <select id="admCandScanDataClassFilter" onchange="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"><option value="">All Classes</option></select>
+              <select id="admCandScanDataVersionFilter" onchange="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"><option value="">All Versions</option></select>
+              <select id="admCandScanDataCategoryFilter" onchange="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"><option value="">All Categories</option></select>
               <select id="admCandScanDataSort" onchange="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
                 <option value="scanned_desc">Last Scanned (Newest)</option>
                 <option value="scanned_asc">Last Scanned (Oldest)</option>
@@ -48030,7 +48033,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const fieldMax = document.getElementById('admCandScanDataFieldMax')?.value || '';
     const fieldContains = (document.getElementById('admCandScanDataFieldContains')?.value || '').toLowerCase();
     const field = fieldKey && opt.behavior === 'form' ? ((opt.config && opt.config.fields) || []).find(f => f.key === fieldKey) : null;
+    const classFilter = document.getElementById('admCandScanDataClassFilter')?.value || '';
+    const versionFilter = document.getElementById('admCandScanDataVersionFilter')?.value || '';
+    const categoryFilter = document.getElementById('admCandScanDataCategoryFilter')?.value || '';
+    // Class/Version/Category options are derived from whatever this
+    // circular's own roster actually contains (same pattern as the
+    // Applications tab's class/category filters), rebuilt every render so a
+    // freshly-imported class/category shows up without a reload -- cheap
+    // enough since this whole table already re-renders after every scan.
+    [['Class', 'All Classes'], ['Version', 'All Versions'], ['Category', 'All Categories']].forEach(([dim, allLabel]) => {
+      const sel = document.getElementById(`admCandScanData${dim}Filter`);
+      if (!sel) return;
+      const key = dim.toLowerCase();
+      const current = sel.value;
+      const values = [...new Set(all.map(a => a[key]).filter(Boolean))].sort();
+      sel.innerHTML = `<option value="">${allLabel}</option>` + values.map(v => `<option value="${_escHtml(v)}" ${v === current ? 'selected' : ''}>${_escHtml(v)}</option>`).join('');
+    });
     let rows = all.filter(a => {
+      if (classFilter && a.class !== classFilter) return false;
+      if (versionFilter && a.version !== versionFilter) return false;
+      if (categoryFilter && a.category !== categoryFilter) return false;
       if (q && !`${a.name_english || ''} ${a.tracking_id || ''} ${a.token || ''}`.toLowerCase().includes(q)) return false;
       // last_scanned_at is the candidate's most recent scan across ANY scan
       // option (not necessarily this one specifically) -- 'tag'/'form'
@@ -48086,32 +48108,37 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (countEl) countEl.textContent = rows.length > SCAN_DATA_ROW_CAP ? `Showing first ${SCAN_DATA_ROW_CAP} of ${rows.length} matches (of ${all.length} total) — narrow your search to see more` : `${rows.length} of ${all.length}`;
     const headRow = document.getElementById('admCandScanDataHeadRow');
     if (headRow) {
-      const extraThs = _admCandScanDataExtraCols.map(k => `<th class="px-2 py-2 text-left font-black text-slate-400 uppercase hidden lg:table-cell">${_escHtml(_admAppFieldLabel(k))}</th>`).join('');
+      // No responsive hidden/table-cell classes here on purpose -- the
+      // table already sits inside an overflow-x-auto wrapper, so a narrow
+      // viewport scrolls rather than silently dropping a column the admin
+      // explicitly picked (ticking a column in the Columns panel and then
+      // not seeing it, on a narrower window, was the actual bug reported).
+      const extraThs = _admCandScanDataExtraCols.map(k => `<th class="px-2 py-2 text-left font-black text-slate-400 uppercase whitespace-nowrap">${_escHtml(_admAppFieldLabel(k))}</th>`).join('');
       headRow.innerHTML = `
-        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Tracking ID</th>
-        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Name</th>
-        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Roll</th>
-        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase hidden md:table-cell">Class</th>
-        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase hidden md:table-cell">Version</th>
-        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase hidden md:table-cell">Category</th>
-        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase hidden md:table-cell">Last Scanned</th>
+        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase whitespace-nowrap">Tracking ID</th>
+        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase whitespace-nowrap">Name</th>
+        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase whitespace-nowrap">Roll</th>
+        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase whitespace-nowrap">Class</th>
+        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase whitespace-nowrap">Version</th>
+        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase whitespace-nowrap">Category</th>
+        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase whitespace-nowrap">Last Scanned</th>
         ${extraThs}
-        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Value</th>`;
+        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase whitespace-nowrap">Value</th>`;
     }
     const body = document.getElementById('admCandScanDataBody');
     if (body) {
       const colCount = 8 + _admCandScanDataExtraCols.length;
       body.innerHTML = rows.slice(0, SCAN_DATA_ROW_CAP).map(a => {
-        const extraTds = _admCandScanDataExtraCols.map(k => `<td class="px-2 py-2 hidden lg:table-cell">${_admAppFieldRender(k, a) || '<span class="text-slate-300">—</span>'}</td>`).join('');
+        const extraTds = _admCandScanDataExtraCols.map(k => `<td class="px-2 py-2 whitespace-nowrap">${_admAppFieldRender(k, a) || '<span class="text-slate-300">—</span>'}</td>`).join('');
         return `
         <tr class="border-t border-slate-50">
-          <td class="px-2 py-2 font-mono text-blue-600">${_escHtml(a.tracking_id || a.token || '—')}</td>
-          <td class="px-2 py-2 font-bold">${_escHtml(a.name_english || '—')}</td>
-          <td class="px-2 py-2">${_escHtml(_admResolveRollValue(a) || '—')}</td>
-          <td class="px-2 py-2 hidden md:table-cell text-slate-500">${_escHtml(a.class || '—')}</td>
-          <td class="px-2 py-2 hidden md:table-cell text-slate-500">${_escHtml(a.version || '—')}</td>
-          <td class="px-2 py-2 hidden md:table-cell text-slate-500">${_escHtml(a.category || '—')}</td>
-          <td class="px-2 py-2 hidden md:table-cell text-slate-400">${a.last_scanned_at ? _escHtml(new Date(a.last_scanned_at).toLocaleString()) : '—'}</td>
+          <td class="px-2 py-2 font-mono text-blue-600 whitespace-nowrap">${_escHtml(a.tracking_id || a.token || '—')}</td>
+          <td class="px-2 py-2 font-bold whitespace-nowrap">${_escHtml(a.name_english || '—')}</td>
+          <td class="px-2 py-2 whitespace-nowrap">${_escHtml(_admResolveRollValue(a) || '—')}</td>
+          <td class="px-2 py-2 text-slate-500 whitespace-nowrap">${_escHtml(a.class || '—')}</td>
+          <td class="px-2 py-2 text-slate-500 whitespace-nowrap">${_escHtml(a.version || '—')}</td>
+          <td class="px-2 py-2 text-slate-500 whitespace-nowrap">${_escHtml(a.category || '—')}</td>
+          <td class="px-2 py-2 text-slate-400 whitespace-nowrap">${a.last_scanned_at ? _escHtml(new Date(a.last_scanned_at).toLocaleString()) : '—'}</td>
           ${extraTds}
           <td class="px-2 py-2">${_escHtml(_admCandScanValueForOption(opt, (a.scan_values || {})[opt.key]))}</td>
         </tr>`;
