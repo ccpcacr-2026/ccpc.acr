@@ -42345,8 +42345,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admFilterState = { class: new Set(), category: new Set(), version: new Set(), status: new Set(), source: new Set() };
       document.getElementById('admFilterPanel')?.classList.add('hidden');
       _admTablePage = 0;
-      _admFilterApps();
+      // Stat tiles first, then yield one tick before the table's own
+      // (heavier on a large roster: builds a search haystack per row, then
+      // renders a full page of HTML) filter/render step -- both writes
+      // happening in the same synchronous pass means the browser paints
+      // them together regardless of call order, so the deferral is what
+      // actually lets the count cards show up immediately instead of
+      // waiting behind the table.
       _admLoadStats();
+      setTimeout(_admFilterApps, 0);
       _admStartAppsPoll();
     } catch (e) { showToast(e.message || 'Could not load applications', 'error'); }
   }
@@ -42362,8 +42369,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (res.error) { if (!silent) showToast(res.error, 'error'); return; }
       _admAllApps = res.applications || [];
       _admAppsFingerprint = _admComputeAppsFingerprint();
-      _admFilterApps();
       _admLoadStats();
+      setTimeout(_admFilterApps, 0);
     } catch (e) { if (!silent) showToast(e.message || 'Could not refresh', 'error'); }
   }
   // Background poll so the Dashboard/Applications tab reflects scans/edits
