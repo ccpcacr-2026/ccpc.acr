@@ -42321,6 +42321,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   /* ─── Dashboard ──────────────────────────────────── */
+  // Baseline {count, latest updated_at} derived from whatever's already
+  // loaded in _admAllApps -- no extra round trip needed to seed it, since
+  // listApplications already selects updated_at. The background poll below
+  // compares a cheap server-side re-check against this before paying for a
+  // full re-fetch -- important once a roster grows into the 10k+ range,
+  // where re-pulling every column of every row every 20s regardless of
+  // whether anything changed stops being free.
+  let _admAppsFingerprint = null;
+  function _admComputeAppsFingerprint() {
+    let latest = null;
+    _admAllApps.forEach(a => { if (a.updated_at && (!latest || a.updated_at > latest)) latest = a.updated_at; });
+    return { count: _admAllApps.length, latest };
+  }
   async function _admLoadDashboard() {
     const tbody = document.getElementById('adm-app-table-body');
     if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr>';
@@ -42328,6 +42341,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const res = await _admAdminFetch('listApplications', { circular_id: _admCandActiveCircularId });
       if (res.error) { showToast(res.error, 'error'); return; }
       _admAllApps = res.applications || [];
+      _admAppsFingerprint = _admComputeAppsFingerprint();
       _admFilterState = { class: new Set(), category: new Set(), status: new Set(), source: new Set() };
       document.getElementById('admFilterPanel')?.classList.add('hidden');
       _admTablePage = 0;
@@ -42347,6 +42361,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const res = await _admAdminFetch('listApplications', { circular_id: _admCandActiveCircularId });
       if (res.error) { if (!silent) showToast(res.error, 'error'); return; }
       _admAllApps = res.applications || [];
+      _admAppsFingerprint = _admComputeAppsFingerprint();
       _admFilterApps();
       _admLoadStats();
     } catch (e) { if (!silent) showToast(e.message || 'Could not refresh', 'error'); }
@@ -42357,16 +42372,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // pattern already used for the Messages list poll (_loadConversations):
   // the interval checks its own anchor element is still in the DOM and
   // clears itself once the admin navigates away from this module entirely.
+  // Each tick only pays for a tiny count+latest-timestamp check
+  // (getApplicationsFingerprint); the expensive full-roster re-fetch only
+  // runs when that check says something actually changed -- on an idle
+  // circular this turns an unconditional full re-pull every 20s into
+  // practically nothing. Also skips entirely while the browser tab itself
+  // isn't visible, so backgrounding the app doesn't keep polling either.
   let _admAppsPollTimer = null;
   function _admStartAppsPoll() {
     clearInterval(_admAppsPollTimer);
-    _admAppsPollTimer = setInterval(() => {
+    _admAppsPollTimer = setInterval(async () => {
+      if (document.hidden) return;
       const dash = document.getElementById('admAdminDashboard');
       if (!dash) { clearInterval(_admAppsPollTimer); return; }
       const dashVisible = !dash.classList.contains('hidden');
       const listVisible = !document.getElementById('admAdminAppList')?.classList.contains('hidden');
       if (!dashVisible && !listVisible) return;
-      _admRefreshApps(true);
+      try {
+        const fp = await _admAdminFetch('getApplicationsFingerprint', { circular_id: _admCandActiveCircularId });
+        if (fp.error) return;
+        const changed = !_admAppsFingerprint || fp.count !== _admAppsFingerprint.count || fp.latest !== _admAppsFingerprint.latest;
+        if (changed) _admRefreshApps(true);
+      } catch (e) {}
     }, 20000);
   }
   // Multi-select tag-style filter panel, same pattern as the Group Form

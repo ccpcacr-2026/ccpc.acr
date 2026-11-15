@@ -45,22 +45,59 @@ async function sbAdmission(path, method = 'GET', body = null) {
 // page -- listApplications used a flat `limit=1000`, which silently
 // truncated the Dashboard's totals/breakdowns once a circular's roster
 // (e.g. a VortiBD-synced one) grew past 1000 rows.
+//
+// The first page asks PostgREST for an exact count (Content-Range's
+// ".../<total>" suffix) so every remaining page can be requested in
+// PARALLEL instead of one-page-at-a-time -- a ~3800-row roster was taking
+// 4 sequential round-trips (each paying full network latency) to load the
+// Applications tab; this collapses it to effectively one round-trip's
+// worth of wait. Falls back to the old sequential walk if the server ever
+// doesn't return a usable count (e.g. an unexpected PostgREST config).
 async function sbAdmissionAllRows(path) {
   const PAGE = 1000;
-  let all = [];
-  let offset = 0;
-  while (true) {
-    const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
-      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'admission', Range: `${offset}-${offset + PAGE - 1}` },
-    });
-    if (!res.ok) return { error: await res.text() };
-    const page = await res.json();
-    if (!Array.isArray(page)) return { error: 'Unexpected response shape' };
-    all = all.concat(page);
-    if (page.length < PAGE) break;
-    offset += PAGE;
+  const headers = (range, withCount) => ({
+    apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'admission',
+    Range: range, ...(withCount ? { Prefer: 'count=exact' } : {}),
+  });
+  const first = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: headers(`0-${PAGE - 1}`, true) });
+  if (!first.ok) return { error: await first.text() };
+  const firstPage = await first.json();
+  if (!Array.isArray(firstPage)) return { error: 'Unexpected response shape' };
+
+  const contentRange = first.headers.get('content-range') || '';
+  const m = contentRange.match(/\/(\d+)$/);
+  const total = m ? parseInt(m[1], 10) : null;
+
+  if (total === null || firstPage.length < PAGE || total <= firstPage.length) return firstPage;
+
+  const offsets = [];
+  for (let offset = PAGE; offset < total; offset += PAGE) offsets.push(offset);
+  try {
+    const pages = await Promise.all(offsets.map(async offset => {
+      const res = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: headers(`${offset}-${offset + PAGE - 1}`, false) });
+      if (!res.ok) throw new Error(await res.text());
+      const page = await res.json();
+      if (!Array.isArray(page)) throw new Error('Unexpected response shape');
+      return page;
+    }));
+    let all = firstPage;
+    pages.forEach(p => { all = all.concat(p); });
+    return all;
+  } catch (e) {
+    // Fall back to the original sequential walk on any parallel-fetch error.
+    let all = firstPage;
+    let offset = firstPage.length < PAGE ? total : PAGE;
+    while (offset < total) {
+      const res = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: headers(`${offset}-${offset + PAGE - 1}`, false) });
+      if (!res.ok) return { error: await res.text() };
+      const page = await res.json();
+      if (!Array.isArray(page)) return { error: 'Unexpected response shape' };
+      all = all.concat(page);
+      if (page.length < PAGE) break;
+      offset += PAGE;
+    }
+    return all;
   }
-  return all;
 }
 
 async function sbAdmissionRpc(fn, params = {}) {
@@ -294,7 +331,7 @@ export async function POST(req) {
     // breakdowns can't be computed without it. The two tabs' own UI/edit
     // controls still gate separately (see _admModuleCan('applications', …)
     // client-side and EDIT_ACTIONS above for the real write boundary).
-    const listAppsOk = (action === 'listApplications' || action === 'getApplicantColumns') && (_tabOk(false, perms, 'dashboard', 'view') || _tabOk(false, perms, 'applications', 'view'));
+    const listAppsOk = (action === 'listApplications' || action === 'getApplicantColumns' || action === 'getApplicationsFingerprint') && (_tabOk(false, perms, 'dashboard', 'view') || _tabOk(false, perms, 'applications', 'view'));
     if (!_tabOk(false, perms, tab, level) && !formFieldsReadOk && !listAppsOk) return _forbidden();
   }
 
@@ -322,7 +359,12 @@ export async function POST(req) {
     // see getApplicantColumns/saveApplicantColumns below) can draw from --
     // added once here rather than per-column, so any combination the admin
     // picks already has real data to show.
-    let q = `admission_applications?select=id,tracking_id,index_id,token,source,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,room_id,seat_no,scan_values,created_at,date_of_birth,gender,blood_group,present_address,permanent_address,father_name,father_profession,father_designation,father_contact,father_office_address,mother_name,mother_profession,mother_designation,mother_contact,mother_office_address,guardian_name,guardian_contact,guardian_relation&circular_id=eq.${circularId}&order=created_at.desc`;
+    // updated_at included so the client can derive its own baseline
+    // fingerprint (count + max updated_at) right after a full load, with no
+    // extra round trip -- see getApplicationsFingerprint below, which the
+    // Dashboard's background poll checks against that baseline instead of
+    // re-pulling every column of every row on a fixed timer.
+    let q = `admission_applications?select=id,tracking_id,index_id,token,source,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,room_id,seat_no,scan_values,created_at,updated_at,date_of_birth,gender,blood_group,present_address,permanent_address,father_name,father_profession,father_designation,father_contact,father_office_address,mother_name,mother_profession,mother_designation,mother_contact,mother_office_address,guardian_name,guardian_contact,guardian_relation&circular_id=eq.${circularId}&order=created_at.desc`;
     if (payload.class)   q += `&class=eq.${encodeURIComponent(payload.class)}`;
     if (payload.status)  q += `&status=eq.${encodeURIComponent(payload.status)}`;
     if (payload.source)  q += `&source=eq.${encodeURIComponent(payload.source)}`;
@@ -336,6 +378,31 @@ export async function POST(req) {
       (rows || []).forEach(r => { if (r.room_id) r.room_name = nameById[r.room_id] || null; });
     }
     return NextResponse.json({ applications: rows || [] });
+  }
+
+  // Cheap "has anything changed" check for the Dashboard's background poll
+  // (every 20s while that tab is open) -- the roster is expected to grow
+  // into the 10k+ range, and re-pulling every column of every row on a
+  // fixed timer regardless of whether anything changed doesn't scale. One
+  // exact row count (HEAD request, no body) + the single most recent
+  // updated_at (a one-row, one-column select) is enough to detect any
+  // insert/delete/edit/scan (every one of those already stamps updated_at,
+  // including scans via admission-candidates' _applyScanValue) -- the full
+  // listApplications re-fetch only runs when this tiny check says something
+  // actually moved.
+  if (action === 'getApplicationsFingerprint') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ count: 0, latest: null });
+    const countRes = await fetch(`${SB_URL}/rest/v1/admission_applications?select=id&circular_id=eq.${circularId}`, {
+      method: 'HEAD',
+      headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'admission', Prefer: 'count=exact' },
+    });
+    const cr = countRes.headers.get('content-range') || '';
+    const cm = cr.match(/\/(\d+)$/);
+    const count = cm ? parseInt(cm[1], 10) : null;
+    const latestRows = await sbAdmission(`admission_applications?circular_id=eq.${circularId}&select=updated_at&order=updated_at.desc&limit=1`);
+    const latest = (Array.isArray(latestRows) && latestRows[0]) ? latestRows[0].updated_at : null;
+    return NextResponse.json({ count, latest });
   }
 
   // ── Applicant table column layout (admin-defined, per circular) ─────────
