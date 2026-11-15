@@ -42545,6 +42545,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     ['class', 'Class'], ['category', 'Category'], ['version', 'Version'], ['session', 'Session'],
     ['status', 'Status'], ['source', 'Source'], ['payment_status', 'Payment Status'], ['stage', 'Stage'],
   ];
+  // Every dynamic Scan Option (Part 10) becomes one more selectable field,
+  // namespaced 'scan:<optionKey>' so it can't collide with a real column --
+  // its only two possible "values" are Yes/No (has a value/mark recorded for
+  // that option), never the fixed-field exact-value-dropdown behavior, since
+  // a scan's own value (a mark, a free-typed tag) isn't a meaningful
+  // small closed list to pick from the way Class/Category/Status are.
+  function _admCustomCounterFieldOptions() {
+    const scanFields = (_admCandScanOptions || []).map(o => ['scan:' + o.key, `${o.label} — Has value/marks`]);
+    return ADM_CUSTOM_COUNTER_FIELDS.concat(scanFields);
+  }
   let _admCustomCounters = [];
   let _admCustomCounterDraft = []; // [{field, value}] -- AND'd exact-value conditions, optional
   // Non-empty means "show every distinct combination of these fields' own
@@ -42552,12 +42562,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Class+Category+Version grouped shows one row per real (class, category,
   // version) combination actually present, never capped/truncated.
   let _admCustomCounterGroupBy = [];
-  function _admCustomCounterFieldLabel(key) { return (ADM_CUSTOM_COUNTER_FIELDS.find(([k]) => k === key) || [key, key])[1]; }
+  function _admCustomCounterFieldLabel(key) { return (_admCustomCounterFieldOptions().find(([k]) => k === key) || [key, key])[1]; }
+  function _admCustomCounterValueLabel(field, value) {
+    if (String(field).startsWith('scan:')) return value === 'yes' ? 'Has value/marks' : 'No value yet';
+    return value;
+  }
+  // Mirrors the same has-a-value logic as the Scan tab's own review table
+  // (_admCandScanValueForOption's has/empty checks) -- kept as its own small
+  // copy here since this file has no shared-helper convention to lean on.
+  function _admCustomCounterScanHasValue(app, optionKey) {
+    const opt = (_admCandScanOptions || []).find(o => o.key === optionKey);
+    const raw = (app.scan_values || {})[optionKey];
+    if (opt && opt.behavior === 'status') return !!(raw && raw.done);
+    if (opt && opt.behavior === 'form') return !!(raw && Object.keys(raw).length);
+    return raw !== undefined && raw !== null && raw !== '';
+  }
   function _admCustomCounterValues(field) {
+    if (String(field).startsWith('scan:')) return ['yes', 'no'];
     return [...new Set(_admAllApps.map(a => (field === 'source' ? (a.source || 'native') : a[field])).filter(v => v !== undefined && v !== null && v !== ''))].sort();
   }
   function _admCustomCounterMatches(app, conditions) {
     return Object.entries(conditions || {}).every(([field, value]) => {
+      if (field.startsWith('scan:')) return (value === 'yes') === _admCustomCounterScanHasValue(app, field.slice(5));
       const v = field === 'source' ? (app.source || 'native') : app[field];
       return String(v || '') === String(value);
     });
@@ -42576,7 +42602,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const base = _admAllApps.filter(a => _admCustomCounterMatches(a, conditions));
     const map = new Map();
     base.forEach(a => {
-      const parts = groupFields.map(f => String((f === 'source' ? (a.source || 'native') : a[f]) || '(blank)'));
+      const parts = groupFields.map(f => f.startsWith('scan:') ? (_admCustomCounterScanHasValue(a, f.slice(5)) ? 'Yes' : 'No') : String((f === 'source' ? (a.source || 'native') : a[f]) || '(blank)'));
       const key = parts.join('\u0001');
       if (!map.has(key)) map.set(key, { parts, count: 0 });
       map.get(key).count++;
@@ -42591,6 +42617,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const valSel = document.getElementById('admCustomCounterValueSel');
     if (!fieldSel || !valSel) return;
     const values = _admCustomCounterValues(fieldSel.value);
+    if (fieldSel.value.startsWith('scan:')) {
+      valSel.innerHTML = `<option value="yes">Has a value/marks</option><option value="no">No value yet</option>`;
+      return;
+    }
     valSel.innerHTML = values.length ? values.map(v => `<option value="${_escHtml(v)}">${_escHtml(v)}</option>`).join('') : '<option value="">(no values yet)</option>';
   }
   function _admCustomCounterAddCondition() {
@@ -42668,17 +42698,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <p class="text-[10px] uppercase text-slate-400 font-bold mb-2.5">Custom Count</p>
         <div class="flex flex-wrap items-center gap-2 mb-2">
           <select id="admCustomCounterFieldSel" onchange="_admCustomCounterPopulateValueSelect()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold">
-            ${ADM_CUSTOM_COUNTER_FIELDS.map(([k, l]) => `<option value="${k}">${_escHtml(l)}</option>`).join('')}
+            ${_admCustomCounterFieldOptions().map(([k, l]) => `<option value="${k}">${_escHtml(l)}</option>`).join('')}
           </select>
           <select id="admCustomCounterValueSel" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" style="min-width:120px"></select>
           <button type="button" onclick="_admCustomCounterAddCondition()" class="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase">+ Add Condition</button>
         </div>
         <div class="flex flex-wrap gap-1.5 mb-2">
-          ${_admCustomCounterDraft.length ? _admCustomCounterDraft.map(c => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-[10px] font-black">${_escHtml(_admCustomCounterFieldLabel(c.field))}: ${_escHtml(c.value)}<button type="button" onclick='_admCustomCounterRemoveCondition(${JSON.stringify(c.field)})' class="ml-0.5 text-blue-400 hover:text-blue-700">&times;</button></span>`).join('') : '<span class="text-xs text-slate-400">No conditions yet — optional, narrows which applicants count.</span>'}
+          ${_admCustomCounterDraft.length ? _admCustomCounterDraft.map(c => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-[10px] font-black">${_escHtml(_admCustomCounterFieldLabel(c.field))}: ${_escHtml(_admCustomCounterValueLabel(c.field, c.value))}<button type="button" onclick='_admCustomCounterRemoveCondition(${JSON.stringify(c.field)})' class="ml-0.5 text-blue-400 hover:text-blue-700">&times;</button></span>`).join('') : '<span class="text-xs text-slate-400">No conditions yet — optional, narrows which applicants count.</span>'}
         </div>
         <p class="text-[10px] uppercase text-slate-400 font-bold mb-1">Group by (optional — shows every combination's own count instead of one number)</p>
         <div class="flex flex-wrap gap-2.5 mb-3">
-          ${ADM_CUSTOM_COUNTER_FIELDS.map(([k, l]) => `<label class="flex items-center gap-1 text-xs font-bold text-slate-600"><input type="checkbox" onchange='_admCustomCounterToggleGroupBy(${JSON.stringify(k)}, this.checked)' ${_admCustomCounterGroupBy.includes(k) ? 'checked' : ''}> ${_escHtml(l)}</label>`).join('')}
+          ${_admCustomCounterFieldOptions().map(([k, l]) => `<label class="flex items-center gap-1 text-xs font-bold text-slate-600"><input type="checkbox" onchange='_admCustomCounterToggleGroupBy(${JSON.stringify(k)}, this.checked)' ${_admCustomCounterGroupBy.includes(k) ? 'checked' : ''}> ${_escHtml(l)}</label>`).join('')}
         </div>
         <div class="flex items-start gap-3 flex-wrap">
           <div class="flex-1 min-w-[160px]">
@@ -46030,18 +46060,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <input type="date" id="admCandScanDataFrom" onchange="_admCandRenderScanDataTable()" title="Scanned from" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
               <span class="text-slate-300 text-xs">to</span>
               <input type="date" id="admCandScanDataTo" onchange="_admCandRenderScanDataTable()" title="Scanned to" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+              <button type="button" onclick="_admCandScanDataToggleColsPanel()" class="flex items-center gap-1.5 px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase"><i data-lucide="columns" class="h-3 w-3"></i> Columns</button>
             </div>
           </div>
+          <!-- Every field this circular has (the same catalog the
+               Applications tab's "Configure Columns" draws from, built-in
+               + custom/mapped) -- the admin ticks which extra ones to show
+               alongside the fixed Tracking/Name/Roll/Class/Last
+               Scanned/Value columns, so nothing in a candidate's data is
+               off-limits from this review table. Not persisted -- a
+               per-visit view preference, same spirit as the search/filter
+               state above it. -->
+          <div id="admCandScanDataColsPanel" class="hidden mb-3 p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-wrap gap-x-4 gap-y-1.5"></div>
+          <!-- Only populated/shown for a 'form'-behavior option (e.g. a marks
+               entry with one or more numeric/text fields) -- a field select
+               (when there's more than one field) plus a value control shaped
+               to that field's input_type (min/max for number, contains for
+               text), rebuilt every time the field or option changes. -->
+          <div id="admCandScanDataFieldFilterBox" class="hidden flex items-center gap-2 flex-wrap mb-3"></div>
           <div class="overflow-x-auto rounded-xl border border-slate-100">
             <table class="w-full text-xs">
-              <thead><tr class="bg-slate-50 border-b border-slate-100">
-                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Tracking ID</th>
-                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Name</th>
-                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Roll</th>
-                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase hidden md:table-cell">Class</th>
-                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase hidden md:table-cell">Last Scanned</th>
-                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Value</th>
-              </tr></thead>
+              <thead><tr id="admCandScanDataHeadRow" class="bg-slate-50 border-b border-slate-100"></tr></thead>
               <tbody id="admCandScanDataBody"></tbody>
             </table>
           </div>
@@ -47738,9 +47777,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admCandRenderScanModeTabs();
       _admCandRenderScanOptionPanel();
       _admCandRenderScanDataFilterOptions();
+      _admCandScanDataFieldFilterRender();
       _admCandRenderScanDataTable();
       _admCandUpdateScanScopeBoxVisibility();
       _admRenderFilterPanel(); // no-op if the Applications filter panel isn't open; keeps its dims current if it is
+      _admRenderCustomCounters(); // no-op if the Dashboard's builder isn't mounted; keeps its "Has value/marks" field options current if it is
     } catch (e) {}
     const qrBox = document.getElementById('admCandQrFormatBox');
     const isAdmin = _admCandMyAccess.is_full_admin;
@@ -47793,6 +47834,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // once a different option is selected.
     const dataSearch = document.getElementById('admCandScanDataSearch'); if (dataSearch) dataSearch.value = '';
     _admCandRenderScanDataFilterOptions();
+    _admCandScanDataFieldFilterRender();
     _admCandRenderScanDataTable();
     _admCandUpdateScanScopeBoxVisibility();
   }
@@ -47945,6 +47987,32 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       sel.innerHTML = `<option value="__has__" selected>Has a value</option><option value="__none__">No value yet</option><option value="">Any</option>`;
     }
   }
+  // 'form' behavior can hold several admin-defined fields per scan (e.g.
+  // "Viva" + "Written" marks) -- builds a field picker (only when there's
+  // more than one) plus a value control shaped to the selected field's
+  // input_type: a Min/Max range for 'number', a Contains box for 'text'.
+  // Rebuilt whenever the option changes or the field picker itself changes,
+  // preserving whichever field was already selected across the rebuild.
+  function _admCandScanDataFieldFilterRender() {
+    const box = document.getElementById('admCandScanDataFieldFilterBox');
+    if (!box) return;
+    const opt = _admCandScanSelectedOption;
+    const fields = (opt && opt.behavior === 'form' && opt.config && Array.isArray(opt.config.fields)) ? opt.config.fields : [];
+    if (!fields.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+    box.classList.remove('hidden');
+    const prevKey = document.getElementById('admCandScanDataFieldSelect')?.value;
+    const selectedKey = (prevKey && fields.some(f => f.key === prevKey)) ? prevKey : fields[0].key;
+    const field = fields.find(f => f.key === selectedKey) || fields[0];
+    const fieldPickerHtml = fields.length > 1
+      ? `<select id="admCandScanDataFieldSelect" onchange="_admCandScanDataFieldFilterRender(); _admCandRenderScanDataTable();" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">${fields.map(f => `<option value="${_escHtml(f.key)}" ${f.key === selectedKey ? 'selected' : ''}>${_escHtml(f.label)}</option>`).join('')}</select>`
+      : `<span class="text-[10px] text-slate-400 font-bold">${_escHtml(field.label)}:</span><input type="hidden" id="admCandScanDataFieldSelect" value="${_escHtml(field.key)}">`;
+    const valueControlHtml = field.input_type === 'number'
+      ? `<input type="number" id="admCandScanDataFieldMin" placeholder="Min" oninput="_admCandRenderScanDataTable()" class="w-20 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+         <span class="text-slate-300 text-xs">–</span>
+         <input type="number" id="admCandScanDataFieldMax" placeholder="Max" oninput="_admCandRenderScanDataTable()" class="w-20 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">`
+      : `<input type="text" id="admCandScanDataFieldContains" placeholder="Contains…" oninput="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">`;
+    box.innerHTML = fieldPickerHtml + valueControlHtml;
+  }
   function _admCandRenderScanDataTable() {
     const box = document.getElementById('admCandScanDataBox');
     if (!box) return;
@@ -47957,6 +48025,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const fromVal = document.getElementById('admCandScanDataFrom')?.value || '';
     const toVal = document.getElementById('admCandScanDataTo')?.value || '';
     const all = _admAllApps || [];
+    const fieldKey = document.getElementById('admCandScanDataFieldSelect')?.value || '';
+    const fieldMin = document.getElementById('admCandScanDataFieldMin')?.value || '';
+    const fieldMax = document.getElementById('admCandScanDataFieldMax')?.value || '';
+    const fieldContains = (document.getElementById('admCandScanDataFieldContains')?.value || '').toLowerCase();
+    const field = fieldKey && opt.behavior === 'form' ? ((opt.config && opt.config.fields) || []).find(f => f.key === fieldKey) : null;
     let rows = all.filter(a => {
       if (q && !`${a.name_english || ''} ${a.tracking_id || ''} ${a.token || ''}`.toLowerCase().includes(q)) return false;
       // last_scanned_at is the candidate's most recent scan across ANY scan
@@ -47967,21 +48040,35 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // done one option at a time, in a batch.
       if (fromVal && (!a.last_scanned_at || a.last_scanned_at.slice(0, 10) < fromVal)) return false;
       if (toVal && (!a.last_scanned_at || a.last_scanned_at.slice(0, 10) > toVal)) return false;
-      if (!valFilter) return true;
       const raw = (a.scan_values || {})[opt.key];
-      if (opt.behavior === 'status') {
-        const done = !!(raw && raw.done);
-        return valFilter === 'done' ? done : !done;
+      if (valFilter) {
+        if (opt.behavior === 'status') {
+          const done = !!(raw && raw.done);
+          if ((valFilter === 'done') !== done) return false;
+        } else if (opt.behavior === 'form') {
+          const has = !!(raw && Object.keys(raw).length);
+          if ((valFilter === '__has__') !== has) return false;
+        } else {
+          // tag
+          const empty = raw === undefined || raw === null || raw === '';
+          if (valFilter === '__has__' && empty) return false;
+          else if (valFilter === '__none__' && !empty) return false;
+          else if (valFilter !== '__has__' && valFilter !== '__none__' && String(raw) !== valFilter) return false;
+        }
       }
-      if (opt.behavior === 'form') {
-        const has = !!(raw && Object.keys(raw).length);
-        return valFilter === '__has__' ? has : !has;
+      // Dynamic per-field filter -- only meaningful for 'form' options (one
+      // or more admin-defined fields per scan, e.g. a numeric mark); a
+      // number field gets a Min/Max range, a text field gets a Contains
+      // match, shaped by whichever field is currently selected.
+      if (field) {
+        const fieldVal = raw ? raw[field.key] : undefined;
+        if (field.input_type === 'number') {
+          const num = (fieldVal === undefined || fieldVal === null || fieldVal === '') ? null : Number(fieldVal);
+          if (fieldMin !== '' && (num === null || num < Number(fieldMin))) return false;
+          if (fieldMax !== '' && (num === null || num > Number(fieldMax))) return false;
+        } else if (fieldContains && !String(fieldVal ?? '').toLowerCase().includes(fieldContains)) return false;
       }
-      // tag
-      const empty = raw === undefined || raw === null || raw === '';
-      if (valFilter === '__has__') return !empty;
-      if (valFilter === '__none__') return empty;
-      return String(raw) === valFilter;
+      return true;
     });
     rows = [...rows].sort((a, b) => {
       switch (sortBy) {
@@ -47997,18 +48084,64 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const SCAN_DATA_ROW_CAP = 150;
     const countEl = document.getElementById('admCandScanDataCount');
     if (countEl) countEl.textContent = rows.length > SCAN_DATA_ROW_CAP ? `Showing first ${SCAN_DATA_ROW_CAP} of ${rows.length} matches (of ${all.length} total) — narrow your search to see more` : `${rows.length} of ${all.length}`;
+    const headRow = document.getElementById('admCandScanDataHeadRow');
+    if (headRow) {
+      const extraThs = _admCandScanDataExtraCols.map(k => `<th class="px-2 py-2 text-left font-black text-slate-400 uppercase hidden lg:table-cell">${_escHtml(_admAppFieldLabel(k))}</th>`).join('');
+      headRow.innerHTML = `
+        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Tracking ID</th>
+        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Name</th>
+        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Roll</th>
+        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase hidden md:table-cell">Class</th>
+        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase hidden md:table-cell">Version</th>
+        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase hidden md:table-cell">Category</th>
+        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase hidden md:table-cell">Last Scanned</th>
+        ${extraThs}
+        <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Value</th>`;
+    }
     const body = document.getElementById('admCandScanDataBody');
     if (body) {
-      body.innerHTML = rows.slice(0, SCAN_DATA_ROW_CAP).map(a => `
+      const colCount = 8 + _admCandScanDataExtraCols.length;
+      body.innerHTML = rows.slice(0, SCAN_DATA_ROW_CAP).map(a => {
+        const extraTds = _admCandScanDataExtraCols.map(k => `<td class="px-2 py-2 hidden lg:table-cell">${_admAppFieldRender(k, a) || '<span class="text-slate-300">—</span>'}</td>`).join('');
+        return `
         <tr class="border-t border-slate-50">
           <td class="px-2 py-2 font-mono text-blue-600">${_escHtml(a.tracking_id || a.token || '—')}</td>
           <td class="px-2 py-2 font-bold">${_escHtml(a.name_english || '—')}</td>
           <td class="px-2 py-2">${_escHtml(_admResolveRollValue(a) || '—')}</td>
           <td class="px-2 py-2 hidden md:table-cell text-slate-500">${_escHtml(a.class || '—')}</td>
+          <td class="px-2 py-2 hidden md:table-cell text-slate-500">${_escHtml(a.version || '—')}</td>
+          <td class="px-2 py-2 hidden md:table-cell text-slate-500">${_escHtml(a.category || '—')}</td>
           <td class="px-2 py-2 hidden md:table-cell text-slate-400">${a.last_scanned_at ? _escHtml(new Date(a.last_scanned_at).toLocaleString()) : '—'}</td>
+          ${extraTds}
           <td class="px-2 py-2">${_escHtml(_admCandScanValueForOption(opt, (a.scan_values || {})[opt.key]))}</td>
-        </tr>`).join('') || `<tr><td colspan="6" class="px-2 py-6 text-center text-slate-400">No matches.</td></tr>`;
+        </tr>`;
+      }).join('') || `<tr><td colspan="${colCount}" class="px-2 py-6 text-center text-slate-400">No matches.</td></tr>`;
     }
+  }
+  // Lets the admin add any field from the full catalog (same one the
+  // Applications tab's "Configure Columns" draws from -- built-in native
+  // columns plus every custom/mapped Form Field) onto this table, so
+  // nothing in a candidate's record is unreachable from here. A per-visit
+  // view preference only -- not persisted, same as the search/sort/filter
+  // controls beside it.
+  let _admCandScanDataExtraCols = [];
+  function _admCandScanDataToggleColsPanel() {
+    const panel = document.getElementById('admCandScanDataColsPanel');
+    if (!panel) return;
+    const show = panel.classList.contains('hidden');
+    if (show) {
+      panel.innerHTML = _admAppFieldCatalog().map(f => `
+        <label class="flex items-center gap-1.5 text-xs font-bold text-slate-600">
+          <input type="checkbox" ${_admCandScanDataExtraCols.includes(f.key) ? 'checked' : ''} onchange="_admCandScanDataToggleCol('${f.key.replace(/'/g, "\\'")}', this.checked)">
+          ${_escHtml(f.label)}
+        </label>`).join('') || '<span class="text-xs text-slate-400">No fields yet.</span>';
+    }
+    panel.classList.toggle('hidden', !show);
+  }
+  function _admCandScanDataToggleCol(key, checked) {
+    if (checked) { if (!_admCandScanDataExtraCols.includes(key)) _admCandScanDataExtraCols.push(key); }
+    else _admCandScanDataExtraCols = _admCandScanDataExtraCols.filter(k => k !== key);
+    _admCandRenderScanDataTable();
   }
   async function _admCandFormFieldAdd() {
     const opt = _admCandScanSelectedOption;

@@ -119,23 +119,54 @@ async function _vortibdLogin() {
   return { token, clientId };
 }
 // Deliberately lower than admission-candidates/route.js's manual-sync copy
-// (260s) -- that path only ever handles one circular per invocation, while
-// this cron can loop over several due circulars in one run (see the
-// elapsed-time guard in GET below), so no single one can be allowed to
-// claim almost the entire 300s budget by itself.
+// (230s budget) -- that path only ever handles one circular per invocation,
+// while this cron can loop over several due circulars in one run (see the
+// elapsed-time guard in GET below), so no single one can be allowed to claim
+// almost the entire 300s budget by itself.
+//
+// A real run surfaced HTTP 524 here -- Cloudflare's own "A Timeout Occurred"
+// response, sent when the edge gave up waiting on VortiBD's origin (its
+// default origin timeout is ~100s) -- well before any AbortSignal on our
+// side fires. No timeout value here can prevent that; it's a response
+// Cloudflare sends back, not a connection we dropped. A bounded retry,
+// budgeted by a shared DEADLINE rather than a flat timeout per attempt (so a
+// retry can't stack a second full wait on top of the first), is the only
+// thing worth doing about it.
+const VORTIBD_GATEWAY_RETRY_STATUSES = new Set([502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527, 528, 529]);
+const VORTIBD_EXPORT_BUDGET_MS = 170000;
 async function _vortibdFetchExportBytes(token, clientId, vortibdCircularId) {
-  const res = await _vortibdFetch('VortiBD export request timed out (200s)', `${VORTIBD_API}/api/v1/Profile/download-applied-candidates`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      clientId: Number(clientId) || 0, isOnlySuccess: true, circularId: Number(vortibdCircularId) || 0,
-      circularDetailId: 0, tranStatus: 0, programID: 0, versionID: 0, shiftID: 0, studentCatID: 0,
-      sessionID: 0, groupID: 0, gender: '', applyDateFrom: null, applyDateTo: null, applicantId: 0,
-      contactNo: '', applicantName: '', bankTransactionId: '', orderBy: '',
-    }),
-    signal: AbortSignal.timeout(200000),
-  });
-  if (!res.ok) throw new Error(`VortiBD export request failed (status ${res.status}).`);
+  const deadline = Date.now() + VORTIBD_EXPORT_BUDGET_MS;
+  let lastGatewayError = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 10000) throw new Error(`VortiBD export request timed out (${Math.round(VORTIBD_EXPORT_BUDGET_MS / 1000)}s) after ${attempt - 1} attempt(s).`);
+    const res = await _vortibdFetch(`VortiBD export request timed out (${Math.round(remaining / 1000)}s remaining, attempt ${attempt}/2)`, `${VORTIBD_API}/api/v1/Profile/download-applied-candidates`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId: Number(clientId) || 0, isOnlySuccess: true, circularId: Number(vortibdCircularId) || 0,
+        circularDetailId: 0, tranStatus: 0, programID: 0, versionID: 0, shiftID: 0, studentCatID: 0,
+        sessionID: 0, groupID: 0, gender: '', applyDateFrom: null, applyDateTo: null, applicantId: 0,
+        contactNo: '', applicantName: '', bankTransactionId: '', orderBy: '',
+      }),
+      signal: AbortSignal.timeout(remaining),
+    });
+    if (!res.ok) {
+      if (VORTIBD_GATEWAY_RETRY_STATUSES.has(res.status) && attempt < 2 && deadline - Date.now() > 15000) {
+        lastGatewayError = res.status;
+        await new Promise((r) => setTimeout(r, 5000));
+        continue;
+      }
+      const gatewayNote = VORTIBD_GATEWAY_RETRY_STATUSES.has(res.status)
+        ? ` — VortiBD's own server (behind Cloudflare) is timing out generating the export; this is on their end, not a limit on ours.`
+        : '.';
+      throw new Error(`VortiBD export request failed (status ${res.status})${gatewayNote}`);
+    }
+    return await _vortibdFinishExportResponse(res);
+  }
+  throw new Error(`VortiBD export request failed (status ${lastGatewayError}) after retrying once.`);
+}
+async function _vortibdFinishExportResponse(res) {
   const ct = res.headers.get('content-type') || '';
   if (ct.includes('json')) {
     const body = await res.json();
