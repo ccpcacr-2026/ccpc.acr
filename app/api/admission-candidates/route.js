@@ -1041,6 +1041,19 @@ export async function POST(req) {
   // and the saved mapping template to auto-apply are per-circular columns
   // on exam_circulars.
   const VORTIBD_API = 'https://vortibdliveapi.cloudcampus24.com';
+  // Every external VortiBD call goes through this so a timeout/network
+  // failure says WHICH step it was (login vs. circular list vs. export vs.
+  // file download) -- previously all four shared one generic "The operation
+  // was aborted due to timeout" message with no way to tell them apart from
+  // the resulting vortibd_last_sync_message alone.
+  async function _vortibdFetch(label, url, opts) {
+    try {
+      return await fetch(url, opts);
+    } catch (e) {
+      if (e.name === 'TimeoutError' || e.name === 'AbortError') throw new Error(`${label} — VortiBD's server may be slow or unreachable right now.`);
+      throw new Error(`${label} failed: ${e.message || e}`);
+    }
+  }
   async function _vortibdCredentials() {
     const rows = await sbAdmission('admission_settings?key=eq.vortibd_credentials');
     return (Array.isArray(rows) && rows[0] && rows[0].value) || null;
@@ -1067,7 +1080,7 @@ export async function POST(req) {
   async function _vortibdLogin() {
     const creds = await _vortibdCredentials();
     if (!creds || !creds.username || !creds.password) throw new Error('VortiBD credentials are not configured yet.');
-    const res = await fetch(`${VORTIBD_API}/api/UserAuth/login`, {
+    const res = await _vortibdFetch('VortiBD login timed out (120s)', `${VORTIBD_API}/api/UserAuth/login`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: creds.username, password: creds.password, rememberMe: false }),
       signal: AbortSignal.timeout(120000),
@@ -1087,7 +1100,7 @@ export async function POST(req) {
     return { token, clientId };
   }
   async function _vortibdFetchCirculars(token, clientId) {
-    const res = await fetch(`${VORTIBD_API}/api/v1/CircularDashBoard/circulars-dashboard/${clientId}`, {
+    const res = await _vortibdFetch('VortiBD circular list timed out (120s)', `${VORTIBD_API}/api/v1/CircularDashBoard/circulars-dashboard/${clientId}`, {
       headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(120000),
     });
     const body = await res.json().catch(() => null);
@@ -1099,7 +1112,7 @@ export async function POST(req) {
   // attempts stopped reliably firing the request, likely VortiBD-side
   // throttling of rapid test traffic) -- handled defensively for both.
   async function _vortibdFetchExportBytes(token, clientId, vortibdCircularId) {
-    const res = await fetch(`${VORTIBD_API}/api/v1/Profile/download-applied-candidates`, {
+    const res = await _vortibdFetch('VortiBD export request timed out (120s)', `${VORTIBD_API}/api/v1/Profile/download-applied-candidates`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1116,7 +1129,7 @@ export async function POST(req) {
       const body = await res.json();
       const fileUrl = body && (body.data?.fileUrl || body.data?.url || body.data?.Url || (typeof body.data === 'string' && body.data.startsWith('http') ? body.data : null));
       if (!fileUrl) throw new Error('VortiBD returned an unexpected response for the export — no file URL found.');
-      const fileRes = await fetch(fileUrl, { signal: AbortSignal.timeout(60000) });
+      const fileRes = await _vortibdFetch('Downloading the exported file from VortiBD timed out (60s)', fileUrl, { signal: AbortSignal.timeout(60000) });
       if (!fileRes.ok) throw new Error('Could not download the exported file from VortiBD.');
       return Buffer.from(await fileRes.arrayBuffer());
     }

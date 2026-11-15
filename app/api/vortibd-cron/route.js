@@ -82,10 +82,21 @@ function _findJwtString(value, depth) {
   if (typeof value === 'object') { for (const k of Object.keys(value)) { const f = _findJwtString(value[k], (depth || 0) + 1); if (f) return f; } return null; }
   return null;
 }
+// Same labeled-timeout wrapper as admission-candidates/route.js's copy -- a
+// timeout/network failure now says WHICH step it was instead of every call
+// sharing one generic "The operation was aborted due to timeout" message.
+async function _vortibdFetch(label, url, opts) {
+  try {
+    return await fetch(url, opts);
+  } catch (e) {
+    if (e.name === 'TimeoutError' || e.name === 'AbortError') throw new Error(`${label} — VortiBD's server may be slow or unreachable right now.`);
+    throw new Error(`${label} failed: ${e.message || e}`);
+  }
+}
 async function _vortibdLogin() {
   const creds = await _vortibdCredentials();
   if (!creds || !creds.username || !creds.password) throw new Error('VortiBD credentials are not configured.');
-  const res = await fetch(`${VORTIBD_API}/api/UserAuth/login`, {
+  const res = await _vortibdFetch('VortiBD login timed out (120s)', `${VORTIBD_API}/api/UserAuth/login`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: creds.username, password: creds.password, rememberMe: false }),
     signal: AbortSignal.timeout(120000),
@@ -102,7 +113,7 @@ async function _vortibdLogin() {
   return { token, clientId };
 }
 async function _vortibdFetchExportBytes(token, clientId, vortibdCircularId) {
-  const res = await fetch(`${VORTIBD_API}/api/v1/Profile/download-applied-candidates`, {
+  const res = await _vortibdFetch('VortiBD export request timed out (120s)', `${VORTIBD_API}/api/v1/Profile/download-applied-candidates`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -119,7 +130,7 @@ async function _vortibdFetchExportBytes(token, clientId, vortibdCircularId) {
     const body = await res.json();
     const fileUrl = body && (body.data?.fileUrl || body.data?.url || body.data?.Url || (typeof body.data === 'string' && body.data.startsWith('http') ? body.data : null));
     if (!fileUrl) throw new Error('VortiBD returned an unexpected response for the export.');
-    const fileRes = await fetch(fileUrl, { signal: AbortSignal.timeout(60000) });
+    const fileRes = await _vortibdFetch('Downloading the exported file from VortiBD timed out (60s)', fileUrl, { signal: AbortSignal.timeout(60000) });
     if (!fileRes.ok) throw new Error('Could not download the exported file from VortiBD.');
     return Buffer.from(await fileRes.arrayBuffer());
   }
