@@ -46021,6 +46021,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div class="flex gap-2 items-center flex-wrap">
               <input type="text" id="admCandScanDataSearch" placeholder="Search name/tracking ID…" oninput="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
               <select id="admCandScanDataValueFilter" onchange="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></select>
+              <select id="admCandScanDataSort" onchange="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+                <option value="scanned_desc">Last Scanned (Newest)</option>
+                <option value="scanned_asc">Last Scanned (Oldest)</option>
+                <option value="name_asc">Name (A-Z)</option>
+                <option value="tracking_asc">Tracking ID</option>
+              </select>
+              <input type="date" id="admCandScanDataFrom" onchange="_admCandRenderScanDataTable()" title="Scanned from" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+              <span class="text-slate-300 text-xs">to</span>
+              <input type="date" id="admCandScanDataTo" onchange="_admCandRenderScanDataTable()" title="Scanned to" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
             </div>
           </div>
           <div class="overflow-x-auto rounded-xl border border-slate-100">
@@ -46028,7 +46037,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <thead><tr class="bg-slate-50 border-b border-slate-100">
                 <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Tracking ID</th>
                 <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Name</th>
+                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Roll</th>
                 <th class="px-2 py-2 text-left font-black text-slate-400 uppercase hidden md:table-cell">Class</th>
+                <th class="px-2 py-2 text-left font-black text-slate-400 uppercase hidden md:table-cell">Last Scanned</th>
                 <th class="px-2 py-2 text-left font-black text-slate-400 uppercase">Value</th>
               </tr></thead>
               <tbody id="admCandScanDataBody"></tbody>
@@ -46833,6 +46844,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       showToast('VortiBD circular link saved', 'success');
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
+  // A VortiBD pull/sync can run long enough that the underlying connection
+  // gets dropped before the server function ever sends a response (rather
+  // than cleanly replying with res.error) -- the browser then rejects the
+  // fetch with its own generic network message ("Failed to fetch"/"fetch
+  // failed"), which isn't informative on its own. Give that specific case a
+  // clearer explanation; anything else (a real thrown Error with its own
+  // message) passes through unchanged.
+  function _admVortibdFriendlyError(e) {
+    const msg = (e && e.message) || '';
+    if (/^(failed to fetch|fetch failed|load failed|networkerror)/i.test(msg.trim())) {
+      return 'Lost connection before VortiBD replied — it may be slow right now. Check the status line in a moment, or try again.';
+    }
+    return msg || 'Failed';
+  }
   // "Pull Now & Map" -- the interactive, admin-triggered path: the server
   // logs into VortiBD and hands back the raw file, which then goes through
   // the EXACT SAME parsing/mapping/save-as-template pipeline a manually
@@ -46850,7 +46875,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
       const file = new File([bytes], 'vortibd-export.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       _admCandParseImportFile(file);
-    } catch (e) { showToast(e.message || 'Failed to pull from VortiBD', 'error'); }
+    } catch (e) { showToast(_admVortibdFriendlyError(e), 'error'); }
   }
   async function _admCandSyncVortibdNow() {
     if (!_admCandRequireCircular()) return;
@@ -46862,7 +46887,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       else { showToast(`Synced — ${res.new_count} new, ${res.updated_count} updated`, 'success'); _admCandLoadList(); }
       const c = _admCandCirculars.find(x => x.id === _admCandActiveCircularId);
       if (c) { c.vortibd_last_sync_at = new Date().toISOString(); c.vortibd_last_sync_status = res.error ? 'error' : 'success'; c.vortibd_last_sync_message = res.error || `${res.new_count} new, ${res.updated_count} updated`; _admCandUpdateVortibdStatus(c); }
-    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+    } catch (e) { showToast(_admVortibdFriendlyError(e), 'error'); }
   }
   async function _admCandLoadTemplates() {
     try {
@@ -47928,9 +47953,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     box.classList.remove('hidden');
     const q = (document.getElementById('admCandScanDataSearch')?.value || '').toLowerCase();
     const valFilter = document.getElementById('admCandScanDataValueFilter')?.value || '';
+    const sortBy = document.getElementById('admCandScanDataSort')?.value || 'scanned_desc';
+    const fromVal = document.getElementById('admCandScanDataFrom')?.value || '';
+    const toVal = document.getElementById('admCandScanDataTo')?.value || '';
     const all = _admAllApps || [];
-    const rows = all.filter(a => {
+    let rows = all.filter(a => {
       if (q && !`${a.name_english || ''} ${a.tracking_id || ''} ${a.token || ''}`.toLowerCase().includes(q)) return false;
+      // last_scanned_at is the candidate's most recent scan across ANY scan
+      // option (not necessarily this one specifically) -- 'tag'/'form'
+      // behaviors don't carry their own per-option timestamp inside
+      // scan_values itself, so this is the closest available signal without
+      // a schema change. Good enough in practice since scanning is normally
+      // done one option at a time, in a batch.
+      if (fromVal && (!a.last_scanned_at || a.last_scanned_at.slice(0, 10) < fromVal)) return false;
+      if (toVal && (!a.last_scanned_at || a.last_scanned_at.slice(0, 10) > toVal)) return false;
       if (!valFilter) return true;
       const raw = (a.scan_values || {})[opt.key];
       if (opt.behavior === 'status') {
@@ -47947,6 +47983,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (valFilter === '__none__') return empty;
       return String(raw) === valFilter;
     });
+    rows = [...rows].sort((a, b) => {
+      switch (sortBy) {
+        case 'scanned_asc': return (a.last_scanned_at || '').localeCompare(b.last_scanned_at || '');
+        case 'name_asc': return (a.name_english || '').toLowerCase().localeCompare((b.name_english || '').toLowerCase());
+        case 'tracking_asc': return (a.tracking_id || a.token || '').toLowerCase().localeCompare((b.tracking_id || b.token || '').toLowerCase());
+        default: return (b.last_scanned_at || '').localeCompare(a.last_scanned_at || '');
+      }
+    });
     // Capped so this stays cheap to re-render on a large roster (this runs
     // after every single scan, not just on demand) -- narrow with search or
     // the value filter to find a specific person beyond the cap.
@@ -47959,9 +48003,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <tr class="border-t border-slate-50">
           <td class="px-2 py-2 font-mono text-blue-600">${_escHtml(a.tracking_id || a.token || '—')}</td>
           <td class="px-2 py-2 font-bold">${_escHtml(a.name_english || '—')}</td>
+          <td class="px-2 py-2">${_escHtml(_admResolveRollValue(a) || '—')}</td>
           <td class="px-2 py-2 hidden md:table-cell text-slate-500">${_escHtml(a.class || '—')}</td>
+          <td class="px-2 py-2 hidden md:table-cell text-slate-400">${a.last_scanned_at ? _escHtml(new Date(a.last_scanned_at).toLocaleString()) : '—'}</td>
           <td class="px-2 py-2">${_escHtml(_admCandScanValueForOption(opt, (a.scan_values || {})[opt.key]))}</td>
-        </tr>`).join('') || `<tr><td colspan="4" class="px-2 py-6 text-center text-slate-400">No matches.</td></tr>`;
+        </tr>`).join('') || `<tr><td colspan="6" class="px-2 py-6 text-center text-slate-400">No matches.</td></tr>`;
     }
   }
   async function _admCandFormFieldAdd() {

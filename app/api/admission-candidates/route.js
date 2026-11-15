@@ -5,7 +5,14 @@ import * as XLSX from 'xlsx';
 // (not a bot-detection issue -- their own infrastructure is just sometimes
 // slow) -- the function's own time budget needs raising to match, or Vercel
 // kills it long before any of the longer per-request timeouts below matter.
-export const maxDuration = 280;
+// 300s is the actual hard ceiling Vercel enforces on this plan (Pro) for any
+// one serverless function invocation, regardless of this value or the
+// per-fetch AbortSignal timeouts below -- there is no way to give the
+// export step a true, uncapped 5 minutes on a serverless function; this is
+// as close as this architecture can get. If VortiBD genuinely needs longer
+// than that end-to-end, the fix is a different architecture entirely
+// (trigger-then-poll a background job), not a bigger number here.
+export const maxDuration = 300;
 
 // ── External-Candidate Exam Management ──────────────────────────────────
 // Separate entity/domain from app/api/admission-admin/route.js's
@@ -1080,10 +1087,10 @@ export async function POST(req) {
   async function _vortibdLogin() {
     const creds = await _vortibdCredentials();
     if (!creds || !creds.username || !creds.password) throw new Error('VortiBD credentials are not configured yet.');
-    const res = await _vortibdFetch('VortiBD login timed out (120s)', `${VORTIBD_API}/api/UserAuth/login`, {
+    const res = await _vortibdFetch('VortiBD login timed out (30s)', `${VORTIBD_API}/api/UserAuth/login`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: creds.username, password: creds.password, rememberMe: false }),
-      signal: AbortSignal.timeout(120000),
+      signal: AbortSignal.timeout(30000),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok || !body || body.isError) {
@@ -1100,8 +1107,8 @@ export async function POST(req) {
     return { token, clientId };
   }
   async function _vortibdFetchCirculars(token, clientId) {
-    const res = await _vortibdFetch('VortiBD circular list timed out (120s)', `${VORTIBD_API}/api/v1/CircularDashBoard/circulars-dashboard/${clientId}`, {
-      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(120000),
+    const res = await _vortibdFetch('VortiBD circular list timed out (60s)', `${VORTIBD_API}/api/v1/CircularDashBoard/circulars-dashboard/${clientId}`, {
+      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(60000),
     });
     const body = await res.json().catch(() => null);
     const list = body && body.data && Array.isArray(body.data.Circulars) ? body.data.Circulars : [];
@@ -1111,8 +1118,12 @@ export async function POST(req) {
   // file URL) was never fully confirmed during testing (repeated automated
   // attempts stopped reliably firing the request, likely VortiBD-side
   // throttling of rapid test traffic) -- handled defensively for both.
+  // This is the step the admin has reported taking several minutes on a slow
+  // run -- give it nearly all of the function's own 300s budget (see
+  // maxDuration above) rather than a tight internal cap well under what
+  // Vercel itself allows.
   async function _vortibdFetchExportBytes(token, clientId, vortibdCircularId) {
-    const res = await _vortibdFetch('VortiBD export request timed out (120s)', `${VORTIBD_API}/api/v1/Profile/download-applied-candidates`, {
+    const res = await _vortibdFetch('VortiBD export request timed out (260s)', `${VORTIBD_API}/api/v1/Profile/download-applied-candidates`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1121,7 +1132,7 @@ export async function POST(req) {
         sessionID: 0, groupID: 0, gender: '', applyDateFrom: null, applyDateTo: null, applicantId: 0,
         contactNo: '', applicantName: '', bankTransactionId: '', orderBy: '',
       }),
-      signal: AbortSignal.timeout(120000),
+      signal: AbortSignal.timeout(260000),
     });
     if (!res.ok) throw new Error(`VortiBD export request failed (status ${res.status}).`);
     const ct = res.headers.get('content-type') || '';
@@ -1129,7 +1140,7 @@ export async function POST(req) {
       const body = await res.json();
       const fileUrl = body && (body.data?.fileUrl || body.data?.url || body.data?.Url || (typeof body.data === 'string' && body.data.startsWith('http') ? body.data : null));
       if (!fileUrl) throw new Error('VortiBD returned an unexpected response for the export — no file URL found.');
-      const fileRes = await _vortibdFetch('Downloading the exported file from VortiBD timed out (60s)', fileUrl, { signal: AbortSignal.timeout(60000) });
+      const fileRes = await _vortibdFetch('Downloading the exported file from VortiBD timed out (30s)', fileUrl, { signal: AbortSignal.timeout(30000) });
       if (!fileRes.ok) throw new Error('Could not download the exported file from VortiBD.');
       return Buffer.from(await fileRes.arrayBuffer());
     }

@@ -22,8 +22,14 @@ export const dynamic = 'force-dynamic';
 // VortiBD can reportedly take several minutes to respond on a slow request
 // (not a bot-detection issue -- their own infrastructure is just sometimes
 // slow); this route may also loop over several due circulars in one run, so
-// its budget needs to be generous.
-export const maxDuration = 280;
+// its budget needs to be generous. 300s is the actual hard ceiling Vercel
+// enforces on this plan (Pro) for one invocation -- see the matching note in
+// admission-candidates/route.js. Because this route can process more than
+// one circular per tick (unlike the admin-triggered manual sync, which is
+// always just one), the GET handler below also tracks elapsed time and
+// stops starting new circulars once the budget is tight, leaving the rest
+// for the next 5-minute tick rather than risking the whole invocation.
+export const maxDuration = 300;
 
 const SB_URL = process.env.SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -96,10 +102,10 @@ async function _vortibdFetch(label, url, opts) {
 async function _vortibdLogin() {
   const creds = await _vortibdCredentials();
   if (!creds || !creds.username || !creds.password) throw new Error('VortiBD credentials are not configured.');
-  const res = await _vortibdFetch('VortiBD login timed out (120s)', `${VORTIBD_API}/api/UserAuth/login`, {
+  const res = await _vortibdFetch('VortiBD login timed out (30s)', `${VORTIBD_API}/api/UserAuth/login`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username: creds.username, password: creds.password, rememberMe: false }),
-    signal: AbortSignal.timeout(120000),
+    signal: AbortSignal.timeout(30000),
   });
   const body = await res.json().catch(() => null);
   if (!res.ok || !body || body.isError) {
@@ -112,8 +118,13 @@ async function _vortibdLogin() {
   if (!clientId) throw new Error('Could not determine the VortiBD client ID from the session.');
   return { token, clientId };
 }
+// Deliberately lower than admission-candidates/route.js's manual-sync copy
+// (260s) -- that path only ever handles one circular per invocation, while
+// this cron can loop over several due circulars in one run (see the
+// elapsed-time guard in GET below), so no single one can be allowed to
+// claim almost the entire 300s budget by itself.
 async function _vortibdFetchExportBytes(token, clientId, vortibdCircularId) {
-  const res = await _vortibdFetch('VortiBD export request timed out (120s)', `${VORTIBD_API}/api/v1/Profile/download-applied-candidates`, {
+  const res = await _vortibdFetch('VortiBD export request timed out (200s)', `${VORTIBD_API}/api/v1/Profile/download-applied-candidates`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -122,7 +133,7 @@ async function _vortibdFetchExportBytes(token, clientId, vortibdCircularId) {
       sessionID: 0, groupID: 0, gender: '', applyDateFrom: null, applyDateTo: null, applicantId: 0,
       contactNo: '', applicantName: '', bankTransactionId: '', orderBy: '',
     }),
-    signal: AbortSignal.timeout(120000),
+    signal: AbortSignal.timeout(200000),
   });
   if (!res.ok) throw new Error(`VortiBD export request failed (status ${res.status}).`);
   const ct = res.headers.get('content-type') || '';
@@ -130,7 +141,7 @@ async function _vortibdFetchExportBytes(token, clientId, vortibdCircularId) {
     const body = await res.json();
     const fileUrl = body && (body.data?.fileUrl || body.data?.url || body.data?.Url || (typeof body.data === 'string' && body.data.startsWith('http') ? body.data : null));
     if (!fileUrl) throw new Error('VortiBD returned an unexpected response for the export.');
-    const fileRes = await _vortibdFetch('Downloading the exported file from VortiBD timed out (60s)', fileUrl, { signal: AbortSignal.timeout(60000) });
+    const fileRes = await _vortibdFetch('Downloading the exported file from VortiBD timed out (30s)', fileUrl, { signal: AbortSignal.timeout(30000) });
     if (!fileRes.ok) throw new Error('Could not download the exported file from VortiBD.');
     return Buffer.from(await fileRes.arrayBuffer());
   }
@@ -344,7 +355,19 @@ export async function GET(req) {
     const neededMin = c.vortibd_last_sync_status === 'error' ? RETRY_AFTER_ERROR_MIN : intervalMin;
     return elapsedMin >= neededMin;
   }) : [];
+  // One slow circular can already use most of this invocation's 300s budget
+  // (see _vortibdFetchExportBytes's 200s export timeout) -- stop starting
+  // new ones once there isn't realistically enough time left for another
+  // full attempt, rather than risking the whole invocation (and every
+  // circular still queued in it) getting killed mid-flight by Vercel. Any
+  // circular left unprocessed this tick is simply picked up on the next one
+  // (5 minutes later), since its vortibd_last_sync_at hasn't advanced.
+  const CRON_TIME_BUDGET_MS = 260000;
+  const startedAt = Date.now();
   const results = [];
-  for (const c of due) results.push(await _runVortibdSync(c, config));
+  for (const c of due) {
+    if (Date.now() - startedAt > CRON_TIME_BUDGET_MS) break;
+    results.push(await _runVortibdSync(c, config));
+  }
   return NextResponse.json({ checked: circulars.length, due: due.length, synced: results.filter(r => r.success).length, failed: results.filter(r => r.error).length, results });
 }
