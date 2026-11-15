@@ -46049,22 +46049,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
             <p class="text-[10px] uppercase text-slate-400 font-bold">Scan data for this option</p>
             <div class="flex gap-2 items-center flex-wrap">
-              <input type="text" id="admCandScanDataSearch" placeholder="Search name/tracking ID…" oninput="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-              <select id="admCandScanDataValueFilter" onchange="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></select>
-              <select id="admCandScanDataClassFilter" onchange="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"><option value="">All Classes</option></select>
-              <select id="admCandScanDataVersionFilter" onchange="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"><option value="">All Versions</option></select>
-              <select id="admCandScanDataCategoryFilter" onchange="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"><option value="">All Categories</option></select>
-              <select id="admCandScanDataSort" onchange="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+              <input type="text" id="admCandScanDataSearch" placeholder="Search name/tracking ID…" oninput="_admCandScanDataFilterChanged()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+              <select id="admCandScanDataValueFilter" onchange="_admCandScanDataFilterChanged()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></select>
+              <select id="admCandScanDataClassFilter" onchange="_admCandScanDataFilterChanged()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"><option value="">All Classes</option></select>
+              <select id="admCandScanDataVersionFilter" onchange="_admCandScanDataFilterChanged()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"><option value="">All Versions</option></select>
+              <select id="admCandScanDataCategoryFilter" onchange="_admCandScanDataFilterChanged()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"><option value="">All Categories</option></select>
+              <select id="admCandScanDataSort" onchange="_admCandScanDataFilterChanged()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
                 <option value="scanned_desc">Last Scanned (Newest)</option>
                 <option value="scanned_asc">Last Scanned (Oldest)</option>
                 <option value="name_asc">Name (A-Z)</option>
                 <option value="tracking_asc">Tracking ID</option>
               </select>
-              <input type="date" id="admCandScanDataFrom" onchange="_admCandRenderScanDataTable()" title="Scanned from" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+              <input type="date" id="admCandScanDataFrom" onchange="_admCandScanDataFilterChanged()" title="Scanned from" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
               <span class="text-slate-300 text-xs">to</span>
-              <input type="date" id="admCandScanDataTo" onchange="_admCandRenderScanDataTable()" title="Scanned to" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+              <input type="date" id="admCandScanDataTo" onchange="_admCandScanDataFilterChanged()" title="Scanned to" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
               <button type="button" onclick="_admCandScanDataToggleColsPanel()" class="flex items-center gap-1.5 px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase"><i data-lucide="columns" class="h-3 w-3"></i> Columns</button>
             </div>
+          </div>
+          <!-- Count + pagination at the TOP of the list (not just a tail
+               note below it), so both are visible without scrolling past a
+               long table first. -->
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+            <p id="admCandScanDataCount" class="text-xs text-slate-500 font-bold"></p>
+            <div id="admCandScanDataPagination" class="flex items-center gap-2"></div>
           </div>
           <!-- Every field this circular has (the same catalog the
                Applications tab's "Configure Columns" draws from, built-in
@@ -46087,7 +46094,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <tbody id="admCandScanDataBody"></tbody>
             </table>
           </div>
-          <p id="admCandScanDataCount" class="text-[10px] text-slate-400 font-bold mt-2"></p>
         </div>
       </div>
 
@@ -47781,6 +47787,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admCandRenderScanOptionPanel();
       _admCandRenderScanDataFilterOptions();
       _admCandScanDataFieldFilterRender();
+      _admCandScanDataPage = 0;
       _admCandRenderScanDataTable();
       _admCandUpdateScanScopeBoxVisibility();
       _admRenderFilterPanel(); // no-op if the Applications filter panel isn't open; keeps its dims current if it is
@@ -47838,6 +47845,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const dataSearch = document.getElementById('admCandScanDataSearch'); if (dataSearch) dataSearch.value = '';
     _admCandRenderScanDataFilterOptions();
     _admCandScanDataFieldFilterRender();
+    _admCandScanDataPage = 0;
     _admCandRenderScanDataTable();
     _admCandUpdateScanScopeBoxVisibility();
   }
@@ -48007,15 +48015,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const selectedKey = (prevKey && fields.some(f => f.key === prevKey)) ? prevKey : fields[0].key;
     const field = fields.find(f => f.key === selectedKey) || fields[0];
     const fieldPickerHtml = fields.length > 1
-      ? `<select id="admCandScanDataFieldSelect" onchange="_admCandScanDataFieldFilterRender(); _admCandRenderScanDataTable();" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">${fields.map(f => `<option value="${_escHtml(f.key)}" ${f.key === selectedKey ? 'selected' : ''}>${_escHtml(f.label)}</option>`).join('')}</select>`
+      ? `<select id="admCandScanDataFieldSelect" onchange="_admCandScanDataFieldFilterRender(); _admCandScanDataFilterChanged();" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">${fields.map(f => `<option value="${_escHtml(f.key)}" ${f.key === selectedKey ? 'selected' : ''}>${_escHtml(f.label)}</option>`).join('')}</select>`
       : `<span class="text-[10px] text-slate-400 font-bold">${_escHtml(field.label)}:</span><input type="hidden" id="admCandScanDataFieldSelect" value="${_escHtml(field.key)}">`;
     const valueControlHtml = field.input_type === 'number'
-      ? `<input type="number" id="admCandScanDataFieldMin" placeholder="Min" oninput="_admCandRenderScanDataTable()" class="w-20 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+      ? `<input type="number" id="admCandScanDataFieldMin" placeholder="Min" oninput="_admCandScanDataFilterChanged()" class="w-20 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
          <span class="text-slate-300 text-xs">–</span>
-         <input type="number" id="admCandScanDataFieldMax" placeholder="Max" oninput="_admCandRenderScanDataTable()" class="w-20 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">`
-      : `<input type="text" id="admCandScanDataFieldContains" placeholder="Contains…" oninput="_admCandRenderScanDataTable()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">`;
+         <input type="number" id="admCandScanDataFieldMax" placeholder="Max" oninput="_admCandScanDataFilterChanged()" class="w-20 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">`
+      : `<input type="text" id="admCandScanDataFieldContains" placeholder="Contains…" oninput="_admCandScanDataFilterChanged()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">`;
     box.innerHTML = fieldPickerHtml + valueControlHtml;
   }
+  // Any actual filter/search/sort change goes through this -- it jumps back
+  // to page 1 before re-rendering, since staying on e.g. page 4 after
+  // narrowing the search would almost always land on an empty page. The
+  // pagination Prev/Next buttons call _admCandRenderScanDataTable directly
+  // instead (see _admCandScanDataGoPage), since changing pages must NOT
+  // reset itself back to page 1.
+  let _admCandScanDataPage = 0;
+  function _admCandScanDataFilterChanged() { _admCandScanDataPage = 0; _admCandRenderScanDataTable(); }
+  function _admCandScanDataGoPage(delta) { _admCandScanDataPage += delta; _admCandRenderScanDataTable(); }
   function _admCandRenderScanDataTable() {
     const box = document.getElementById('admCandScanDataBox');
     if (!box) return;
@@ -48100,12 +48117,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         default: return (b.last_scanned_at || '').localeCompare(a.last_scanned_at || '');
       }
     });
-    // Capped so this stays cheap to re-render on a large roster (this runs
-    // after every single scan, not just on demand) -- narrow with search or
-    // the value filter to find a specific person beyond the cap.
-    const SCAN_DATA_ROW_CAP = 150;
+    // Real pagination (replacing the old flat "first 150 matches" cap) --
+    // keeps each render cheap on a large roster (this runs after every
+    // single scan, not just on demand) while still letting the admin reach
+    // every row via Prev/Next instead of only ever seeing the first page.
+    const SCAN_DATA_PAGE_SIZE = 50;
+    const totalPages = Math.max(1, Math.ceil(rows.length / SCAN_DATA_PAGE_SIZE));
+    if (_admCandScanDataPage >= totalPages) _admCandScanDataPage = totalPages - 1;
+    if (_admCandScanDataPage < 0) _admCandScanDataPage = 0;
+    const pageStart = _admCandScanDataPage * SCAN_DATA_PAGE_SIZE;
+    const pageRows = rows.slice(pageStart, pageStart + SCAN_DATA_PAGE_SIZE);
     const countEl = document.getElementById('admCandScanDataCount');
-    if (countEl) countEl.textContent = rows.length > SCAN_DATA_ROW_CAP ? `Showing first ${SCAN_DATA_ROW_CAP} of ${rows.length} matches (of ${all.length} total) — narrow your search to see more` : `${rows.length} of ${all.length}`;
+    if (countEl) countEl.textContent = rows.length
+      ? `Showing ${pageStart + 1}–${Math.min(pageStart + SCAN_DATA_PAGE_SIZE, rows.length)} of ${rows.length} match${rows.length === 1 ? '' : 'es'} (${all.length} total)`
+      : `0 of ${all.length} total`;
+    const pagEl = document.getElementById('admCandScanDataPagination');
+    if (pagEl) {
+      pagEl.innerHTML = totalPages > 1 ? `
+        <button type="button" onclick="_admCandScanDataGoPage(-1)" ${_admCandScanDataPage === 0 ? 'disabled' : ''} class="px-2.5 py-1 border border-slate-200 rounded-lg text-[10px] font-black uppercase ${_admCandScanDataPage === 0 ? 'text-slate-300' : 'text-slate-600 hover:bg-slate-50'}">Prev</button>
+        <span class="text-[10px] font-bold text-slate-500 tabular-nums">Page ${_admCandScanDataPage + 1} of ${totalPages}</span>
+        <button type="button" onclick="_admCandScanDataGoPage(1)" ${_admCandScanDataPage >= totalPages - 1 ? 'disabled' : ''} class="px-2.5 py-1 border border-slate-200 rounded-lg text-[10px] font-black uppercase ${_admCandScanDataPage >= totalPages - 1 ? 'text-slate-300' : 'text-slate-600 hover:bg-slate-50'}">Next</button>` : '';
+    }
     const headRow = document.getElementById('admCandScanDataHeadRow');
     if (headRow) {
       // No responsive hidden/table-cell classes here on purpose -- the
@@ -48128,7 +48160,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const body = document.getElementById('admCandScanDataBody');
     if (body) {
       const colCount = 8 + _admCandScanDataExtraCols.length;
-      body.innerHTML = rows.slice(0, SCAN_DATA_ROW_CAP).map(a => {
+      body.innerHTML = pageRows.map(a => {
         const extraTds = _admCandScanDataExtraCols.map(k => `<td class="px-2 py-2 whitespace-nowrap">${_admAppFieldRender(k, a) || '<span class="text-slate-300">—</span>'}</td>`).join('');
         return `
         <tr class="border-t border-slate-50">
@@ -48168,7 +48200,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admCandScanDataToggleCol(key, checked) {
     if (checked) { if (!_admCandScanDataExtraCols.includes(key)) _admCandScanDataExtraCols.push(key); }
     else _admCandScanDataExtraCols = _admCandScanDataExtraCols.filter(k => k !== key);
-    _admCandRenderScanDataTable();
+    _admCandRenderScanDataTable(); // page stays put -- adding/removing a column doesn't change which rows match
   }
   async function _admCandFormFieldAdd() {
     const opt = _admCandScanSelectedOption;

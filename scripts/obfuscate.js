@@ -522,6 +522,7 @@ const RESERVED = [
   '_admCandScanToggleOptionCreate','_admCandScanOptionBehaviorChange','_admCandScanOptionTagTypeChange',
   '_admCandScanOptionCreate','_admCandScanOptionDelete','_admCandFormFieldAdd','_admCandFormFieldRemove','_admCandSaveQrValuePattern',
   '_admCandRenderScanDataTable','_admCandScanDataToggleColsPanel','_admCandScanDataToggleCol','_admCandScanDataFieldFilterRender',
+  '_admCandScanDataFilterChanged','_admCandScanDataGoPage',
   '_admCandTagFilterDefChange','_admCandShowTagHistory',
   '_admCandCommitteeAdd','_admCandCommitteeSave','_admCandCommitteeRemove','_admCandPullCommitteeMembers',
   '_admCandPickExistingSession','_admCandEditSession','_admCandDeleteSession',
