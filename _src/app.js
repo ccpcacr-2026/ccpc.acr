@@ -42017,6 +42017,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             class="flex-1 min-w-[160px] px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500">
           <button type="button" onclick="_admToggleFilterPanel()" class="px-3 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase hover:bg-slate-50 flex items-center gap-1.5"><i data-lucide="filter" class="h-3.5 w-3.5"></i>Filters<span id="admFilterCount" class="hidden ml-1 px-1.5 py-0.5 bg-slate-800 text-white rounded-full text-[9px]"></span></button>
           <select id="adm-sort-by" onchange="_admFilterApps()" class="px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
+            <option value="scanned_desc">Last Scanned (Newest)</option>
+            <option value="scanned_asc">Last Scanned (Oldest)</option>
             <option value="created_desc">Newest First</option>
             <option value="created_asc">Oldest First</option>
             <option value="name_asc">Name (A-Z)</option>
@@ -42367,7 +42369,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Class/Category options are derived from the applications actually
   // loaded (not a fixed school-wide class list) so they stay accurate for
   // whatever this circular's data actually contains.
-  let _admFilterState = { class: new Set(), category: new Set(), status: new Set(), source: new Set() };
+  // scanFrom/scanTo are plain 'YYYY-MM-DD' strings (a date-range filter on
+  // last_scanned_at), not Sets like the rest of this state -- every helper
+  // below that walks _admFilterState (_admFilterActiveCount/clearAdmFilters)
+  // branches on `instanceof Set` so the two kinds of state can coexist.
+  let _admFilterState = { class: new Set(), category: new Set(), status: new Set(), source: new Set(), scanFrom: '', scanTo: '' };
   function _admFilterDims() {
     const distinct = fn => [...new Set(_admAllApps.map(fn).filter(Boolean))].sort();
     const dims = [
@@ -42397,7 +42403,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     panel.classList.toggle('hidden', !show);
     if (show) _admRenderFilterPanel();
   }
-  function _admFilterActiveCount() { return Object.values(_admFilterState).reduce((n, s) => n + s.size, 0); }
+  function _admFilterActiveCount() { return Object.values(_admFilterState).reduce((n, s) => n + (s instanceof Set ? s.size : (s ? 1 : 0)), 0); }
   function _admUpdateFilterBadge() {
     const n = _admFilterActiveCount();
     const badge = document.getElementById('admFilterCount');
@@ -42411,15 +42417,31 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (dimKey === 'status') _admLoadStats(); // keeps the stat tiles' active-ring in sync
   }
   function clearAdmFilters() {
-    Object.values(_admFilterState).forEach(s => s.clear());
+    Object.keys(_admFilterState).forEach(k => {
+      const s = _admFilterState[k];
+      if (s instanceof Set) s.clear(); else _admFilterState[k] = '';
+    });
     _admRenderFilterPanel();
     _admFilterApps();
     _admLoadStats();
+  }
+  function _admSetScanDateFilter(key, val) {
+    _admFilterState[key] = val || '';
+    _admFilterApps();
+    _admUpdateFilterBadge();
   }
   function _admRenderFilterPanel() {
     const host = document.getElementById('admFilterPanel');
     if (!host || host.classList.contains('hidden')) { _admUpdateFilterBadge(); return; }
     const dims = _admFilterDims().filter(d => d.values.length);
+    const scanRangeHtml = `<div class="mb-3 last:mb-0">
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Scanned Between</p>
+        <div class="flex items-center gap-2">
+          <input type="date" value="${_escHtml(_admFilterState.scanFrom || '')}" onchange="_admSetScanDateFilter('scanFrom', this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          <span class="text-slate-300 text-xs">to</span>
+          <input type="date" value="${_escHtml(_admFilterState.scanTo || '')}" onchange="_admSetScanDateFilter('scanTo', this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+        </div>
+      </div>`;
     host.innerHTML = dims.map(d => {
       const sel = _admFilterState[d.key];
       return `<div class="mb-3 last:mb-0">
@@ -42428,7 +42450,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${d.values.map(v => `<button type="button" onclick='toggleAdmFilter(${JSON.stringify(d.key)}, ${JSON.stringify(v)})' class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase ${sel.has(v) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(v)}</button>`).join('')}
         </div>
       </div>`;
-    }).join('') + (_admFilterActiveCount() ? `<button type="button" onclick="clearAdmFilters()" class="text-[10px] font-black text-red-600 uppercase hover:underline">Clear all filters</button>` : '');
+    }).join('') + scanRangeHtml + (_admFilterActiveCount() ? `<button type="button" onclick="clearAdmFilters()" class="text-[10px] font-black text-red-600 uppercase hover:underline">Clear all filters</button>` : '');
     _admUpdateFilterBadge();
   }
   // Status tile colors reuse the exact same amber/blue/emerald/red families
@@ -42826,7 +42848,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // render(a) returns one line of HTML (already escaped) or '' when this
   // candidate has nothing for that field; a column stacks its chosen
   // fields' non-empty lines top to bottom.
-  const ADM_APP_FIELD_CATALOG = [
+  const ADM_APP_FIELD_CATALOG_BUILTIN = [
     { key: 'tracking_id', label: 'Tracking/Index ID', render: a => `<span class="font-black text-blue-600 text-xs font-mono">${_escHtml(a.tracking_id || a.token || '—')}</span>${a.index_id ? ` <span class="text-[9px] text-slate-400">${_escHtml(a.index_id)}</span>` : ''}` },
     { key: 'name', label: 'Student Name', render: a => `<p class="font-bold text-sm text-slate-800">${_escHtml(a.name_english || '—')}</p>${a.name_bangla ? `<p class="text-[10px] text-slate-400">${_escHtml(a.name_bangla)}</p>` : ''}` },
     { key: 'class_cat_version', label: 'Class / Category / Version', render: a => { const v = [a.class, a.category, a.version].filter(Boolean).join(' · '); return v ? `<p class="text-[10px] text-slate-500 font-bold">${_escHtml(v)}</p>` : ''; } },
@@ -42850,8 +42872,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'guardian_contact', label: "Guardian's Contact", render: a => a.guardian_contact ? `<p class="text-xs text-slate-500">${_escHtml(a.guardian_contact)}</p>` : '' },
     { key: 'scan_values', label: 'Scan/Tag Results', render: a => { const badges = _admScanValuesCompact(a.scan_values).map(({ label, shown }) => `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[9px] font-bold whitespace-nowrap">${_escHtml(label)}: ${_escHtml(shown)}</span>`).join(''); return badges ? `<div class="flex flex-wrap gap-1">${badges}</div>` : ''; } },
   ];
-  function _admAppFieldLabel(key) { const f = ADM_APP_FIELD_CATALOG.find(x => x.key === key); return f ? f.label : key; }
-  function _admAppFieldRender(key, a) { const f = ADM_APP_FIELD_CATALOG.find(x => x.key === key); return f ? (f.render(a) || '') : ''; }
+  // Any custom Form Field the admin has defined (built_in: false -- e.g. a
+  // "Roll" field registered on the spot while mapping a VortiBD Excel
+  // column, see _admCandDefineNewFormField) becomes a selectable/renderable
+  // column too, keyed 'extra:<fieldKey>' and read from a.extra_fields --
+  // otherwise mapped custom data has nowhere to show in this table at all,
+  // only in the per-application editor's "Custom fields" block. Built from
+  // _admCandFormFieldDefs, which the Candidates module's Import & Mapping
+  // tab already loads via getFormFields -- this view just has to make sure
+  // that same cache is loaded too (see _admCandEnterCircular).
+  function _admAppFieldCatalog() {
+    const customs = (_admCandFormFieldDefs || []).filter(f => !f.built_in).map(f => ({
+      key: 'extra:' + f.key,
+      label: f.label,
+      render: a => { const v = (a.extra_fields || {})[f.key]; return (v !== undefined && v !== null && v !== '') ? `<p class="text-xs text-slate-600">${_escHtml(String(v))}</p>` : ''; },
+    }));
+    return ADM_APP_FIELD_CATALOG_BUILTIN.concat(customs);
+  }
+  function _admAppFieldLabel(key) { const f = _admAppFieldCatalog().find(x => x.key === key); return f ? f.label : key; }
+  function _admAppFieldRender(key, a) { const f = _admAppFieldCatalog().find(x => x.key === key); return f ? (f.render(a) || '') : ''; }
   // Matches the table's layout from before this feature existed, so a
   // circular with no saved layout yet (applicant_columns = []) looks
   // exactly like it always did.
@@ -42905,7 +42944,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
             <select onchange="_admAppColumnsAddField(${ci}, this.value)" class="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[10px]">
               <option value="">+ Add field…</option>
-              ${ADM_APP_FIELD_CATALOG.map(f => `<option value="${f.key}">${_escHtml(f.label)}</option>`).join('')}
+              <optgroup label="Built-in">${ADM_APP_FIELD_CATALOG_BUILTIN.map(f => `<option value="${f.key}">${_escHtml(f.label)}</option>`).join('')}</optgroup>
+              ${_admCandFormFieldDefs.some(f => !f.built_in) ? `<optgroup label="Custom (mapped)">${_admCandFormFieldDefs.filter(f => !f.built_in).map(f => `<option value="extra:${_escHtml(f.key)}">${_escHtml(f.label)}</option>`).join('')}</optgroup>` : ''}
             </select>
           </div>`).join('')}
         <button type="button" onclick="_admAppColumnsAddColumn()" class="flex items-center justify-center px-4 py-8 bg-white border border-dashed border-slate-300 rounded-xl text-xs font-bold text-slate-400 hover:text-slate-600" style="width:120px">+ Add Column</button>
@@ -42957,7 +42997,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (_admTablePage >= totalPages) _admTablePage = totalPages - 1;
     if (_admTablePage < 0) _admTablePage = 0;
     const pageApps = apps.slice(_admTablePage * ADM_TABLE_PAGE_SIZE, _admTablePage * ADM_TABLE_PAGE_SIZE + ADM_TABLE_PAGE_SIZE);
-    document.getElementById('adm-app-count').textContent = `${apps.length} record${apps.length > 1 ? 's' : ''}`;
+    const scannedCount = apps.filter(a => a.last_scanned_at).length;
+    document.getElementById('adm-app-count').textContent = `${apps.length} record${apps.length > 1 ? 's' : ''} · ${scannedCount} scanned`;
     // Data columns are fully admin-defined (_admAppColumns/ADM_APP_FIELD_CATALOG
     // above) -- each one stacks its chosen fields' rendered lines; Status and
     // Actions stay fixed, always the last two columns.
@@ -43068,13 +43109,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admFilterApps() {
     const q = (document.getElementById('adm-search-input').value || '').toLowerCase();
     const st = _admFilterState;
-    const sortBy = document.getElementById('adm-sort-by')?.value || 'created_desc';
+    const sortBy = document.getElementById('adm-sort-by')?.value || 'scanned_desc';
     let filtered = _admAllApps.filter(a => {
       if (q && !`${a.name_english || ''} ${a.tracking_id || ''} ${a.index_id || ''} ${a.token || ''}`.toLowerCase().includes(q)) return false;
       if (st.class.size && !st.class.has(a.class)) return false;
       if (st.category.size && !st.category.has(a.category)) return false;
       if (st.status.size && !st.status.has(a.status)) return false;
       if (st.source.size && !st.source.has(a.source || 'native')) return false;
+      if (st.scanFrom && (!a.last_scanned_at || a.last_scanned_at.slice(0, 10) < st.scanFrom)) return false;
+      if (st.scanTo && (!a.last_scanned_at || a.last_scanned_at.slice(0, 10) > st.scanTo)) return false;
       for (const dimKey in st) {
         if (!dimKey.startsWith('opt:') || !st[dimKey].size) continue;
         const optKey = dimKey.slice(4);
@@ -43100,6 +43143,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         case 'category': return (a.category || '').toLowerCase();
         case 'status': return (a.status || '').toLowerCase();
         case 'tracking': return (a.tracking_id || a.token || '').toLowerCase();
+        case 'scanned': return a.last_scanned_at || '';
         default: return a.created_at || '';
       }
     };
@@ -43692,7 +43736,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
         <div id="adm-scan-result" class="hidden ${box}"></div>
         <div class="${box}">
-          <p class="text-xs font-black text-slate-700 uppercase tracking-widest mb-2">Scanned this session</p>
+          <div class="flex items-center justify-between gap-2 mb-2 flex-wrap">
+            <p class="text-xs font-black text-slate-700 uppercase tracking-widest">Scanned this session</p>
+            <div class="flex items-center gap-2 flex-wrap">
+              <select id="adm-scan-log-sort" onchange="_admRenderScanLog()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-bold">
+                <option value="desc">Newest first</option>
+                <option value="asc">Oldest first</option>
+              </select>
+              <input type="datetime-local" id="adm-scan-log-from" onchange="_admRenderScanLog()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px]">
+              <span class="text-slate-300 text-[10px]">to</span>
+              <input type="datetime-local" id="adm-scan-log-to" onchange="_admRenderScanLog()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px]">
+            </div>
+          </div>
+          <p id="adm-scan-log-count" class="text-[10px] text-slate-400 font-bold mb-2"></p>
           <div id="adm-scan-log" class="text-xs text-slate-400">Nothing scanned yet.</div>
         </div>
       </div>
@@ -45036,7 +45092,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     _admScanBusy = false;
   }
+  let _admLastScannedApp = null;
   function _admRenderScanResult(app) {
+    _admLastScannedApp = app;
     const host = document.getElementById('adm-scan-result');
     if (!host) return;
     host.classList.remove('hidden');
@@ -45052,31 +45110,75 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <select id="adm-scan-status-select" class="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold" style="width:160px">
           ${ADM_STATUSES.map(s => `<option value="${s}"${s === app.status ? ' selected' : ''}>${s}</option>`).join('')}
         </select>
-        <button onclick="_admConfirmScanStatus(${app.id},'${String(app.tracking_id || '').replace(/'/g, "\\'")}','${String(app.name_english || '').replace(/'/g, "\\'")}')" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Set status</button>
+        <button onclick="_admConfirmScanStatus()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Set status</button>
       </div>`;
   }
-  async function _admConfirmScanStatus(id, trackingId, name) {
+  // Roll isn't a native admission_applications column -- it only exists as
+  // a custom Form Field an admin maps in (e.g. from a VortiBD "RollNo"
+  // column; see ADM_CAND_HEADER_ALIASES' comment on why that's never
+  // auto-aliased to token/tracking id). Resolved by key/label match against
+  // whatever custom fields are actually registered, so the scan log can
+  // show it without hardcoding any one admin's exact field name.
+  function _admResolveRollValue(app) {
+    const extra = (app && app.extra_fields) || {};
+    const field = (_admCandFormFieldDefs || []).find(f => !f.built_in && (/roll/i.test(f.key) || /roll/i.test(f.label || '')));
+    if (field && extra[field.key] !== undefined && extra[field.key] !== '') return extra[field.key];
+    return extra.roll || extra.roll_no || extra.rollno || '';
+  }
+  // Short display name for "who scanned this" -- just the logged-in user's
+  // first name (window.APP_USER.full_name is always present once logged
+  // in, same field the header avatar already reads at ~line 6141). No new
+  // profile field needed; this is a label for the in-session log, not
+  // stored anywhere, so a fuller identity isn't worth the extra lookup.
+  function _admShortName() {
+    const full = (window.APP_USER && window.APP_USER.full_name) || '';
+    return full.trim().split(/\s+/)[0] || '—';
+  }
+  async function _admConfirmScanStatus() {
+    const app = _admLastScannedApp;
+    if (!app) return;
     const sel = document.getElementById('adm-scan-status-select');
     const status = sel ? sel.value : '';
     try {
-      const r = await _admAdminFetch('updateStatus', { id, status });
+      const r = await _admAdminFetch('updateStatus', { id: app.id, status });
       if (r.error) { showToast(r.error, 'error'); return; }
-      _admScanLog.unshift({ trackingId, name, status, at: new Date() });
+      _admScanLog.unshift({
+        trackingId: app.tracking_id || app.token || '',
+        name: app.name_english || app.name_bangla || '',
+        roll: _admResolveRollValue(app),
+        scannedBy: _admShortName(),
+        status, at: new Date(),
+      });
       _admRenderScanLog();
       showToast('Status updated');
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
+  // Sort/filter are purely client-side over this session's own in-memory
+  // log (never persisted across a reload) -- "Newest first" is the default,
+  // matching the unshift order the log was already built in; the date-range
+  // inputs filter by the same scan timestamp the table's Time column shows.
   function _admRenderScanLog() {
     const host = document.getElementById('adm-scan-log');
+    const countEl = document.getElementById('adm-scan-log-count');
     if (!host) return;
-    if (!_admScanLog.length) { host.textContent = 'Nothing scanned yet.'; return; }
+    const sortDir = document.getElementById('adm-scan-log-sort')?.value || 'desc';
+    const fromVal = document.getElementById('adm-scan-log-from')?.value || '';
+    const toVal = document.getElementById('adm-scan-log-to')?.value || '';
+    const from = fromVal ? new Date(fromVal) : null;
+    const to = toVal ? new Date(toVal) : null;
+    let rows = _admScanLog.filter(e => (!from || e.at >= from) && (!to || e.at <= to));
+    rows = [...rows].sort((a, b) => sortDir === 'asc' ? a.at - b.at : b.at - a.at);
+    if (countEl) countEl.textContent = _admScanLog.length ? `${rows.length} scanned${rows.length !== _admScanLog.length ? ` (of ${_admScanLog.length} total this session)` : ' this session'}` : '';
+    if (!rows.length) { host.textContent = _admScanLog.length ? 'No scans in this range.' : 'Nothing scanned yet.'; return; }
     host.innerHTML = '<table class="w-full text-left" style="font-size:12px"><thead><tr class="text-[10px] uppercase text-slate-400">' +
-      '<th class="px-2 py-1">Time</th><th class="px-2 py-1">Applicant</th><th class="px-2 py-1">Tracking</th><th class="px-2 py-1">Status set</th></tr></thead><tbody>' +
-      _admScanLog.map(e => `<tr class="border-t border-slate-100">
-        <td class="px-2 py-1 text-slate-400">${e.at.toLocaleTimeString()}</td>
+      '<th class="px-2 py-1">Time</th><th class="px-2 py-1">Applicant</th><th class="px-2 py-1">Roll</th><th class="px-2 py-1">Tracking</th><th class="px-2 py-1">Status set</th><th class="px-2 py-1">Scanned By</th></tr></thead><tbody>' +
+      rows.map(e => `<tr class="border-t border-slate-100">
+        <td class="px-2 py-1 text-slate-400">${e.at.toLocaleString()}</td>
         <td class="px-2 py-1">${_escHtml(e.name || '—')}</td>
+        <td class="px-2 py-1">${_escHtml(e.roll || '—')}</td>
         <td class="px-2 py-1 font-mono text-blue-600">${_escHtml(e.trackingId || '')}</td>
-        <td class="px-2 py-1 font-bold">${_escHtml(e.status)}</td></tr>`).join('') +
+        <td class="px-2 py-1 font-bold">${_escHtml(e.status)}</td>
+        <td class="px-2 py-1 text-slate-500">${_escHtml(e.scannedBy || '—')}</td></tr>`).join('') +
       '</tbody></table>';
   }
 
@@ -45477,6 +45579,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admCandLoadRooms();
     _admCandLoadScanOptions();
     _admCandLoadList();
+    _admCandLoadFormFieldsForMapping();
     _admCandApplyTabGating();
     _admApplyModuleTabGating();
     _admShowView('dashboard');
@@ -46145,6 +46248,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   async function _admCandLoadFormFieldsForMapping() {
     try { _admCandFormFieldDefs = (await _admAdminFetch('getFormFields', {})).fields || []; }
     catch (e) { _admCandFormFieldDefs = []; }
+    // The Applications tab's admin-configurable columns feature draws its
+    // "Custom (mapped)" field options from this same cache -- refresh its
+    // head/body now that the catalog may have changed (new field defined,
+    // or this is the first load after entering the circular).
+    _admRenderTableHead();
+    _admFilterApps();
   }
   // Known aliases for common external naming conventions (e.g. VortiBD's own
   // column names) that don't normalize to an exact match against our own
@@ -46491,6 +46600,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       row.rowId = key; row.label = label;
       showToast(`Defined new field "${label}"`, 'success');
       _admCandRenderMapping();
+      // Make it immediately available as an Applications-tab column too --
+      // re-render its head/body (table) and the column editor's own field
+      // picker (if currently open) rather than waiting for a reload.
+      _admRenderTableHead();
+      _admFilterApps();
+      if (_admAppColumnsDraft) _admAppColumnsRenderEditor();
     } catch (e) { showToast(e.message || 'Failed to define field', 'error'); _admCandRenderMapping(); }
   }
   function _admCandSetPrimaryKey(rowId) { _admCandPrimaryKeyRowId = rowId; }

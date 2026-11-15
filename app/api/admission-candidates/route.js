@@ -881,7 +881,12 @@ export async function POST(req) {
     const rows = await sbAdmission(`admission_applications?id=eq.${candidateId}&select=scan_values`);
     const current = (Array.isArray(rows) && rows[0] && rows[0].scan_values) || {};
     const scan_values = { ...current, [optionKey]: value };
-    await sbAdmission(`admission_applications?id=eq.${candidateId}`, 'PATCH', { scan_values, updated_at: new Date().toISOString() });
+    // last_scanned_at is a flat timestamp column (distinct from scan_values'
+    // own per-option scanned_at, which 'tag'/'form' behaviors don't always
+    // carry) -- stamped on every scan regardless of behavior so the
+    // Applications tab can sort/filter by "most recently scanned" uniformly.
+    const now = new Date().toISOString();
+    await sbAdmission(`admission_applications?id=eq.${candidateId}`, 'PATCH', { scan_values, last_scanned_at: now, updated_at: now });
     return scan_values;
   }
   // The scan-triggered write, for 'status' and 'tag' behaviors (an

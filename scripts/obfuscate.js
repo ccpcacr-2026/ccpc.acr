@@ -443,7 +443,7 @@ const RESERVED = [
   'loadAdmissionAdminView','_admShowView','_admShowTopTab','_admShowSection','_admFilterApps','_admFilterAppsDebounced',
   '_admLoadNewApplication','_admLoadForm','_admEditApp','_admEnterEditMode','_admRefreshApps','_admDeleteApp','_admChangeStatus',
   '_admToggleRowSelect','_admToggleSelectAll','_admClearBulkSelection','_admApplyBulkStatus','_admBulkDeleteSelected','_admTableGoPage',
-  '_admToggleFilterPanel','toggleAdmFilter','clearAdmFilters','_admClearStatusFilter',
+  '_admToggleFilterPanel','toggleAdmFilter','clearAdmFilters','_admClearStatusFilter','_admSetScanDateFilter',
   '_admCustomCounterPopulateValueSelect','_admCustomCounterAddCondition','_admCustomCounterRemoveCondition','_admCustomCounterToggleGroupBy',
   '_admCustomCounterClearDraft','_admCustomCounterSaveAsCard','_admCustomCounterDeleteCard',
   '_admCustomCounterStartArrange','_admCustomCounterCancelArrange','_admCustomCounterSaveArrange',
@@ -467,7 +467,7 @@ const RESERVED = [
   // Admission Admin Phase 3 (SMS/OTP settings + Scan) — onclick strings in
   // _admRenderSettingsSections()'s adm-set-sms/adm-set-scan panels and in
   // _admRenderScanResult()'s dynamically-built status-select onclick.
-  '_admSaveSmsSettings','_admSendTestSms','_admStartScan','_admStopScan','_admConfirmScanStatus',
+  '_admSaveSmsSettings','_admSendTestSms','_admStartScan','_admStopScan','_admConfirmScanStatus','_admRenderScanLog',
 
   // Admission Admin Phase 4 (Form Designer canvas + Admit Card Designer +
   // native print) — two groups:
