@@ -43000,7 +43000,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admRenderTableHead() {
     const row = document.getElementById('adm-app-table-head-row');
     if (!row) return;
-    const dataThs = _admAppColumns.map((col, i) => `<th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest${i > 0 ? ' hidden md:table-cell' : ''}">${_escHtml(col.label || 'Column ' + (i + 1))}</th>`).join('');
+    // No responsive hidden/table-cell classes here -- the table already sits
+    // inside an overflow-x-auto wrapper, so a narrower viewport scrolls
+    // rather than silently dropping a column the admin explicitly
+    // configured (same bug/fix already applied to the Scan tab's own table).
+    const dataThs = _admAppColumns.map((col, i) => `<th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest whitespace-nowrap">${_escHtml(col.label || 'Column ' + (i + 1))}</th>`).join('');
     row.innerHTML = `<th class="px-3 py-3 text-left" style="width:36px"><input type="checkbox" id="adm-bulk-select-all" onchange="_admToggleSelectAll(this)"></th>`
       + dataThs
       + `<th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>`
@@ -43094,7 +43098,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     tbody.innerHTML = pageApps.map(a => {
       const dataCells = _admAppColumns.map((col, i) => {
         const lines = (col.fields || []).map(fk => _admAppFieldRender(fk, a)).filter(Boolean);
-        return `<td class="px-3 py-3${i > 0 ? ' hidden md:table-cell' : ''} text-[11px] text-slate-600 leading-relaxed space-y-0.5">${lines.length ? lines.join('') : '<span class="text-slate-300">—</span>'}</td>`;
+        return `<td class="px-3 py-3 text-[11px] text-slate-600 leading-relaxed space-y-0.5">${lines.length ? lines.join('') : '<span class="text-slate-300">—</span>'}</td>`;
       }).join('');
       return `
       <tr class="border-t border-slate-50 hover:bg-slate-50/80 transition-all cursor-pointer" onclick="_admLoadForm(${a.id})">
