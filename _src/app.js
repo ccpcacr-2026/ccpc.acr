@@ -42464,6 +42464,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admFilterApps();
     _admUpdateFilterBadge();
   }
+  // 'form'-behavior Scan Options (e.g. a Marks Entry option with one or
+  // more admin-defined fields) hold several values per scan, not one, so
+  // they can't be a pill-selection dim like class/status/opt: above -- each
+  // field gets its own Min/Max (number) or Contains (text) control instead,
+  // same shape as the Candidates module's Scan Data tab's own per-field
+  // filter (_admCandScanDataFieldFilterRender) reuses. State keys are
+  // 'formf:<optKey>:<fieldKey>:min'/':max'/':contains', plain strings so
+  // the existing generic _admFilterActiveCount/clearAdmFilters (which
+  // already branch on Set vs. plain value) pick them up with no changes.
+  function _admFormFieldFilterDims() {
+    return (_admCandScanOptions || []).filter(o => o.behavior === 'form').flatMap(o =>
+      ((o.config && o.config.fields) || []).map(f => ({ optKey: o.key, optLabel: o.label, field: f }))
+    );
+  }
   function _admRenderFilterPanel() {
     const host = document.getElementById('admFilterPanel');
     if (!host || host.classList.contains('hidden')) { _admUpdateFilterBadge(); return; }
@@ -42476,6 +42490,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <input type="date" value="${_escHtml(_admFilterState.scanTo || '')}" onchange="_admSetScanDateFilter('scanTo', this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
         </div>
       </div>`;
+    const formFieldsHtml = _admFormFieldFilterDims().map(({ optKey, optLabel, field }) => {
+      const base = `formf:${optKey}:${field.key}`;
+      const control = field.input_type === 'number'
+        ? `<div class="flex items-center gap-2">
+            <input type="number" placeholder="Min" value="${_escHtml(_admFilterState[base + ':min'] || '')}" onchange="_admSetScanDateFilter('${base}:min', this.value)" class="w-20 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs">
+            <span class="text-slate-300 text-xs">–</span>
+            <input type="number" placeholder="Max" value="${_escHtml(_admFilterState[base + ':max'] || '')}" onchange="_admSetScanDateFilter('${base}:max', this.value)" class="w-20 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs">
+          </div>`
+        : `<input type="text" placeholder="Contains…" value="${_escHtml(_admFilterState[base + ':contains'] || '')}" onchange="_admSetScanDateFilter('${base}:contains', this.value)" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs">`;
+      return `<div class="mb-3 last:mb-0">
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">${_escHtml(optLabel)} — ${_escHtml(field.label)}</p>
+        ${control}
+      </div>`;
+    }).join('');
     host.innerHTML = dims.map(d => {
       const sel = _admFilterState[d.key];
       return `<div class="mb-3 last:mb-0">
@@ -42484,7 +42512,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${d.values.map(v => `<button type="button" onclick='toggleAdmFilter(${JSON.stringify(d.key)}, ${JSON.stringify(v)})' class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase ${sel.has(v) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(v)}</button>`).join('')}
         </div>
       </div>`;
-    }).join('') + scanRangeHtml + (_admFilterActiveCount() ? `
+    }).join('') + scanRangeHtml + formFieldsHtml + (_admFilterActiveCount() ? `
       <div class="flex items-center gap-3 flex-wrap">
         <button type="button" onclick="clearAdmFilters()" class="text-[10px] font-black text-red-600 uppercase hover:underline">Clear all filters</button>
         <button type="button" onclick="_admCreateCustomCountFromFilters()" class="text-[10px] font-black text-blue-600 uppercase hover:underline">Use as Custom Count</button>
@@ -43314,6 +43342,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admSearchQuery = q;
     const st = _admFilterState;
     const sortBy = document.getElementById('adm-sort-by')?.value || 'scanned_desc';
+    // Only the form-field filters that actually have a value entered --
+    // computed once here, not per row, so an idle filter panel costs nothing.
+    const activeFormFieldDims = _admFormFieldFilterDims().filter(({ optKey, field }) => {
+      const base = `formf:${optKey}:${field.key}`;
+      return field.input_type === 'number' ? (st[base + ':min'] || st[base + ':max']) : st[base + ':contains'];
+    });
     let filtered = _admAllApps.filter(a => {
       if (q && !_admAppSearchHaystack(a).includes(q)) return false;
       if (st.class.size && !st.class.has(a.class)) return false;
@@ -43329,6 +43363,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const raw = (a.scan_values || {})[optKey];
         const v = (opt && opt.behavior === 'status') ? (raw && raw.done ? 'done' : '') : (raw === true ? 'yes' : String(raw || ''));
         if (!st[dimKey].has(v)) return false;
+      }
+      for (const { optKey, field } of activeFormFieldDims) {
+        const raw = (a.scan_values || {})[optKey];
+        const fieldVal = raw ? raw[field.key] : undefined;
+        const base = `formf:${optKey}:${field.key}`;
+        if (field.input_type === 'number') {
+          const min = st[base + ':min'], max = st[base + ':max'];
+          const num = (fieldVal === undefined || fieldVal === null || fieldVal === '') ? null : Number(fieldVal);
+          if (min && (num === null || num < Number(min))) return false;
+          if (max && (num === null || num > Number(max))) return false;
+        } else {
+          const contains = String(st[base + ':contains'] || '').toLowerCase();
+          if (contains && !String(fieldVal ?? '').toLowerCase().includes(contains)) return false;
+        }
       }
       return true;
     });
