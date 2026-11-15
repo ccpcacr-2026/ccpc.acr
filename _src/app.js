@@ -42034,6 +42034,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="_admExportCsv()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="download" class="h-3.5 w-3.5"></i> Export CSV
           </button>
+          <button onclick="_admPrintFilteredApps()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
+            <i data-lucide="printer" class="h-3.5 w-3.5"></i> Print
+          </button>
           <button id="adm-columns-btn" onclick="_admAppColumnsToggleEditor()" class="hidden flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="columns" class="h-3.5 w-3.5"></i> Configure Columns
           </button>
@@ -43598,6 +43601,36 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     a.href = URL.createObjectURL(new Blob(['﻿sep=,\n' + csv], { type: 'text/csv;charset=utf-8' }));
     a.download = 'admission_applications.csv';
     a.click();
+  }
+  // Prints exactly the rows the Applications tab's current search/filter is
+  // showing (_admLastFiltered, set by _admRenderTable on every re-filter),
+  // using the same admin-configured columns (_admAppColumns) and cell
+  // renderers (_admAppFieldRender) as the on-screen table -- so what's
+  // printed always matches what's on screen, no separate column list to
+  // keep in sync.
+  function _admPrintFilteredApps() {
+    const apps = _admLastFiltered;
+    if (!apps.length) { showToast('No applications to print', 'error'); return; }
+    const headThs = _admAppColumns.map(col => `<th>${_escHtml(col.label || 'Column')}</th>`).join('') + '<th>Status</th>';
+    const rows = apps.map((a, idx) => {
+      const dataTds = _admAppColumns.map(col => {
+        const lines = (col.fields || []).map(fk => _admAppFieldRender(fk, a)).filter(Boolean);
+        return `<td>${lines.length ? lines.join('<br>') : ''}</td>`;
+      }).join('');
+      return `<tr><td class="sl">${idx + 1}</td>${dataTds}<td>${_escHtml(a.status || '')}</td></tr>`;
+    }).join('');
+    const body = `
+      <h1 style="font-size:16px;margin:0 0 2px">Applicant List</h1>
+      <p style="font-size:10px;color:#6b7280;margin:0 0 10px">${apps.length} record${apps.length > 1 ? 's' : ''} — Printed ${new Date().toLocaleString()}</p>
+      <table><thead><tr><th class="sl">SL</th>${headThs}</tr></thead><tbody>${rows}</tbody></table>`;
+    const css = `@page { size: A4 landscape; margin: 10mm; }
+      body, table { font-family: Arial, sans-serif; font-size: 9pt; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #e2e8f0; padding: 4px 6px; text-align: left; vertical-align: top; }
+      td.sl, th.sl { width: 28px; text-align: center; }
+      th { background: #1e293b; color: #fff; text-transform: uppercase; font-size: 7.5pt; }
+      tr, td { page-break-inside: avoid; break-inside: avoid; }`;
+    _gfOpenPrintWindow('Applicant List', body, css);
   }
 
   // ── Settings sub-tab panels (built once, toggled via _admShowSettingsTab) ─
@@ -46120,6 +46153,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <span class="text-slate-300 text-xs">to</span>
               <input type="date" id="admCandScanDataTo" onchange="_admCandScanDataFilterChanged()" title="Scanned to" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
               <button type="button" onclick="_admCandScanDataToggleColsPanel()" class="flex items-center gap-1.5 px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase"><i data-lucide="columns" class="h-3 w-3"></i> Columns</button>
+              <button type="button" onclick="_admCandScanDataExportCsv()" class="flex items-center gap-1.5 px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase"><i data-lucide="download" class="h-3 w-3"></i> Export CSV</button>
+              <button type="button" onclick="_admCandScanDataPrint()" class="flex items-center gap-1.5 px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase"><i data-lucide="printer" class="h-3 w-3"></i> Print</button>
             </div>
           </div>
           <!-- Count + pagination at the TOP of the list (not just a tail
@@ -48089,12 +48124,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _admCandScanDataPage = 0;
   function _admCandScanDataFilterChanged() { _admCandScanDataPage = 0; _admCandRenderScanDataTable(); }
   function _admCandScanDataGoPage(delta) { _admCandScanDataPage += delta; _admCandRenderScanDataTable(); }
-  function _admCandRenderScanDataTable() {
-    const box = document.getElementById('admCandScanDataBox');
-    if (!box) return;
+  // Pure filter+sort, no DOM writes -- shared by the on-screen (paginated)
+  // table render below AND the Export CSV / Print actions, so "what you see
+  // is what exports/prints" without duplicating this logic three times.
+  function _admCandScanDataComputeFilteredRows() {
     const opt = _admCandScanSelectedOption;
-    if (!opt) { box.classList.add('hidden'); return; }
-    box.classList.remove('hidden');
+    if (!opt) return { opt: null, rows: [] };
     const q = (document.getElementById('admCandScanDataSearch')?.value || '').toLowerCase();
     const valFilter = document.getElementById('admCandScanDataValueFilter')?.value || '';
     const sortBy = document.getElementById('admCandScanDataSort')?.value || 'scanned_desc';
@@ -48109,19 +48144,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const classFilter = document.getElementById('admCandScanDataClassFilter')?.value || '';
     const versionFilter = document.getElementById('admCandScanDataVersionFilter')?.value || '';
     const categoryFilter = document.getElementById('admCandScanDataCategoryFilter')?.value || '';
-    // Class/Version/Category options are derived from whatever this
-    // circular's own roster actually contains (same pattern as the
-    // Applications tab's class/category filters), rebuilt every render so a
-    // freshly-imported class/category shows up without a reload -- cheap
-    // enough since this whole table already re-renders after every scan.
-    [['Class', 'All Classes'], ['Version', 'All Versions'], ['Category', 'All Categories']].forEach(([dim, allLabel]) => {
-      const sel = document.getElementById(`admCandScanData${dim}Filter`);
-      if (!sel) return;
-      const key = dim.toLowerCase();
-      const current = sel.value;
-      const values = [...new Set(all.map(a => a[key]).filter(Boolean))].sort();
-      sel.innerHTML = `<option value="">${allLabel}</option>` + values.map(v => `<option value="${_escHtml(v)}" ${v === current ? 'selected' : ''}>${_escHtml(v)}</option>`).join('');
-    });
     let rows = all.filter(a => {
       if (classFilter && a.class !== classFilter) return false;
       if (versionFilter && a.version !== versionFilter) return false;
@@ -48173,6 +48195,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         default: return (b.last_scanned_at || '').localeCompare(a.last_scanned_at || '');
       }
     });
+    return { opt, rows };
+  }
+  function _admCandRenderScanDataTable() {
+    const box = document.getElementById('admCandScanDataBox');
+    if (!box) return;
+    const opt = _admCandScanSelectedOption;
+    if (!opt) { box.classList.add('hidden'); return; }
+    box.classList.remove('hidden');
+    const all = _admAllApps || [];
+    // Class/Version/Category options are derived from whatever this
+    // circular's own roster actually contains (same pattern as the
+    // Applications tab's class/category filters), rebuilt every render so a
+    // freshly-imported class/category shows up without a reload -- cheap
+    // enough since this whole table already re-renders after every scan.
+    [['Class', 'All Classes'], ['Version', 'All Versions'], ['Category', 'All Categories']].forEach(([dim, allLabel]) => {
+      const sel = document.getElementById(`admCandScanData${dim}Filter`);
+      if (!sel) return;
+      const key = dim.toLowerCase();
+      const current = sel.value;
+      const values = [...new Set(all.map(a => a[key]).filter(Boolean))].sort();
+      sel.innerHTML = `<option value="">${allLabel}</option>` + values.map(v => `<option value="${_escHtml(v)}" ${v === current ? 'selected' : ''}>${_escHtml(v)}</option>`).join('');
+    });
+    const rows = _admCandScanDataComputeFilteredRows().rows;
     // Real pagination (replacing the old flat "first 150 matches" cap) --
     // keeps each render cheap on a large roster (this runs after every
     // single scan, not just on demand) while still letting the admin reach
@@ -48232,6 +48277,71 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </tr>`;
       }).join('') || `<tr><td colspan="${colCount}" class="px-2 py-6 text-center text-slate-400">No matches.</td></tr>`;
     }
+  }
+  // Export CSV / Print for the "Scan data for this option" table -- both
+  // act on the FULL filtered+sorted set (_admCandScanDataComputeFilteredRows,
+  // not just the current page), with the same extra columns the admin has
+  // ticked on in the Columns panel, so what's exported/printed matches what
+  // the admin has configured this view to show, not just what's visible now.
+  function _admCandScanDataExportCsv() {
+    const { opt, rows } = _admCandScanDataComputeFilteredRows();
+    if (!opt) return;
+    if (!rows.length) { showToast('No rows to export', 'error'); return; }
+    const headers = ['Tracking ID', 'Name', 'Roll', 'Class', 'Version', 'Category', 'Last Scanned', ..._admCandScanDataExtraCols.map(k => _admAppFieldLabel(k)), opt.label || 'Value'];
+    const csvRows = [headers];
+    rows.forEach(a => {
+      csvRows.push([
+        a.tracking_id || a.token || '',
+        a.name_english || '',
+        _admResolveRollValue(a) || '',
+        a.class || '',
+        a.version || '',
+        a.category || '',
+        a.last_scanned_at ? new Date(a.last_scanned_at).toLocaleString() : '',
+        ..._admCandScanDataExtraCols.map(k => _gfCsvPlainText(_admAppFieldRender(k, a))),
+        _admCandScanValueForOption(opt, (a.scan_values || {})[opt.key]),
+      ]);
+    });
+    const csv = csvRows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob(['﻿sep=,\n' + csv], { type: 'text/csv;charset=utf-8' }));
+    link.download = `scan_${(opt.key || 'option').replace(/[^a-z0-9_-]/gi, '_')}.csv`;
+    link.click();
+  }
+  function _admCandScanDataPrint() {
+    const { opt, rows } = _admCandScanDataComputeFilteredRows();
+    if (!opt) return;
+    if (!rows.length) { showToast('No rows to print', 'error'); return; }
+    const extraThs = _admCandScanDataExtraCols.map(k => `<th>${_escHtml(_admAppFieldLabel(k))}</th>`).join('');
+    const bodyRows = rows.map((a, idx) => {
+      const extraTds = _admCandScanDataExtraCols.map(k => `<td>${_admAppFieldRender(k, a) || ''}</td>`).join('');
+      return `<tr>
+        <td class="sl">${idx + 1}</td>
+        <td>${_escHtml(a.tracking_id || a.token || '')}</td>
+        <td>${_escHtml(a.name_english || '')}</td>
+        <td>${_escHtml(_admResolveRollValue(a) || '')}</td>
+        <td>${_escHtml(a.class || '')}</td>
+        <td>${_escHtml(a.version || '')}</td>
+        <td>${_escHtml(a.category || '')}</td>
+        <td>${a.last_scanned_at ? _escHtml(new Date(a.last_scanned_at).toLocaleString()) : ''}</td>
+        ${extraTds}
+        <td>${_escHtml(_admCandScanValueForOption(opt, (a.scan_values || {})[opt.key]))}</td>
+      </tr>`;
+    }).join('');
+    const body = `
+      <h1 style="font-size:16px;margin:0 0 2px">${_escHtml(opt.label || 'Scan Data')}</h1>
+      <p style="font-size:10px;color:#6b7280;margin:0 0 10px">${rows.length} record${rows.length > 1 ? 's' : ''} — Printed ${new Date().toLocaleString()}</p>
+      <table><thead><tr>
+        <th class="sl">SL</th><th>Tracking ID</th><th>Name</th><th>Roll</th><th>Class</th><th>Version</th><th>Category</th><th>Last Scanned</th>${extraThs}<th>${_escHtml(opt.label || 'Value')}</th>
+      </tr></thead><tbody>${bodyRows}</tbody></table>`;
+    const css = `@page { size: A4 landscape; margin: 10mm; }
+      body, table { font-family: Arial, sans-serif; font-size: 9pt; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #e2e8f0; padding: 4px 6px; text-align: left; vertical-align: top; }
+      td.sl, th.sl { width: 28px; text-align: center; }
+      th { background: #1e293b; color: #fff; text-transform: uppercase; font-size: 7.5pt; }
+      tr, td { page-break-inside: avoid; break-inside: avoid; }`;
+    _gfOpenPrintWindow(`${opt.label || 'Scan Data'}`, body, css);
   }
   // Lets the admin add any field from the full catalog (same one the
   // Applications tab's "Configure Columns" draws from -- built-in native

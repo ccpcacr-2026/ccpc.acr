@@ -454,7 +454,7 @@ const RESERVED = [
   // Admission Admin Phase 2 (Settings: Index Pattern/Form Fields/Circular/
   // Payments & Admit/Counters) — every onclick/onchange string built inside
   // _admRenderSettingsSections() and the row-builder functions it calls.
-  '_admExportCsv','_admOpenSettings','_admShowSettingsTab','_admInsertToken',
+  '_admExportCsv','_admPrintFilteredApps','_admOpenSettings','_admShowSettingsTab','_admInsertToken',
   '_admIndexAddCode','_admIndexDelCode','_admUpdateIndexPreview','_admSaveIndexSettings',
   '_admFFAdd','_admFFSave','_admFFUpdateProp','_admFFChangeSection','_admFFMove','_admFFDelete',
   '_admFFAddSection','_admFFRenameSection','_admFFToggleSection','_admFFDeleteSection',
@@ -522,7 +522,7 @@ const RESERVED = [
   '_admCandScanToggleOptionCreate','_admCandScanOptionBehaviorChange','_admCandScanOptionTagTypeChange',
   '_admCandScanOptionCreate','_admCandScanOptionDelete','_admCandFormFieldAdd','_admCandFormFieldRemove','_admCandSaveQrValuePattern',
   '_admCandRenderScanDataTable','_admCandScanDataToggleColsPanel','_admCandScanDataToggleCol','_admCandScanDataFieldFilterRender',
-  '_admCandScanDataFilterChanged','_admCandScanDataGoPage',
+  '_admCandScanDataFilterChanged','_admCandScanDataGoPage','_admCandScanDataExportCsv','_admCandScanDataPrint',
   '_admCandTagFilterDefChange','_admCandShowTagHistory',
   '_admCandCommitteeAdd','_admCandCommitteeSave','_admCandCommitteeRemove','_admCandPullCommitteeMembers',
   '_admCandPickExistingSession','_admCandEditSession','_admCandDeleteSession',
