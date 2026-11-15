@@ -45995,7 +45995,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <div id="admCandPreviewSection" class="hidden mt-3">
             <div id="admCandPreviewSummary" class="grid grid-cols-3 gap-3 mb-3"></div>
-            <button onclick="_admCandConfirmImport()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase">Confirm Import</button>
+            <button id="admCandConfirmImportBtn" onclick="_admCandConfirmImport()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase">Confirm Import</button>
           </div>
           <div id="admCandResultSection" class="hidden mt-3 bg-emerald-50 border border-emerald-200 rounded-xl p-4"></div>
         </div>
@@ -46910,6 +46910,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div class="bg-slate-50 rounded-xl p-3 text-center"><div class="text-xl font-black">${rows.length - withKey}</div><div class="text-[10px] uppercase text-slate-400 font-bold">Will be skipped</div></div>`;
     document.getElementById('admCandPreviewSection')?.classList.remove('hidden');
   }
+  // Splits rows into request-sized batches by actual JSON byte size (not a
+  // fixed row count) -- a wide-field file (long addresses, lots of
+  // extra_fields) can blow past Vercel's ~4.5MB serverless body limit on a
+  // row count that'd be fine for a narrow file. This is what was producing
+  // "Network error 413" on Confirm Import for large rosters.
+  function _admCandChunkRowsForUpload(rows, maxBytes) {
+    maxBytes = maxBytes || 3 * 1024 * 1024;
+    const chunks = [];
+    let current = [];
+    let size = 2;
+    for (const row of rows) {
+      const rowSize = JSON.stringify(row).length + 1;
+      if (current.length && size + rowSize > maxBytes) { chunks.push(current); current = []; size = 2; }
+      current.push(row);
+      size += rowSize;
+    }
+    if (current.length) chunks.push(current);
+    return chunks;
+  }
   async function _admCandConfirmImport() {
     if (!_admCandRequireCircular()) return;
     const { mapping, primaryKeyRowId } = _admCandGetMapping();
@@ -46917,22 +46936,36 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const rows = _admCandBuildMappedRows();
     const mappingUsed = {};
     Object.keys(mapping).forEach(rowId => { mappingUsed[rowId] = _admCandExcelHeaders[mapping[rowId]]; });
+    const chunks = _admCandChunkRowsForUpload(rows);
+    const btn = document.getElementById('admCandConfirmImportBtn');
+    if (btn) { btn.disabled = true; btn.dataset.origText = btn.textContent; }
+    const merged = { success: true, new_count: 0, updated_count: 0, error_count: 0, mismatches: [], mismatch_count: 0, total: 0 };
     try {
-      const res = await _admCandFetch('uploadMappedCandidates', {
-        circular_id: _admCandActiveCircularId,
-        rows, template_id: _admCandAppliedTemplateId || null,
-        mapping_used: mappingUsed, primary_key_field: primaryKeyRowId,
-        file_name: _admCandImportFileName || null,
-      });
-      if (res.error) {
-        showToast(res.error, 'error');
-        if (res.mismatches && res.mismatches.length) _admCandRenderImportResult(res);
-        return;
+      for (let i = 0; i < chunks.length; i++) {
+        if (btn) btn.textContent = chunks.length > 1 ? `Importing… (${i + 1}/${chunks.length})` : 'Importing…';
+        const res = await _admCandFetch('uploadMappedCandidates', {
+          circular_id: _admCandActiveCircularId,
+          rows: chunks[i], template_id: _admCandAppliedTemplateId || null,
+          mapping_used: mappingUsed, primary_key_field: primaryKeyRowId,
+          file_name: _admCandImportFileName || null,
+        });
+        if (res.error) {
+          showToast(res.error, 'error');
+          if (res.mismatches && res.mismatches.length) _admCandRenderImportResult(res);
+          return;
+        }
+        merged.new_count += res.new_count || 0;
+        merged.updated_count += res.updated_count || 0;
+        merged.error_count += res.error_count || 0;
+        merged.total += res.total || 0;
+        merged.mismatch_count += res.mismatch_count || 0;
+        if (res.mismatches && res.mismatches.length) merged.mismatches = merged.mismatches.concat(res.mismatches);
       }
-      _admCandRenderImportResult(res);
+      _admCandRenderImportResult(merged);
       showToast('Import complete', 'success');
       _admCandLoadList();
     } catch (e) { showToast(e.message || 'Import failed', 'error'); }
+    finally { if (btn) { btn.disabled = false; btn.textContent = btn.dataset.origText || 'Confirm Import'; } }
   }
   function _admCandRenderImportResult(res) {
     const result = document.getElementById('admCandResultSection');
