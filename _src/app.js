@@ -42052,6 +42052,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="_admBulkDeleteSelected()" class="px-3 py-2 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest">Delete Selected</button>
           <button onclick="_admClearBulkSelection()" class="px-3 py-2 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black uppercase tracking-widest">Clear</button>
         </div>
+        <div class="flex items-center justify-between mb-2 flex-wrap gap-2 px-4 py-2.5 bg-amber-50 border border-amber-100 rounded-xl">
+          <p class="adm-app-count text-[10px] text-slate-400 font-bold"></p>
+          <div class="adm-app-pagination flex items-center gap-2"></div>
+        </div>
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-x-auto">
           <table class="w-full text-sm">
             <thead><tr id="adm-app-table-head-row" class="bg-slate-50 border-b border-slate-100">
@@ -42060,9 +42064,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <tbody id="adm-app-table-body"><tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr></tbody>
           </table>
         </div>
-        <div class="flex items-center justify-between mt-3 flex-wrap gap-2">
-          <p id="adm-app-count" class="text-[10px] text-slate-400 font-bold"></p>
-          <div id="adm-app-pagination" class="flex items-center gap-2"></div>
+        <div class="flex items-center justify-between mt-3 flex-wrap gap-2 px-4 py-2.5 bg-amber-50 border border-amber-100 rounded-xl">
+          <p class="adm-app-count text-[10px] text-slate-400 font-bold"></p>
+          <div class="adm-app-pagination flex items-center gap-2"></div>
         </div>
       </div>
 
@@ -42942,6 +42946,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'name', label: 'Student Name', render: a => `<p class="font-bold text-sm text-slate-800">${_escHtml(a.name_english || '—')}</p>${a.name_bangla ? `<p class="text-[10px] text-slate-400">${_escHtml(a.name_bangla)}</p>` : ''}` },
     { key: 'class_cat_version', label: 'Class / Category / Version', render: a => { const v = [a.class, a.category, a.version].filter(Boolean).join(' · '); return v ? `<p class="text-[10px] text-slate-500 font-bold">${_escHtml(v)}</p>` : ''; } },
     { key: 'session', label: 'Session', render: a => a.session ? `<p class="text-xs text-slate-600">${_escHtml(a.session)}</p>` : '' },
+    { key: 'mobile', label: 'Mobile', render: a => a.mobile ? `<p class="text-xs text-slate-600">${_escHtml(a.mobile)}</p>` : '' },
     { key: 'room_seat', label: 'Room / Seat', render: a => (a.room_name || a.room_no) ? `<span class="inline-block px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[9px] font-bold">Room ${_escHtml(a.room_name || a.room_no)}${a.seat_no ? ' · Seat ' + _escHtml(a.seat_no) : ''}</span>` : '' },
     { key: 'source', label: 'Source', render: a => `<p class="text-xs text-slate-500">${_escHtml(a.source || 'native')}</p>` },
     { key: 'dob', label: 'Date of Birth', render: a => a.date_of_birth ? `<p class="text-xs text-slate-600">${_escHtml(a.date_of_birth)}</p>` : '' },
@@ -43081,8 +43086,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const colCount = _admAppColumns.length + 3;
     if (!apps.length) {
       tbody.innerHTML = `<tr><td colspan="${colCount}" class="px-4 py-10 text-center text-slate-400 text-sm">No applications found.</td></tr>`;
-      document.getElementById('adm-app-count').textContent = '';
-      document.getElementById('adm-app-pagination').innerHTML = '';
+      document.querySelectorAll('.adm-app-count').forEach(el => el.textContent = '');
+      document.querySelectorAll('.adm-app-pagination').forEach(el => el.innerHTML = '');
       _admRenderBulkBar();
       return;
     }
@@ -43091,13 +43096,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (_admTablePage < 0) _admTablePage = 0;
     const pageApps = apps.slice(_admTablePage * ADM_TABLE_PAGE_SIZE, _admTablePage * ADM_TABLE_PAGE_SIZE + ADM_TABLE_PAGE_SIZE);
     const scannedCount = apps.filter(a => a.last_scanned_at).length;
-    document.getElementById('adm-app-count').textContent = `${apps.length} record${apps.length > 1 ? 's' : ''} · ${scannedCount} scanned`;
+    document.querySelectorAll('.adm-app-count').forEach(el => el.textContent = `${apps.length} record${apps.length > 1 ? 's' : ''} · ${scannedCount} scanned`);
     // Data columns are fully admin-defined (_admAppColumns/ADM_APP_FIELD_CATALOG
     // above) -- each one stacks its chosen fields' rendered lines; Status and
     // Actions stay fixed, always the last two columns.
     tbody.innerHTML = pageApps.map(a => {
       const dataCells = _admAppColumns.map((col, i) => {
-        const lines = (col.fields || []).map(fk => _admAppFieldRender(fk, a)).filter(Boolean);
+        const lines = (col.fields || []).map(fk => _admHighlightText(_admAppFieldRender(fk, a), _admSearchQuery)).filter(Boolean);
         return `<td class="px-3 py-3 text-[11px] text-slate-600 leading-relaxed space-y-0.5">${lines.length ? lines.join('') : '<span class="text-slate-300">—</span>'}</td>`;
       }).join('');
       return `
@@ -43123,16 +43128,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admRenderTablePagination(totalPages, apps.length);
   }
   function _admRenderTablePagination(totalPages, total) {
-    const el = document.getElementById('adm-app-pagination');
-    if (!el) return;
-    if (totalPages <= 1) { el.innerHTML = ''; return; }
+    const els = document.querySelectorAll('.adm-app-pagination');
+    if (!els.length) return;
+    if (totalPages <= 1) { els.forEach(el => el.innerHTML = ''); return; }
     const from = _admTablePage * ADM_TABLE_PAGE_SIZE + 1;
     const to = Math.min(total, from + ADM_TABLE_PAGE_SIZE - 1);
-    el.innerHTML = `
+    const html = `
       <button onclick="_admTableGoPage(${_admTablePage - 1})" ${_admTablePage === 0 ? 'disabled' : ''} class="px-2.5 py-1.5 border border-slate-200 rounded-lg text-[10px] font-black uppercase disabled:opacity-40">Prev</button>
       <span class="text-[10px] text-slate-500 font-bold">${from}-${to} of ${total} · page ${_admTablePage + 1}/${totalPages}</span>
       <button onclick="_admTableGoPage(${_admTablePage + 1})" ${_admTablePage >= totalPages - 1 ? 'disabled' : ''} class="px-2.5 py-1.5 border border-slate-200 rounded-lg text-[10px] font-black uppercase disabled:opacity-40">Next</button>
     `;
+    els.forEach(el => el.innerHTML = html);
   }
   function _admTableGoPage(p) {
     _admTablePage = p;
@@ -43199,12 +43205,44 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     clearTimeout(_admSearchDebounceTimer);
     _admSearchDebounceTimer = setTimeout(_admFilterApps, 220);
   }
+  // Every field worth matching on, not just the handful of columns an admin
+  // happens to have configured visible right now -- a search for a mobile
+  // number (or any other real data point) must find it on the whole
+  // already-loaded roster (_admAllApps is the full circular, not one page;
+  // see sbAdmissionAllRows) regardless of which columns are on screen.
+  function _admAppSearchHaystack(a) {
+    if (a.__searchHay) return a.__searchHay;
+    const parts = [
+      a.name_english, a.name_bangla, a.tracking_id, a.index_id, a.token, a.external_key, a.mobile,
+      a.class, a.category, a.version, a.session, a.status, a.source,
+      a.father_name, a.father_contact, a.father_profession, a.father_designation, a.father_office_address, a.father_nid,
+      a.mother_name, a.mother_contact, a.mother_profession, a.mother_designation, a.mother_office_address, a.mother_nid,
+      a.guardian_name, a.guardian_contact, a.guardian_relation, a.guardian_profession, a.guardian_designation,
+      a.present_address, a.permanent_address, a.blood_group, a.gender, a.date_of_birth, a.religion, a.nationality,
+      a.birth_reg_no, a.emergency_contact, a.last_class, a.last_version, a.last_institute,
+      a.room_name, a.room_no, a.seat_no,
+    ];
+    if (a.extra_fields) parts.push(...Object.values(a.extra_fields));
+    return (a.__searchHay = parts.filter(v => v !== null && v !== undefined && v !== '').join(' ').toLowerCase());
+  }
+  let _admSearchQuery = '';
+  // Wraps the active search term in <mark> wherever it appears in a cell's
+  // already-escaped render output -- splits on tags so the match is only
+  // ever found/wrapped inside a text node, never inside an attribute or a
+  // tag name, so this can't corrupt the markup it's highlighting.
+  function _admHighlightText(html, q) {
+    if (!q || !html) return html;
+    const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig');
+    return String(html).split(/(<[^>]+>)/g).map(seg => seg.startsWith('<') ? seg
+      : seg.replace(re, m => `<mark class="bg-yellow-200 text-slate-900 rounded-sm px-0.5">${m}</mark>`)).join('');
+  }
   function _admFilterApps() {
-    const q = (document.getElementById('adm-search-input').value || '').toLowerCase();
+    const q = (document.getElementById('adm-search-input').value || '').trim().toLowerCase();
+    _admSearchQuery = q;
     const st = _admFilterState;
     const sortBy = document.getElementById('adm-sort-by')?.value || 'scanned_desc';
     let filtered = _admAllApps.filter(a => {
-      if (q && !`${a.name_english || ''} ${a.tracking_id || ''} ${a.index_id || ''} ${a.token || ''}`.toLowerCase().includes(q)) return false;
+      if (q && !_admAppSearchHaystack(a).includes(q)) return false;
       if (st.class.size && !st.class.has(a.class)) return false;
       if (st.category.size && !st.category.has(a.category)) return false;
       if (st.status.size && !st.status.has(a.status)) return false;
@@ -44883,6 +44921,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       ]);
       if (fr.error) { showToast(fr.error, 'error'); return; }
       if (sr.error) { showToast(sr.error, 'error'); return; }
+      // Separate cache from _admFFState -- without this, a field added here
+      // doesn't appear in "Configure Applicant Table Columns" (or the
+      // Candidates module's mapping/photo pickers) until the circular is
+      // re-entered, even though it just saved successfully.
+      _admCandLoadFormFieldsForMapping();
       showToast('Form fields saved');
     } catch (e) { showToast(e.message || 'Could not save', 'error'); }
   }
