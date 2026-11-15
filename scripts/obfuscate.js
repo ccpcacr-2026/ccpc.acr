@@ -443,7 +443,7 @@ const RESERVED = [
   'loadAdmissionAdminView','_admShowView','_admShowTopTab','_admShowSection','_admFilterApps','_admFilterAppsDebounced',
   '_admLoadNewApplication','_admLoadForm','_admEditApp','_admEnterEditMode','_admRefreshApps','_admDeleteApp','_admChangeStatus',
   '_admToggleRowSelect','_admToggleSelectAll','_admClearBulkSelection','_admApplyBulkStatus','_admBulkDeleteSelected','_admTableGoPage',
-  '_admToggleFilterPanel','toggleAdmFilter','clearAdmFilters','_admClearStatusFilter','_admSetScanDateFilter',
+  '_admToggleFilterPanel','toggleAdmFilter','clearAdmFilters','_admClearStatusFilter','_admSetScanDateFilter','_admCreateCustomCountFromFilters',
   '_admCustomCounterPopulateValueSelect','_admCustomCounterAddCondition','_admCustomCounterRemoveCondition','_admCustomCounterToggleGroupBy',
   '_admCustomCounterClearDraft','_admCustomCounterSaveAsCard','_admCustomCounterDeleteCard',
   '_admCustomCounterStartArrange','_admCustomCounterCancelArrange','_admCustomCounterSaveArrange',

@@ -42450,7 +42450,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${d.values.map(v => `<button type="button" onclick='toggleAdmFilter(${JSON.stringify(d.key)}, ${JSON.stringify(v)})' class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase ${sel.has(v) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(v)}</button>`).join('')}
         </div>
       </div>`;
-    }).join('') + scanRangeHtml + (_admFilterActiveCount() ? `<button type="button" onclick="clearAdmFilters()" class="text-[10px] font-black text-red-600 uppercase hover:underline">Clear all filters</button>` : '');
+    }).join('') + scanRangeHtml + (_admFilterActiveCount() ? `
+      <div class="flex items-center gap-3 flex-wrap">
+        <button type="button" onclick="clearAdmFilters()" class="text-[10px] font-black text-red-600 uppercase hover:underline">Clear all filters</button>
+        <button type="button" onclick="_admCreateCustomCountFromFilters()" class="text-[10px] font-black text-blue-600 uppercase hover:underline">Use as Custom Count</button>
+      </div>` : '');
     _admUpdateFilterBadge();
   }
   // Status tile colors reuse the exact same amber/blue/emerald/red families
@@ -42562,10 +42566,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Class+Category+Version grouped shows one row per real (class, category,
   // version) combination actually present, never capped/truncated.
   let _admCustomCounterGroupBy = [];
-  function _admCustomCounterFieldLabel(key) { return (_admCustomCounterFieldOptions().find(([k]) => k === key) || [key, key])[1]; }
+  // 'scan_from'/'scan_to' are pseudo-fields only ever produced by "Create
+  // Custom Count from current filters" (below) -- copied straight from the
+  // Applications tab's own date-range filter, which has no finite list of
+  // values to offer through the normal Field/Value picker, so they're not
+  // part of _admCustomCounterFieldOptions()'s selectable list.
+  function _admCustomCounterFieldLabel(key) {
+    if (key === 'scan_from') return 'Scanned From';
+    if (key === 'scan_to') return 'Scanned To';
+    return (_admCustomCounterFieldOptions().find(([k]) => k === key) || [key, key])[1];
+  }
+  // A condition's value is either a single string (exact match, the
+  // original/manually-built shape) or an array of strings (OR'd set, the
+  // shape "Create Custom Count from current filters" produces when more
+  // than one value was ticked for a dimension in the Applications tab's
+  // filter panel) -- rendered as "A or B or C" for the chip.
   function _admCustomCounterValueLabel(field, value) {
-    if (String(field).startsWith('scan:')) return value === 'yes' ? 'Has value/marks' : 'No value yet';
-    return value;
+    const one = v => String(field).startsWith('scan:') ? (v === 'yes' ? 'Has value/marks' : 'No value yet') : v;
+    if (field === 'scan_from') return 'On/after ' + value;
+    if (field === 'scan_to') return 'On/before ' + value;
+    return Array.isArray(value) ? value.map(one).join(' or ') : one(value);
   }
   // Mirrors the same has-a-value logic as the Scan tab's own review table
   // (_admCandScanValueForOption's has/empty checks) -- kept as its own small
@@ -42583,9 +42603,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _admCustomCounterMatches(app, conditions) {
     return Object.entries(conditions || {}).every(([field, value]) => {
-      if (field.startsWith('scan:')) return (value === 'yes') === _admCustomCounterScanHasValue(app, field.slice(5));
+      if (field === 'scan_from') return !!app.last_scanned_at && app.last_scanned_at.slice(0, 10) >= value;
+      if (field === 'scan_to') return !!app.last_scanned_at && app.last_scanned_at.slice(0, 10) <= value;
+      if (field.startsWith('scan:')) {
+        const wantYes = _admCustomCounterScanHasValue(app, field.slice(5)) ? 'yes' : 'no';
+        return Array.isArray(value) ? value.includes(wantYes) : value === wantYes;
+      }
       const v = field === 'source' ? (app.source || 'native') : app[field];
-      return String(v || '') === String(value);
+      const matchOne = (val) => String(v || '') === String(val);
+      return Array.isArray(value) ? value.some(matchOne) : matchOne(value);
     });
   }
   function _admCustomCounterCountFor(conditions) { return _admAllApps.filter(a => _admCustomCounterMatches(a, conditions)).length; }
@@ -42640,6 +42666,36 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admRenderCustomCounters();
   }
   function _admCustomCounterClearDraft() { _admCustomCounterDraft = []; _admCustomCounterGroupBy = []; _admRenderCustomCounters(); }
+  // Copies the Applications tab's OWN currently-active filters (the
+  // Filters panel's pill selections + Scanned Between range) straight into
+  // the Custom Count draft, instead of the admin having to re-pick the same
+  // combination one field/value at a time. A dimension with more than one
+  // value ticked becomes an OR'd array condition (see _admCustomCounterMatches);
+  // one value ticked stays a plain string, matching how a manually-built
+  // condition already looks. Switches to the Dashboard and scrolls the
+  // builder into view so the admin can add a Group By and/or Save as Card
+  // right away.
+  function _admCreateCustomCountFromFilters() {
+    const draft = [];
+    ['class', 'category', 'status', 'source'].forEach((k) => {
+      const set = _admFilterState[k];
+      if (set && set.size) draft.push({ field: k, value: set.size === 1 ? [...set][0] : [...set] });
+    });
+    Object.keys(_admFilterState).forEach((k) => {
+      if (!k.startsWith('opt:')) return;
+      const set = _admFilterState[k];
+      if (set && set.size) draft.push({ field: k, value: set.size === 1 ? [...set][0] : [...set] });
+    });
+    if (_admFilterState.scanFrom) draft.push({ field: 'scan_from', value: _admFilterState.scanFrom });
+    if (_admFilterState.scanTo) draft.push({ field: 'scan_to', value: _admFilterState.scanTo });
+    if (!draft.length) { showToast('No filters are active to copy.', 'error'); return; }
+    _admCustomCounterDraft = draft;
+    _admCustomCounterGroupBy = [];
+    _admShowView('dashboard');
+    _admRenderCustomCounters();
+    showToast('Filters copied into Custom Count — review below, then Save as Card.', 'success');
+    setTimeout(() => document.getElementById('adm-custom-counters-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
+  }
   async function _admCustomCounterSaveAsCard() {
     if (!_admCustomCounterDraft.length && !_admCustomCounterGroupBy.length) return;
     const label = prompt('Label for this card?');
