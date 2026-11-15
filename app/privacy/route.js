@@ -7,18 +7,12 @@ export const dynamic = 'force-static';
 // contained route" convention as every other public page in this app
 // (app/bill/[id]/route.js, app/plan/[id]/route.js, etc.).
 //
-// [[PLACEHOLDER]] marks the two things only the school itself can fill in:
-// the institution's legal/official name, and a real contact email/address
-// for privacy requests. Fill both in before submitting to Play Console --
-// Google's review checks that a privacy policy page is real and specific,
-// not a generic template with placeholders still showing.
-
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-const INSTITUTION_NAME = '[[PLACEHOLDER: Full official institution name, e.g. "Chittagong Cantonment Public College"]]';
-const CONTACT_EMAIL = '[[PLACEHOLDER: a real contact email, e.g. privacy@yourschool.edu.bd]]';
+const INSTITUTION_NAME = 'Chittagong Cantonment Public College';
+const CONTACT_EMAIL = 'ccpcmainoffice@gmail.com';
 const LAST_UPDATED = 'November 2026';
 
 export async function GET() {
@@ -36,7 +30,6 @@ export async function GET() {
   h2 { font-size: 1.1rem; margin-top: 2.2rem; color: #0f172a; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; }
   p, li { color: #334155; font-size: 0.95rem; }
   ul { padding-left: 1.3rem; }
-  .placeholder { background: #fef3c7; color: #92400e; padding: 1px 5px; border-radius: 4px; font-weight: 600; }
   footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #e2e8f0; color: #94a3b8; font-size: 0.8rem; }
 </style>
 </head>
@@ -44,7 +37,7 @@ export async function GET() {
   <h1>Privacy Policy</h1>
   <p class="meta">CCPC Portal (Faculty/Admission Admin app) · Last updated: ${esc(LAST_UPDATED)}</p>
 
-  <p>This Privacy Policy explains how <span class="placeholder">${esc(INSTITUTION_NAME)}</span> ("the Institution", "we", "us") collects, uses, and protects information through the CCPC Portal mobile and web application ("the App"), used by the Institution's teachers, staff, and administrators to manage student records, admissions, attendance, and related school operations.</p>
+  <p>This Privacy Policy explains how ${esc(INSTITUTION_NAME)} ("the Institution", "we", "us") collects, uses, and protects information through the CCPC Portal mobile and web application ("the App"), used by the Institution's teachers, staff, and administrators to manage student records, admissions, attendance, and related school operations.</p>
 
   <h2>Who this app is for</h2>
   <p>The App is an internal management tool issued to the Institution's own staff and faculty. It is not intended for use by the general public, and access requires a login account created and managed by the Institution.</p>
@@ -78,7 +71,7 @@ export async function GET() {
   <p>We may update this Privacy Policy from time to time to reflect changes in the App or applicable law. The "Last updated" date above will reflect the most recent revision.</p>
 
   <h2>Contact us</h2>
-  <p>If you have questions about this Privacy Policy or how your information is handled, please contact: <span class="placeholder">${esc(CONTACT_EMAIL)}</span></p>
+  <p>If you have questions about this Privacy Policy or how your information is handled, please contact: ${esc(CONTACT_EMAIL)}</p>
 
   <footer>© ${new Date().getFullYear()} ${esc(INSTITUTION_NAME)}. All rights reserved.</footer>
 </body>
