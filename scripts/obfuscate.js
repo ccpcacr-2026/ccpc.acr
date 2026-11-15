@@ -521,7 +521,7 @@ const RESERVED = [
   '_admCandMarksFieldSave','_admCandMarksFieldDelete','_admCandSubmitMarksForm','_admCandCancelMarksForm',
   '_admCandScanToggleOptionCreate','_admCandScanOptionBehaviorChange','_admCandScanOptionTagTypeChange',
   '_admCandScanOptionCreate','_admCandScanOptionDelete','_admCandFormFieldAdd','_admCandFormFieldRemove','_admCandSaveQrValuePattern',
-  '_admCandRenderScanDataTable','_admCandScanDataToggleColsPanel','_admCandScanDataToggleCol','_admCandScanDataFieldFilterRender',
+  '_admCandRenderScanDataTable','_admCandScanDataToggleColsPanel','_admCandScanDataToggleCol','_admCandScanDataFieldFilterRender','_admCandScanDataMoveCol',
   '_admCandScanDataFilterChanged','_admCandScanDataGoPage','_admCandScanDataExportCsv','_admCandScanDataPrint',
   '_admCandTagFilterDefChange','_admCandShowTagHistory',
   '_admCandCommitteeAdd','_admCandCommitteeSave','_admCandCommitteeRemove','_admCandPullCommitteeMembers',

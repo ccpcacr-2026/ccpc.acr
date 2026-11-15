@@ -48488,19 +48488,57 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const panel = document.getElementById('admCandScanDataColsPanel');
     if (!panel) return;
     const show = panel.classList.contains('hidden');
-    if (show) {
-      panel.innerHTML = _admAppFieldCatalog().map(f => `
-        <label class="flex items-center gap-1.5 text-xs font-bold text-slate-600">
-          <input type="checkbox" ${_admCandScanDataExtraCols.includes(f.key) ? 'checked' : ''} onchange="_admCandScanDataToggleCol('${f.key.replace(/'/g, "\\'")}', this.checked)">
-          ${_escHtml(f.label)}
-        </label>`).join('') || '<span class="text-xs text-slate-400">No fields yet.</span>';
-    }
+    if (show) _admCandScanDataRenderColsPanel();
     panel.classList.toggle('hidden', !show);
+  }
+  // Split into a "Selected" list (in table order, with ↑/↓ to rearrange --
+  // same move-by-swap idiom as the Form Fields editor's _admFFMove) and an
+  // "Add a column" picker for everything not yet shown -- previously this
+  // was one flat alphabetical checkbox list with no way to control the
+  // order columns actually appear in the table.
+  function _admCandScanDataRenderColsPanel() {
+    const panel = document.getElementById('admCandScanDataColsPanel');
+    if (!panel) return;
+    const catalog = _admAppFieldCatalog();
+    const byKey = {}; catalog.forEach(f => { byKey[f.key] = f; });
+    const selectedHtml = _admCandScanDataExtraCols.length ? `<div class="w-full mb-2">
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 basis-full">Selected columns (in order)</p>
+        <div class="flex flex-wrap gap-1.5">
+          ${_admCandScanDataExtraCols.map((key, i) => `
+            <span class="flex items-center gap-1 pl-1 pr-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600">
+              <button type="button" onclick="_admCandScanDataMoveCol(${i},-1)" ${i === 0 ? 'disabled' : ''} class="px-1 ${i === 0 ? 'text-slate-200' : 'text-slate-400 hover:text-slate-700'}">↑</button>
+              <button type="button" onclick="_admCandScanDataMoveCol(${i},1)" ${i === _admCandScanDataExtraCols.length - 1 ? 'disabled' : ''} class="px-1 ${i === _admCandScanDataExtraCols.length - 1 ? 'text-slate-200' : 'text-slate-400 hover:text-slate-700'}">↓</button>
+              ${_escHtml((byKey[key] || {}).label || key)}
+              <button type="button" onclick="_admCandScanDataToggleCol('${key.replace(/'/g, "\\'")}', false)" class="text-slate-400 hover:text-red-500">&times;</button>
+            </span>`).join('')}
+        </div>
+      </div>` : '';
+    const remaining = catalog.filter(f => !_admCandScanDataExtraCols.includes(f.key));
+    const availableHtml = `<div class="w-full">
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 basis-full">Add a column</p>
+        <div class="flex flex-wrap gap-x-4 gap-y-1.5">
+          ${remaining.length ? remaining.map(f => `
+            <label class="flex items-center gap-1.5 text-xs font-bold text-slate-600">
+              <input type="checkbox" onchange="_admCandScanDataToggleCol('${f.key.replace(/'/g, "\\'")}', this.checked)">
+              ${_escHtml(f.label)}
+            </label>`).join('') : '<span class="text-xs text-slate-400">Every field is already shown.</span>'}
+        </div>
+      </div>`;
+    panel.innerHTML = selectedHtml + availableHtml;
   }
   function _admCandScanDataToggleCol(key, checked) {
     if (checked) { if (!_admCandScanDataExtraCols.includes(key)) _admCandScanDataExtraCols.push(key); }
     else _admCandScanDataExtraCols = _admCandScanDataExtraCols.filter(k => k !== key);
+    _admCandScanDataRenderColsPanel();
     _admCandRenderScanDataTable(); // page stays put -- adding/removing a column doesn't change which rows match
+  }
+  function _admCandScanDataMoveCol(index, dir) {
+    const arr = _admCandScanDataExtraCols;
+    const j = index + dir;
+    if (j < 0 || j >= arr.length) return;
+    [arr[index], arr[j]] = [arr[j], arr[index]];
+    _admCandScanDataRenderColsPanel();
+    _admCandRenderScanDataTable();
   }
   async function _admCandFormFieldAdd() {
     const opt = _admCandScanSelectedOption;
