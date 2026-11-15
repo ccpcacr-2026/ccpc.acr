@@ -1087,10 +1087,10 @@ export async function POST(req) {
   async function _vortibdLogin() {
     const creds = await _vortibdCredentials();
     if (!creds || !creds.username || !creds.password) throw new Error('VortiBD credentials are not configured yet.');
-    const res = await _vortibdFetch('VortiBD login timed out (30s)', `${VORTIBD_API}/api/UserAuth/login`, {
+    const res = await _vortibdFetch('VortiBD login timed out (20s)', `${VORTIBD_API}/api/UserAuth/login`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: creds.username, password: creds.password, rememberMe: false }),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(20000),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok || !body || body.isError) {
@@ -1118,68 +1118,44 @@ export async function POST(req) {
   // file URL) was never fully confirmed during testing (repeated automated
   // attempts stopped reliably firing the request, likely VortiBD-side
   // throttling of rapid test traffic) -- handled defensively for both.
-  // This is the step the admin has reported taking several minutes on a slow
-  // run -- give it nearly all of the function's own 300s budget (see
-  // maxDuration above) rather than a tight internal cap well under what
-  // Vercel itself allows.
   //
-  // A real run surfaced HTTP 524 here -- that's Cloudflare's OWN "A Timeout
-  // Occurred" response, sent when the edge gave up waiting on VortiBD's
-  // origin server (Cloudflare's default origin timeout is ~100s), well
-  // before our own 260s AbortSignal below ever gets a chance to fire. No
-  // timeout value on our side can prevent this -- it's a response Cloudflare
-  // sends back, not a connection we dropped -- so the only thing worth doing
-  // here is a bounded retry, since a 5xx/52x from the edge is often transient
-  // (the origin was briefly overloaded, not permanently down). Capped at 2
-  // attempts total so a persistently-failing export can't by itself chew
-  // through the function's whole 300s budget.
-  const VORTIBD_GATEWAY_RETRY_STATUSES = new Set([502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527, 528, 529]);
-  // Budgeted by a shared DEADLINE, not a flat timeout per attempt -- a retry
-  // after a fast ~100s 524 could otherwise stack a second full 260s wait on
-  // top of the first, blowing well past the function's whole 300s ceiling
-  // (see maxDuration above) even though no single attempt looked unsafe on
-  // its own.
-  const VORTIBD_EXPORT_BUDGET_MS = 230000;
+  // A real run surfaced HTTP 524 (Cloudflare's own "A Timeout Occurred",
+  // sent when the edge gives up waiting on VortiBD's origin) on one attempt,
+  // then a second attempt ran out of its own share of the budget with no
+  // response at all -- splitting one wait into two shorter ones didn't
+  // help, it just gave each one less time. Per explicit confirmation: one
+  // single attempt, given as much of the function's own 300s ceiling (see
+  // maxDuration above) as can safely be spared, rather than splitting into
+  // retries. If VortiBD's origin genuinely doesn't answer within that, nothing
+  // on our side can wait longer -- 300s is Vercel's hard limit on this plan.
   async function _vortibdFetchExportBytes(token, clientId, vortibdCircularId) {
-    const deadline = Date.now() + VORTIBD_EXPORT_BUDGET_MS;
-    let lastGatewayError = null;
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      const remaining = deadline - Date.now();
-      if (remaining <= 10000) throw new Error(`VortiBD export request timed out (${Math.round(VORTIBD_EXPORT_BUDGET_MS / 1000)}s) after ${attempt - 1} attempt(s).`);
-      const res = await _vortibdFetch(`VortiBD export request timed out (${Math.round(remaining / 1000)}s remaining, attempt ${attempt}/2)`, `${VORTIBD_API}/api/v1/Profile/download-applied-candidates`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clientId: Number(clientId) || 0, isOnlySuccess: true, circularId: Number(vortibdCircularId) || 0,
-          circularDetailId: 0, tranStatus: 0, programID: 0, versionID: 0, shiftID: 0, studentCatID: 0,
-          sessionID: 0, groupID: 0, gender: '', applyDateFrom: null, applyDateTo: null, applicantId: 0,
-          contactNo: '', applicantName: '', bankTransactionId: '', orderBy: '',
-        }),
-        signal: AbortSignal.timeout(remaining),
-      });
-      if (!res.ok) {
-        if (VORTIBD_GATEWAY_RETRY_STATUSES.has(res.status) && attempt < 2 && deadline - Date.now() > 15000) {
-          lastGatewayError = res.status;
-          await new Promise((r) => setTimeout(r, 5000));
-          continue;
-        }
-        const gatewayNote = VORTIBD_GATEWAY_RETRY_STATUSES.has(res.status)
-          ? ` — VortiBD's own server (behind Cloudflare) is timing out generating the export; this is on their end, not a limit on ours. Try again shortly.`
-          : '.';
-        throw new Error(`VortiBD export request failed (status ${res.status})${gatewayNote}`);
-      }
-      const ct = res.headers.get('content-type') || '';
-      if (ct.includes('json')) {
-        const body = await res.json();
-        const fileUrl = body && (body.data?.fileUrl || body.data?.url || body.data?.Url || (typeof body.data === 'string' && body.data.startsWith('http') ? body.data : null));
-        if (!fileUrl) throw new Error('VortiBD returned an unexpected response for the export — no file URL found.');
-        const fileRes = await _vortibdFetch('Downloading the exported file from VortiBD timed out (30s)', fileUrl, { signal: AbortSignal.timeout(30000) });
-        if (!fileRes.ok) throw new Error('Could not download the exported file from VortiBD.');
-        return Buffer.from(await fileRes.arrayBuffer());
-      }
-      return Buffer.from(await res.arrayBuffer());
+    const res = await _vortibdFetch('VortiBD export request timed out (250s)', `${VORTIBD_API}/api/v1/Profile/download-applied-candidates`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId: Number(clientId) || 0, isOnlySuccess: true, circularId: Number(vortibdCircularId) || 0,
+        circularDetailId: 0, tranStatus: 0, programID: 0, versionID: 0, shiftID: 0, studentCatID: 0,
+        sessionID: 0, groupID: 0, gender: '', applyDateFrom: null, applyDateTo: null, applicantId: 0,
+        contactNo: '', applicantName: '', bankTransactionId: '', orderBy: '',
+      }),
+      signal: AbortSignal.timeout(250000),
+    });
+    if (!res.ok) {
+      const gatewayNote = [502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527, 528, 529].includes(res.status)
+        ? ` — VortiBD's own server (behind Cloudflare) is timing out generating the export; this is on their end, not a limit on ours.`
+        : '.';
+      throw new Error(`VortiBD export request failed (status ${res.status})${gatewayNote}`);
     }
-    throw new Error(`VortiBD export request failed (status ${lastGatewayError}) after retrying once.`);
+    const ct = res.headers.get('content-type') || '';
+    if (ct.includes('json')) {
+      const body = await res.json();
+      const fileUrl = body && (body.data?.fileUrl || body.data?.url || body.data?.Url || (typeof body.data === 'string' && body.data.startsWith('http') ? body.data : null));
+      if (!fileUrl) throw new Error('VortiBD returned an unexpected response for the export — no file URL found.');
+      const fileRes = await _vortibdFetch('Downloading the exported file from VortiBD timed out (20s)', fileUrl, { signal: AbortSignal.timeout(20000) });
+      if (!fileRes.ok) throw new Error('Could not download the exported file from VortiBD.');
+      return Buffer.from(await fileRes.arrayBuffer());
+    }
+    return Buffer.from(await res.arrayBuffer());
   }
   async function _notifyAdminsOfSyncFailure(circularName, message) {
     try {
