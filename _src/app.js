@@ -42342,7 +42342,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (res.error) { showToast(res.error, 'error'); return; }
       _admAllApps = res.applications || [];
       _admAppsFingerprint = _admComputeAppsFingerprint();
-      _admFilterState = { class: new Set(), category: new Set(), status: new Set(), source: new Set() };
+      _admFilterState = { class: new Set(), category: new Set(), version: new Set(), status: new Set(), source: new Set() };
       document.getElementById('admFilterPanel')?.classList.add('hidden');
       _admTablePage = 0;
       _admFilterApps();
@@ -42407,12 +42407,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // last_scanned_at), not Sets like the rest of this state -- every helper
   // below that walks _admFilterState (_admFilterActiveCount/clearAdmFilters)
   // branches on `instanceof Set` so the two kinds of state can coexist.
-  let _admFilterState = { class: new Set(), category: new Set(), status: new Set(), source: new Set(), scanFrom: '', scanTo: '' };
+  let _admFilterState = { class: new Set(), category: new Set(), version: new Set(), status: new Set(), source: new Set(), scanFrom: '', scanTo: '' };
+  // Independent twin of the above for the Candidates module's Scan Data
+  // tab -- see _admFilterPanelState ('scanData' panel key).
+  let _admCandScanDataFilterState = { class: new Set(), category: new Set(), version: new Set(), status: new Set(), source: new Set(), scanFrom: '', scanTo: '' };
   function _admFilterDims() {
     const distinct = fn => [...new Set(_admAllApps.map(fn).filter(Boolean))].sort();
     const dims = [
       { key: 'class', label: 'Class', values: distinct(a => a.class) },
       { key: 'category', label: 'Category', values: distinct(a => a.category) },
+      { key: 'version', label: 'Version', values: distinct(a => a.version) },
       { key: 'status', label: 'Status', values: ADM_STATUSES },
       { key: 'source', label: 'Source', values: ['native', 'imported', 'online'] },
     ];
@@ -42430,94 +42434,155 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     return dims;
   }
-  function _admToggleFilterPanel() {
-    const panel = document.getElementById('admFilterPanel');
+  // Two independent Filters panels share this exact same rendering/state
+  // machinery: the Applications tab's own panel ('app', state
+  // _admFilterState) and the Candidates module's Scan Data tab panel
+  // ('scanData', state _admCandScanDataFilterState) -- same dynamic dims
+  // (class/category/version/status/source/opt:<scanOption>/
+  // formf:<scanOption>:<field>), same controls, but deliberately SEPARATE
+  // state objects so picking a Class filter while reviewing scan data
+  // doesn't silently also narrow the Applications table, or vice versa.
+  // A third panel key would just need an entry in these three lookups.
+  function _admFilterPanelState(panelKey) { return panelKey === 'scanData' ? _admCandScanDataFilterState : _admFilterState; }
+  function _admFilterPanelHostId(panelKey) { return panelKey === 'scanData' ? 'admCandScanDataFilterPanel' : 'admFilterPanel'; }
+  function _admFilterPanelBadgeId(panelKey) { return panelKey === 'scanData' ? 'admCandScanDataFilterCount' : 'admFilterCount'; }
+  function _admFilterPanelOnChange(panelKey) { if (panelKey === 'scanData') _admCandScanDataFilterChanged(); else _admFilterApps(); }
+  function _admToggleFilterPanel(panelKey) {
+    panelKey = panelKey || 'app';
+    const panel = document.getElementById(_admFilterPanelHostId(panelKey));
     if (!panel) return;
     const show = panel.classList.contains('hidden');
     panel.classList.toggle('hidden', !show);
-    if (show) _admRenderFilterPanel();
+    if (show) _admRenderFilterPanel(panelKey);
   }
-  function _admFilterActiveCount() { return Object.values(_admFilterState).reduce((n, s) => n + (s instanceof Set ? s.size : (s ? 1 : 0)), 0); }
-  function _admUpdateFilterBadge() {
-    const n = _admFilterActiveCount();
-    const badge = document.getElementById('admFilterCount');
+  function _admFilterActiveCount(panelKey) { return Object.values(_admFilterPanelState(panelKey)).reduce((n, s) => n + (s instanceof Set ? s.size : (s ? 1 : 0)), 0); }
+  function _admUpdateFilterBadge(panelKey) {
+    const n = _admFilterActiveCount(panelKey);
+    const badge = document.getElementById(_admFilterPanelBadgeId(panelKey));
     if (badge) { badge.textContent = n || ''; badge.classList.toggle('hidden', !n); }
   }
-  function toggleAdmFilter(dimKey, value) {
-    const set = _admFilterState[dimKey] || (_admFilterState[dimKey] = new Set());
+  function toggleAdmFilter(panelKey, dimKey, value) {
+    const st = _admFilterPanelState(panelKey);
+    const set = st[dimKey] || (st[dimKey] = new Set());
     set.has(value) ? set.delete(value) : set.add(value);
-    _admRenderFilterPanel();
-    _admFilterApps();
-    if (dimKey === 'status') _admLoadStats(); // keeps the stat tiles' active-ring in sync
+    _admRenderFilterPanel(panelKey);
+    _admFilterPanelOnChange(panelKey);
+    if (panelKey === 'app' && dimKey === 'status') _admLoadStats(); // keeps the stat tiles' active-ring in sync
   }
-  function clearAdmFilters() {
-    Object.keys(_admFilterState).forEach(k => {
-      const s = _admFilterState[k];
-      if (s instanceof Set) s.clear(); else _admFilterState[k] = '';
+  function clearAdmFilters(panelKey) {
+    const st = _admFilterPanelState(panelKey);
+    Object.keys(st).forEach(k => {
+      const s = st[k];
+      if (s instanceof Set) s.clear(); else st[k] = '';
     });
-    _admRenderFilterPanel();
-    _admFilterApps();
-    _admLoadStats();
+    _admRenderFilterPanel(panelKey);
+    _admFilterPanelOnChange(panelKey);
+    if (panelKey === 'app') _admLoadStats();
   }
-  function _admSetScanDateFilter(key, val) {
-    _admFilterState[key] = val || '';
-    _admFilterApps();
-    _admUpdateFilterBadge();
+  function _admSetScanDateFilter(panelKey, key, val) {
+    _admFilterPanelState(panelKey)[key] = val || '';
+    _admFilterPanelOnChange(panelKey);
+    _admUpdateFilterBadge(panelKey);
   }
   // 'form'-behavior Scan Options (e.g. a Marks Entry option with one or
   // more admin-defined fields) hold several values per scan, not one, so
   // they can't be a pill-selection dim like class/status/opt: above -- each
-  // field gets its own Min/Max (number) or Contains (text) control instead,
-  // same shape as the Candidates module's Scan Data tab's own per-field
-  // filter (_admCandScanDataFieldFilterRender) reuses. State keys are
-  // 'formf:<optKey>:<fieldKey>:min'/':max'/':contains', plain strings so
-  // the existing generic _admFilterActiveCount/clearAdmFilters (which
-  // already branch on Set vs. plain value) pick them up with no changes.
+  // field gets its own Min/Max (number) or Contains (text) control instead.
+  // State keys are 'formf:<optKey>:<fieldKey>:min'/':max'/':contains',
+  // plain strings so the existing generic _admFilterActiveCount/
+  // clearAdmFilters (which already branch on Set vs. plain value) pick
+  // them up with no changes. Panel-agnostic -- depends only on the circular's
+  // scan options, not on which panel is asking.
   function _admFormFieldFilterDims() {
     return (_admCandScanOptions || []).filter(o => o.behavior === 'form').flatMap(o =>
       ((o.config && o.config.fields) || []).map(f => ({ optKey: o.key, optLabel: o.label, field: f }))
     );
   }
-  function _admRenderFilterPanel() {
-    const host = document.getElementById('admFilterPanel');
-    if (!host || host.classList.contains('hidden')) { _admUpdateFilterBadge(); return; }
+  function _admActiveFormFieldDims(st) {
+    return _admFormFieldFilterDims().filter(({ optKey, field }) => {
+      const base = `formf:${optKey}:${field.key}`;
+      return field.input_type === 'number' ? (st[base + ':min'] || st[base + ':max']) : st[base + ':contains'];
+    });
+  }
+  // Shared predicate for the class/category/version/status/source/opt:/
+  // formf: dims BOTH filter panels apply -- factored out so the
+  // Applications tab and the Scan Data tab stay behaviorally identical by
+  // construction (one rule set, fixed once) instead of maintaining two
+  // copies that can quietly drift apart.
+  function _admMatchesFilterState(a, st, activeFormFieldDims) {
+    if (st.class.size && !st.class.has(a.class)) return false;
+    if (st.category.size && !st.category.has(a.category)) return false;
+    if (st.version && st.version.size && !st.version.has(a.version)) return false;
+    if (st.status.size && !st.status.has(a.status)) return false;
+    if (st.source.size && !st.source.has(a.source || 'native')) return false;
+    if (st.scanFrom && (!a.last_scanned_at || a.last_scanned_at.slice(0, 10) < st.scanFrom)) return false;
+    if (st.scanTo && (!a.last_scanned_at || a.last_scanned_at.slice(0, 10) > st.scanTo)) return false;
+    for (const dimKey in st) {
+      if (!dimKey.startsWith('opt:') || !st[dimKey].size) continue;
+      const optKey = dimKey.slice(4);
+      const opt = (_admCandScanOptions || []).find(o => o.key === optKey);
+      const raw = (a.scan_values || {})[optKey];
+      const v = (opt && opt.behavior === 'status') ? (raw && raw.done ? 'done' : '') : (raw === true ? 'yes' : String(raw || ''));
+      if (!st[dimKey].has(v)) return false;
+    }
+    for (const { optKey, field } of (activeFormFieldDims || [])) {
+      const raw = (a.scan_values || {})[optKey];
+      const fieldVal = raw ? raw[field.key] : undefined;
+      const base = `formf:${optKey}:${field.key}`;
+      if (field.input_type === 'number') {
+        const min = st[base + ':min'], max = st[base + ':max'];
+        const num = (fieldVal === undefined || fieldVal === null || fieldVal === '') ? null : Number(fieldVal);
+        if (min && (num === null || num < Number(min))) return false;
+        if (max && (num === null || num > Number(max))) return false;
+      } else {
+        const contains = String(st[base + ':contains'] || '').toLowerCase();
+        if (contains && !String(fieldVal ?? '').toLowerCase().includes(contains)) return false;
+      }
+    }
+    return true;
+  }
+  function _admRenderFilterPanel(panelKey) {
+    panelKey = panelKey || 'app';
+    const host = document.getElementById(_admFilterPanelHostId(panelKey));
+    if (!host || host.classList.contains('hidden')) { _admUpdateFilterBadge(panelKey); return; }
+    const st = _admFilterPanelState(panelKey);
     const dims = _admFilterDims().filter(d => d.values.length);
     const scanRangeHtml = `<div class="mb-3 last:mb-0">
         <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Scanned Between</p>
         <div class="flex items-center gap-2">
-          <input type="date" value="${_escHtml(_admFilterState.scanFrom || '')}" onchange="_admSetScanDateFilter('scanFrom', this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          <input type="date" value="${_escHtml(st.scanFrom || '')}" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, 'scanFrom', this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
           <span class="text-slate-300 text-xs">to</span>
-          <input type="date" value="${_escHtml(_admFilterState.scanTo || '')}" onchange="_admSetScanDateFilter('scanTo', this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          <input type="date" value="${_escHtml(st.scanTo || '')}" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, 'scanTo', this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
         </div>
       </div>`;
     const formFieldsHtml = _admFormFieldFilterDims().map(({ optKey, optLabel, field }) => {
       const base = `formf:${optKey}:${field.key}`;
       const control = field.input_type === 'number'
         ? `<div class="flex items-center gap-2">
-            <input type="number" placeholder="Min" value="${_escHtml(_admFilterState[base + ':min'] || '')}" onchange="_admSetScanDateFilter('${base}:min', this.value)" class="w-20 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs">
+            <input type="number" placeholder="Min" value="${_escHtml(st[base + ':min'] || '')}" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, '${base}:min', this.value)" class="w-20 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs">
             <span class="text-slate-300 text-xs">–</span>
-            <input type="number" placeholder="Max" value="${_escHtml(_admFilterState[base + ':max'] || '')}" onchange="_admSetScanDateFilter('${base}:max', this.value)" class="w-20 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs">
+            <input type="number" placeholder="Max" value="${_escHtml(st[base + ':max'] || '')}" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, '${base}:max', this.value)" class="w-20 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs">
           </div>`
-        : `<input type="text" placeholder="Contains…" value="${_escHtml(_admFilterState[base + ':contains'] || '')}" onchange="_admSetScanDateFilter('${base}:contains', this.value)" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs">`;
+        : `<input type="text" placeholder="Contains…" value="${_escHtml(st[base + ':contains'] || '')}" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, '${base}:contains', this.value)" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs">`;
       return `<div class="mb-3 last:mb-0">
         <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">${_escHtml(optLabel)} — ${_escHtml(field.label)}</p>
         ${control}
       </div>`;
     }).join('');
     host.innerHTML = dims.map(d => {
-      const sel = _admFilterState[d.key];
+      const sel = st[d.key] || new Set();
       return `<div class="mb-3 last:mb-0">
         <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">${_escHtml(d.label)}</p>
         <div class="flex flex-wrap gap-1.5">
-          ${d.values.map(v => `<button type="button" onclick='toggleAdmFilter(${JSON.stringify(d.key)}, ${JSON.stringify(v)})' class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase ${sel.has(v) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(v)}</button>`).join('')}
+          ${d.values.map(v => `<button type="button" onclick='toggleAdmFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(d.key)}, ${JSON.stringify(v)})' class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase ${sel.has(v) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(v)}</button>`).join('')}
         </div>
       </div>`;
-    }).join('') + scanRangeHtml + formFieldsHtml + (_admFilterActiveCount() ? `
+    }).join('') + scanRangeHtml + formFieldsHtml + (_admFilterActiveCount(panelKey) ? `
       <div class="flex items-center gap-3 flex-wrap">
-        <button type="button" onclick="clearAdmFilters()" class="text-[10px] font-black text-red-600 uppercase hover:underline">Clear all filters</button>
-        <button type="button" onclick="_admCreateCustomCountFromFilters()" class="text-[10px] font-black text-blue-600 uppercase hover:underline">Use as Custom Count</button>
+        <button type="button" onclick="clearAdmFilters(${JSON.stringify(panelKey)})" class="text-[10px] font-black text-red-600 uppercase hover:underline">Clear all filters</button>
+        ${panelKey === 'app' ? `<button type="button" onclick="_admCreateCustomCountFromFilters()" class="text-[10px] font-black text-blue-600 uppercase hover:underline">Use as Custom Count</button>` : ''}
       </div>` : '');
-    _admUpdateFilterBadge();
+    _admUpdateFilterBadge(panelKey);
   }
   // Status tile colors reuse the exact same amber/blue/emerald/red families
   // already assigned to each status everywhere else on this screen
@@ -42581,7 +42646,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const statusTiles = ADM_STATUSES.map(s => {
       const c = ADM_STATUS_TILES[s];
       const active = _admFilterState.status.has(s);
-      return `<button type="button" onclick='toggleAdmFilter("status", ${JSON.stringify(s)})'
+      return `<button type="button" onclick='toggleAdmFilter("app", "status", ${JSON.stringify(s)})'
         class="group flex-1 min-w-[130px] text-left ${c.bg} rounded-2xl px-4 py-3.5 transition-all hover:-translate-y-0.5 hover:shadow-lg ${active ? `ring-2 ring-offset-1 ${c.ring}` : ''}">
         <div class="flex items-center justify-between mb-2">
           <span class="text-[10px] font-black uppercase tracking-widest ${c.text}">${_escHtml(s)}</span>
@@ -43344,42 +43409,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const sortBy = document.getElementById('adm-sort-by')?.value || 'scanned_desc';
     // Only the form-field filters that actually have a value entered --
     // computed once here, not per row, so an idle filter panel costs nothing.
-    const activeFormFieldDims = _admFormFieldFilterDims().filter(({ optKey, field }) => {
-      const base = `formf:${optKey}:${field.key}`;
-      return field.input_type === 'number' ? (st[base + ':min'] || st[base + ':max']) : st[base + ':contains'];
-    });
-    let filtered = _admAllApps.filter(a => {
-      if (q && !_admAppSearchHaystack(a).includes(q)) return false;
-      if (st.class.size && !st.class.has(a.class)) return false;
-      if (st.category.size && !st.category.has(a.category)) return false;
-      if (st.status.size && !st.status.has(a.status)) return false;
-      if (st.source.size && !st.source.has(a.source || 'native')) return false;
-      if (st.scanFrom && (!a.last_scanned_at || a.last_scanned_at.slice(0, 10) < st.scanFrom)) return false;
-      if (st.scanTo && (!a.last_scanned_at || a.last_scanned_at.slice(0, 10) > st.scanTo)) return false;
-      for (const dimKey in st) {
-        if (!dimKey.startsWith('opt:') || !st[dimKey].size) continue;
-        const optKey = dimKey.slice(4);
-        const opt = (_admCandScanOptions || []).find(o => o.key === optKey);
-        const raw = (a.scan_values || {})[optKey];
-        const v = (opt && opt.behavior === 'status') ? (raw && raw.done ? 'done' : '') : (raw === true ? 'yes' : String(raw || ''));
-        if (!st[dimKey].has(v)) return false;
-      }
-      for (const { optKey, field } of activeFormFieldDims) {
-        const raw = (a.scan_values || {})[optKey];
-        const fieldVal = raw ? raw[field.key] : undefined;
-        const base = `formf:${optKey}:${field.key}`;
-        if (field.input_type === 'number') {
-          const min = st[base + ':min'], max = st[base + ':max'];
-          const num = (fieldVal === undefined || fieldVal === null || fieldVal === '') ? null : Number(fieldVal);
-          if (min && (num === null || num < Number(min))) return false;
-          if (max && (num === null || num > Number(max))) return false;
-        } else {
-          const contains = String(st[base + ':contains'] || '').toLowerCase();
-          if (contains && !String(fieldVal ?? '').toLowerCase().includes(contains)) return false;
-        }
-      }
-      return true;
-    });
+    const activeFormFieldDims = _admActiveFormFieldDims(st);
+    let filtered = _admAllApps.filter(a =>
+      (!q || _admAppSearchHaystack(a).includes(q)) && _admMatchesFilterState(a, st, activeFormFieldDims)
+    );
     filtered = _admSortApps(filtered, sortBy);
     _admTablePage = 0;
     _admRenderTable(filtered);
@@ -45863,6 +45896,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('admModuleCircularBar')?.classList.remove('hidden');
     document.getElementById('adm-top-tabs')?.classList.remove('hidden');
     document.getElementById('admCandCopyLinkBtn')?.classList.toggle('hidden', !(c && c.mode === 'online'));
+    _admCandScanDataFilterState = { class: new Set(), category: new Set(), version: new Set(), status: new Set(), source: new Set() };
+    document.getElementById('admCandScanDataFilterPanel')?.classList.add('hidden');
     _admCandLoadRooms();
     _admCandLoadScanOptions();
     _admCandLoadList();
@@ -46307,24 +46342,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <p class="text-[10px] uppercase text-slate-400 font-bold">Scan data for this option</p>
             <div class="flex gap-2 items-center flex-wrap">
               <input type="text" id="admCandScanDataSearch" placeholder="Search name/tracking ID…" oninput="_admCandScanDataFilterChanged()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-              <select id="admCandScanDataValueFilter" onchange="_admCandScanDataFilterChanged()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></select>
-              <select id="admCandScanDataClassFilter" onchange="_admCandScanDataFilterChanged()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"><option value="">All Classes</option></select>
-              <select id="admCandScanDataVersionFilter" onchange="_admCandScanDataFilterChanged()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"><option value="">All Versions</option></select>
-              <select id="admCandScanDataCategoryFilter" onchange="_admCandScanDataFilterChanged()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"><option value="">All Categories</option></select>
+              <button type="button" onclick="_admToggleFilterPanel('scanData')" class="flex items-center gap-1.5 px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase"><i data-lucide="filter" class="h-3 w-3"></i>Filters<span id="admCandScanDataFilterCount" class="hidden ml-1 px-1.5 py-0.5 bg-slate-800 text-white rounded-full text-[9px]"></span></button>
               <select id="admCandScanDataSort" onchange="_admCandScanDataFilterChanged()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
                 <option value="scanned_desc">Last Scanned (Newest)</option>
                 <option value="scanned_asc">Last Scanned (Oldest)</option>
                 <option value="name_asc">Name (A-Z)</option>
                 <option value="tracking_asc">Tracking ID</option>
               </select>
-              <input type="date" id="admCandScanDataFrom" onchange="_admCandScanDataFilterChanged()" title="Scanned from" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-              <span class="text-slate-300 text-xs">to</span>
-              <input type="date" id="admCandScanDataTo" onchange="_admCandScanDataFilterChanged()" title="Scanned to" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
               <button type="button" onclick="_admCandScanDataToggleColsPanel()" class="flex items-center gap-1.5 px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase"><i data-lucide="columns" class="h-3 w-3"></i> Columns</button>
               <button type="button" onclick="_admCandScanDataExportCsv()" class="flex items-center gap-1.5 px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase"><i data-lucide="download" class="h-3 w-3"></i> Export CSV</button>
               <button type="button" onclick="_admCandScanDataPrint()" class="flex items-center gap-1.5 px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase"><i data-lucide="printer" class="h-3 w-3"></i> Print</button>
             </div>
           </div>
+          <!-- Same dynamic Filters panel component as the Applications
+               tab's own (class/category/version/status/source pills +
+               every Scan Option as a pill or Min/Max/Contains control),
+               backed by its own separate state (_admCandScanDataFilterState)
+               so filtering scan results never also narrows the Applications
+               table or vice versa. -->
+          <div id="admCandScanDataFilterPanel" class="hidden mb-3 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
           <!-- Count + pagination at the TOP of the list (not just a tail
                note below it), so both are visible without scrolling past a
                long table first. -->
@@ -46341,12 +46377,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                per-visit view preference, same spirit as the search/filter
                state above it. -->
           <div id="admCandScanDataColsPanel" class="hidden mb-3 p-3 bg-slate-50 rounded-xl border border-slate-200 flex flex-wrap gap-x-4 gap-y-1.5"></div>
-          <!-- Only populated/shown for a 'form'-behavior option (e.g. a marks
-               entry with one or more numeric/text fields) -- a field select
-               (when there's more than one field) plus a value control shaped
-               to that field's input_type (min/max for number, contains for
-               text), rebuilt every time the field or option changes. -->
-          <div id="admCandScanDataFieldFilterBox" class="hidden flex items-center gap-2 flex-wrap mb-3"></div>
           <div class="overflow-x-auto rounded-xl border border-slate-100">
             <table class="w-full text-xs">
               <thead><tr id="admCandScanDataHeadRow" class="bg-slate-50 border-b border-slate-100"></tr></thead>
@@ -48077,12 +48107,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admCandScanSelectedOption = _admCandScanOptions.find(o => o.key === _admCandScanMode) || null;
       _admCandRenderScanModeTabs();
       _admCandRenderScanOptionPanel();
-      _admCandRenderScanDataFilterOptions();
-      _admCandScanDataFieldFilterRender();
       _admCandScanDataPage = 0;
       _admCandRenderScanDataTable();
       _admCandUpdateScanScopeBoxVisibility();
-      _admRenderFilterPanel(); // no-op if the Applications filter panel isn't open; keeps its dims current if it is
+      _admRenderFilterPanel('app'); // no-op if the Applications filter panel isn't open; keeps its dims current if it is
+      _admRenderFilterPanel('scanData'); // no-op if the Scan Data filter panel isn't open; keeps its dims current if it is
       _admRenderCustomCounters(); // no-op if the Dashboard's builder isn't mounted; keeps its "Has value/marks" field options current if it is
     } catch (e) {}
     const qrBox = document.getElementById('admCandQrFormatBox');
@@ -48131,12 +48160,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('admCandScanScopeLocked')?.classList.add('hidden');
     _admCandRenderScanModeTabs();
     _admCandRenderScanOptionPanel();
-    // Reset the review table's own filter state too -- a value filter left
-    // over from the previous option (e.g. "Division: A") makes no sense
-    // once a different option is selected.
+    // Only the free-text search box is reset here -- the Filters panel
+    // (class/category/version/status/source/every Scan Option) is no longer
+    // scoped to "whichever option is currently selected," so switching
+    // modes doesn't need to touch it.
     const dataSearch = document.getElementById('admCandScanDataSearch'); if (dataSearch) dataSearch.value = '';
-    _admCandRenderScanDataFilterOptions();
-    _admCandScanDataFieldFilterRender();
     _admCandScanDataPage = 0;
     _admCandRenderScanDataTable();
     _admCandUpdateScanScopeBoxVisibility();
@@ -48267,55 +48295,6 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (raw === undefined || raw === null || raw === '') return '—';
     return raw === true ? 'Yes' : String(raw);
   }
-  function _admCandRenderScanDataFilterOptions() {
-    const sel = document.getElementById('admCandScanDataValueFilter');
-    if (!sel) return;
-    const opt = _admCandScanSelectedOption;
-    if (!opt) { sel.innerHTML = ''; return; }
-    // Defaults to "scanned only" (Done/Has a value) rather than "Any" --
-    // the point of this table is reviewing who's already been scanned, not
-    // re-showing the full roster (that's what the Applications tab is
-    // for). "Any" is still one click away in the dropdown.
-    if (opt.behavior === 'status') {
-      sel.innerHTML = `<option value="done" selected>Done</option><option value="pending">Pending</option><option value="">Any</option>`;
-    } else if (opt.behavior === 'tag') {
-      const cfg = opt.config || {};
-      let opts = [];
-      if (cfg.type === 'dropdown') opts = cfg.options || [];
-      else if (cfg.type === 'toggle') opts = ['true'];
-      sel.innerHTML = `<option value="__has__" selected>Has a value</option>`
-        + opts.map(o => `<option value="${_escHtml(o)}">${_escHtml(o === 'true' ? 'Yes' : o)}</option>`).join('')
-        + `<option value="__none__">No value yet</option><option value="">Any</option>`;
-    } else {
-      sel.innerHTML = `<option value="__has__" selected>Has a value</option><option value="__none__">No value yet</option><option value="">Any</option>`;
-    }
-  }
-  // 'form' behavior can hold several admin-defined fields per scan (e.g.
-  // "Viva" + "Written" marks) -- builds a field picker (only when there's
-  // more than one) plus a value control shaped to the selected field's
-  // input_type: a Min/Max range for 'number', a Contains box for 'text'.
-  // Rebuilt whenever the option changes or the field picker itself changes,
-  // preserving whichever field was already selected across the rebuild.
-  function _admCandScanDataFieldFilterRender() {
-    const box = document.getElementById('admCandScanDataFieldFilterBox');
-    if (!box) return;
-    const opt = _admCandScanSelectedOption;
-    const fields = (opt && opt.behavior === 'form' && opt.config && Array.isArray(opt.config.fields)) ? opt.config.fields : [];
-    if (!fields.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
-    box.classList.remove('hidden');
-    const prevKey = document.getElementById('admCandScanDataFieldSelect')?.value;
-    const selectedKey = (prevKey && fields.some(f => f.key === prevKey)) ? prevKey : fields[0].key;
-    const field = fields.find(f => f.key === selectedKey) || fields[0];
-    const fieldPickerHtml = fields.length > 1
-      ? `<select id="admCandScanDataFieldSelect" onchange="_admCandScanDataFieldFilterRender(); _admCandScanDataFilterChanged();" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">${fields.map(f => `<option value="${_escHtml(f.key)}" ${f.key === selectedKey ? 'selected' : ''}>${_escHtml(f.label)}</option>`).join('')}</select>`
-      : `<span class="text-[10px] text-slate-400 font-bold">${_escHtml(field.label)}:</span><input type="hidden" id="admCandScanDataFieldSelect" value="${_escHtml(field.key)}">`;
-    const valueControlHtml = field.input_type === 'number'
-      ? `<input type="number" id="admCandScanDataFieldMin" placeholder="Min" oninput="_admCandScanDataFilterChanged()" class="w-20 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-         <span class="text-slate-300 text-xs">–</span>
-         <input type="number" id="admCandScanDataFieldMax" placeholder="Max" oninput="_admCandScanDataFilterChanged()" class="w-20 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">`
-      : `<input type="text" id="admCandScanDataFieldContains" placeholder="Contains…" oninput="_admCandScanDataFilterChanged()" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">`;
-    box.innerHTML = fieldPickerHtml + valueControlHtml;
-  }
   // Any actual filter/search/sort change goes through this -- it jumps back
   // to page 1 before re-rendering, since staying on e.g. page 4 after
   // narrowing the search would almost always land on an empty page. The
@@ -48332,62 +48311,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const opt = _admCandScanSelectedOption;
     if (!opt) return { opt: null, rows: [] };
     const q = (document.getElementById('admCandScanDataSearch')?.value || '').toLowerCase();
-    const valFilter = document.getElementById('admCandScanDataValueFilter')?.value || '';
     const sortBy = document.getElementById('admCandScanDataSort')?.value || 'scanned_desc';
-    const fromVal = document.getElementById('admCandScanDataFrom')?.value || '';
-    const toVal = document.getElementById('admCandScanDataTo')?.value || '';
-    const all = _admAllApps || [];
-    const fieldKey = document.getElementById('admCandScanDataFieldSelect')?.value || '';
-    const fieldMin = document.getElementById('admCandScanDataFieldMin')?.value || '';
-    const fieldMax = document.getElementById('admCandScanDataFieldMax')?.value || '';
-    const fieldContains = (document.getElementById('admCandScanDataFieldContains')?.value || '').toLowerCase();
-    const field = fieldKey && opt.behavior === 'form' ? ((opt.config && opt.config.fields) || []).find(f => f.key === fieldKey) : null;
-    const classFilter = document.getElementById('admCandScanDataClassFilter')?.value || '';
-    const versionFilter = document.getElementById('admCandScanDataVersionFilter')?.value || '';
-    const categoryFilter = document.getElementById('admCandScanDataCategoryFilter')?.value || '';
-    let rows = all.filter(a => {
-      if (classFilter && a.class !== classFilter) return false;
-      if (versionFilter && a.version !== versionFilter) return false;
-      if (categoryFilter && a.category !== categoryFilter) return false;
-      if (q && !`${a.name_english || ''} ${a.tracking_id || ''} ${a.token || ''}`.toLowerCase().includes(q)) return false;
-      // last_scanned_at is the candidate's most recent scan across ANY scan
-      // option (not necessarily this one specifically) -- 'tag'/'form'
-      // behaviors don't carry their own per-option timestamp inside
-      // scan_values itself, so this is the closest available signal without
-      // a schema change. Good enough in practice since scanning is normally
-      // done one option at a time, in a batch.
-      if (fromVal && (!a.last_scanned_at || a.last_scanned_at.slice(0, 10) < fromVal)) return false;
-      if (toVal && (!a.last_scanned_at || a.last_scanned_at.slice(0, 10) > toVal)) return false;
-      const raw = (a.scan_values || {})[opt.key];
-      if (valFilter) {
-        if (opt.behavior === 'status') {
-          const done = !!(raw && raw.done);
-          if ((valFilter === 'done') !== done) return false;
-        } else if (opt.behavior === 'form') {
-          const has = !!(raw && Object.keys(raw).length);
-          if ((valFilter === '__has__') !== has) return false;
-        } else {
-          // tag
-          const empty = raw === undefined || raw === null || raw === '';
-          if (valFilter === '__has__' && empty) return false;
-          else if (valFilter === '__none__' && !empty) return false;
-          else if (valFilter !== '__has__' && valFilter !== '__none__' && String(raw) !== valFilter) return false;
-        }
-      }
-      // Dynamic per-field filter -- only meaningful for 'form' options (one
-      // or more admin-defined fields per scan, e.g. a numeric mark); a
-      // number field gets a Min/Max range, a text field gets a Contains
-      // match, shaped by whichever field is currently selected.
-      if (field) {
-        const fieldVal = raw ? raw[field.key] : undefined;
-        if (field.input_type === 'number') {
-          const num = (fieldVal === undefined || fieldVal === null || fieldVal === '') ? null : Number(fieldVal);
-          if (fieldMin !== '' && (num === null || num < Number(fieldMin))) return false;
-          if (fieldMax !== '' && (num === null || num > Number(fieldMax))) return false;
-        } else if (fieldContains && !String(fieldVal ?? '').toLowerCase().includes(fieldContains)) return false;
-      }
-      return true;
-    });
+    // Full dynamic scope, same as the Applications tab's own Filters panel
+    // (class/category/version/status/source/every Scan Option as a pill or
+    // Min/Max/Contains control) -- but against this tab's OWN state
+    // (_admCandScanDataFilterState), not scoped to "just this one option"
+    // the way the old per-option value/field dropdowns were.
+    const st = _admCandScanDataFilterState;
+    const activeFormFieldDims = _admActiveFormFieldDims(st);
+    let rows = (_admAllApps || []).filter(a =>
+      (!q || `${a.name_english || ''} ${a.tracking_id || ''} ${a.token || ''}`.toLowerCase().includes(q)) &&
+      _admMatchesFilterState(a, st, activeFormFieldDims)
+    );
     rows = [...rows].sort((a, b) => {
       switch (sortBy) {
         case 'scanned_asc': return (a.last_scanned_at || '').localeCompare(b.last_scanned_at || '');
@@ -48405,19 +48340,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!opt) { box.classList.add('hidden'); return; }
     box.classList.remove('hidden');
     const all = _admAllApps || [];
-    // Class/Version/Category options are derived from whatever this
-    // circular's own roster actually contains (same pattern as the
-    // Applications tab's class/category filters), rebuilt every render so a
-    // freshly-imported class/category shows up without a reload -- cheap
-    // enough since this whole table already re-renders after every scan.
-    [['Class', 'All Classes'], ['Version', 'All Versions'], ['Category', 'All Categories']].forEach(([dim, allLabel]) => {
-      const sel = document.getElementById(`admCandScanData${dim}Filter`);
-      if (!sel) return;
-      const key = dim.toLowerCase();
-      const current = sel.value;
-      const values = [...new Set(all.map(a => a[key]).filter(Boolean))].sort();
-      sel.innerHTML = `<option value="">${allLabel}</option>` + values.map(v => `<option value="${_escHtml(v)}" ${v === current ? 'selected' : ''}>${_escHtml(v)}</option>`).join('');
-    });
+    // Class/Version/Category/Status/Source + every Scan Option are now the
+    // shared Filters panel's dims (_admFilterDims, _admFormFieldFilterDims),
+    // rendered on demand when that panel is opened -- nothing to rebuild
+    // here on every table render.
     const rows = _admCandScanDataComputeFilteredRows().rows;
     // Real pagination (replacing the old flat "first 150 matches" cap) --
     // keeps each render cheap on a large roster (this runs after every
@@ -48931,7 +48857,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (r.candidate) {
         const app = _admAllApps.find(x => x.id === r.candidate.id);
         if (app) app.scan_values = r.candidate.scan_values || {};
-        _admRenderFilterPanel();
+        _admRenderFilterPanel('app'); // no-op if that panel isn't open
+        _admRenderFilterPanel('scanData'); // no-op if that panel isn't open
         // Deferred -- this fires on every single continuous scan (status/tag
         // behaviors scan one-after-another with no pause), so re-rendering
         // a large roster table synchronously here was adding visible lag to
