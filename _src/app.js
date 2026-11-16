@@ -42142,6 +42142,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admShowTopTab(subId, btn) {
     _admShowView('candidates');
     document.querySelectorAll('#adm-top-tabs .adm-ftab').forEach(el => el.classList.remove('adm-ftab-on'));
+    if (!_admCandListLoaded) _admCandLoadList(); // deferred until the Candidates module is actually opened -- see _admCandListLoaded
     _admCandShowTab(subId, btn);
   }
   function _admShowSettingsTab(id, btn) {
@@ -45521,6 +45522,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _admCandExcelHeaders = [], _admCandExcelRows = [], _admCandImportFileName = '';
   let _admCandMapRows = [], _admCandRowSeq = 0, _admCandPrimaryKeyRowId = null, _admCandAppliedTemplateId = null;
   let _admCandTemplates = [], _admCandAllCandidates = [], _admCandRooms = [];
+  // listCandidates is a select=* fetch (it has to be -- printing needs
+  // student_photo for signature-sheet avatars) on a roster that can run
+  // into the thousands of rows, some carrying base64 photo data -- a real,
+  // large egress cost. It used to fire unconditionally on every circular
+  // entry even for an admin who only ever opens the Dashboard; this flag
+  // makes it lazy (first visit to any Candidates-side tab) instead, reset
+  // whenever the active circular changes. See _admShowTopTab/_admCandEnterCircular.
+  let _admCandListLoaded = false;
   let _admCandCirculars = [], _admCandActiveCircularId = null;
   let _admCandSessions = [], _admCandActiveSessionId = null;
   let _admCandEditingRoomId = null;
@@ -45905,9 +45914,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('admCandCopyLinkBtn')?.classList.toggle('hidden', !(c && c.mode === 'online'));
     _admCandScanDataFilterState = { class: new Set(), category: new Set(), version: new Set(), status: new Set(), source: new Set() };
     document.getElementById('admCandScanDataFilterPanel')?.classList.add('hidden');
+    _admCandListLoaded = false; // this circular's roster hasn't been fetched yet -- see _admShowTopTab
     _admCandLoadRooms();
     _admCandLoadScanOptions();
-    _admCandLoadList();
     _admCandLoadFormFieldsForMapping();
     _admCandApplyTabGating();
     _admApplyModuleTabGating();
@@ -47322,6 +47331,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     try {
       const res = await _admCandFetch('listCandidates', { circular_id: _admCandActiveCircularId });
       _admCandAllCandidates = res.candidates || [];
+      _admCandListLoaded = true;
       _admCandRenderList(_admCandAllCandidates);
       _admCandPopulateFilterDropdowns();
     } catch (e) {}
