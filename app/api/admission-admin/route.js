@@ -132,6 +132,49 @@ async function sbInventory(path) {
   return text ? JSON.parse(text) : null;
 }
 
+const ALLOC_FIELDS = ['class', 'category', 'version', 'session', 'status', 'source'];
+
+// Part 14: live auto-seat-allocation -- self-contained copy of
+// app/api/admission-candidates/route.js's own _tryAutoAllocate (no shared
+// import, matching this repo's convention). Called after a brand-new
+// native application is created here (saveApplication's !id branch), so it
+// seats immediately exactly like a new import row or online submission
+// would. See migration_admission_seat_auto_allocation.sql for the
+// ordering/overflow guarantees.
+async function _tryAutoAllocate(circularId, candidate) {
+  const rules = await sbAdmission(`seat_auto_allocation_rules?circular_id=eq.${circularId}&active=eq.true`);
+  if (!Array.isArray(rules) || !rules.length) return;
+  const rule = rules.find(r => {
+    const filters = r.filters || {};
+    const hasFilter = ALLOC_FIELDS.some(f => filters[f]);
+    return hasFilter && ALLOC_FIELDS.every(f => !filters[f] || filters[f] === candidate[f]);
+  });
+  if (!rule) return;
+  const roomIds = Array.isArray(rule.room_ids) ? rule.room_ids : [];
+  if (!roomIds.length) return;
+
+  const roomsRes = await sbInventory(`rooms?id=in.(${roomIds.join(',')})&select=id,capacity`);
+  const byId = {};
+  (Array.isArray(roomsRes) ? roomsRes : []).forEach(r => { byId[r.id] = r.capacity; });
+  const capacities = roomIds.map(id => byId[id] || 0);
+
+  let roomIdx = rule.next_room_idx || 0, seatInRoom = rule.next_seat_in_room || 0;
+  while (roomIdx < roomIds.length && seatInRoom >= capacities[roomIdx]) { roomIdx++; seatInRoom = 0; }
+  const now = new Date().toISOString();
+  if (roomIdx >= roomIds.length) {
+    await sbAdmission(`seat_auto_allocation_rules?id=eq.${rule.id}`, 'PATCH', { overflow_count: (rule.overflow_count || 0) + 1, updated_at: now });
+    return;
+  }
+
+  const roomId = roomIds[roomIdx];
+  const seatNo = String(seatInRoom + 1);
+  await sbAdmission(`admission_applications?id=eq.${candidate.id}`, 'PATCH', { room_id: roomId, seat_no: seatNo, updated_at: now });
+
+  seatInRoom++;
+  if (seatInRoom >= capacities[roomIdx]) { roomIdx++; seatInRoom = 0; }
+  await sbAdmission(`seat_auto_allocation_rules?id=eq.${rule.id}`, 'PATCH', { next_room_idx: roomIdx, next_seat_in_room: seatInRoom, updated_at: now });
+}
+
 // Fresh per-request check against teacher_staff.app_users — never trust a cached role.
 async function _getUserRoles(userId) {
   if (!userId) return [];
@@ -474,6 +517,7 @@ export async function POST(req) {
 
       const res = await sbAdmission('admission_applications', 'POST', data);
       if (res?.error) return NextResponse.json({ error: res.error });
+      if (Array.isArray(res) && res[0]) await _tryAutoAllocate(circularId, res[0]);
       return NextResponse.json({ id: res?.[0]?.id, tracking_id: data.tracking_id, index_id: data.index_id });
     } else {
       delete data.circular_id; // reassigning an application to a different circular isn't supported via edit

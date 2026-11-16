@@ -39,6 +39,59 @@ async function sbAdmission(path, method = 'GET', body = null) {
   return text ? JSON.parse(text) : null;
 }
 
+async function sbInventory(path) {
+  const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'inventory' },
+  });
+  const text = await res.text();
+  if (!res.ok) return { error: text };
+  return text ? JSON.parse(text) : null;
+}
+
+const ALLOC_FIELDS = ['class', 'category', 'version', 'session', 'status', 'source'];
+
+// Part 14: live auto-seat-allocation -- self-contained copy of
+// app/api/admission-candidates/route.js's own _tryAutoAllocate (no shared
+// import, matching this file's existing convention of duplicating its own
+// sbAdmission() rather than importing anything). Called after a genuinely
+// NEW online submission (never an edit) lands, so a fresh applicant in a
+// category with an active rule seats immediately, same as an import row
+// would. See migration_admission_seat_auto_allocation.sql for the
+// ordering/overflow guarantees.
+async function _tryAutoAllocate(circularId, candidate) {
+  const rules = await sbAdmission(`seat_auto_allocation_rules?circular_id=eq.${circularId}&active=eq.true`);
+  if (!Array.isArray(rules) || !rules.length) return;
+  const rule = rules.find(r => {
+    const filters = r.filters || {};
+    const hasFilter = ALLOC_FIELDS.some(f => filters[f]);
+    return hasFilter && ALLOC_FIELDS.every(f => !filters[f] || filters[f] === candidate[f]);
+  });
+  if (!rule) return;
+  const roomIds = Array.isArray(rule.room_ids) ? rule.room_ids : [];
+  if (!roomIds.length) return;
+
+  const roomsRes = await sbInventory(`rooms?id=in.(${roomIds.join(',')})&select=id,capacity`);
+  const byId = {};
+  (Array.isArray(roomsRes) ? roomsRes : []).forEach(r => { byId[r.id] = r.capacity; });
+  const capacities = roomIds.map(id => byId[id] || 0);
+
+  let roomIdx = rule.next_room_idx || 0, seatInRoom = rule.next_seat_in_room || 0;
+  while (roomIdx < roomIds.length && seatInRoom >= capacities[roomIdx]) { roomIdx++; seatInRoom = 0; }
+  const now = new Date().toISOString();
+  if (roomIdx >= roomIds.length) {
+    await sbAdmission(`seat_auto_allocation_rules?id=eq.${rule.id}`, 'PATCH', { overflow_count: (rule.overflow_count || 0) + 1, updated_at: now });
+    return;
+  }
+
+  const roomId = roomIds[roomIdx];
+  const seatNo = String(seatInRoom + 1);
+  await sbAdmission(`admission_applications?id=eq.${candidate.id}`, 'PATCH', { room_id: roomId, seat_no: seatNo, updated_at: now });
+
+  seatInRoom++;
+  if (seatInRoom >= capacities[roomIdx]) { roomIdx++; seatInRoom = 0; }
+  await sbAdmission(`seat_auto_allocation_rules?id=eq.${rule.id}`, 'PATCH', { next_room_idx: roomIdx, next_seat_in_room: seatInRoom, updated_at: now });
+}
+
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -292,6 +345,7 @@ export async function POST(request, { params }) {
   const token = await generateUniqueToken(id);
   const res = await sbAdmission('admission_applications', 'POST', { circular_id: id, source: 'online', external_key: token, token, ...dbData });
   if (res && res.error) return NextResponse.json({ result: 'error', message: 'Could not submit your application.' }, { status: 500 });
+  if (Array.isArray(res) && res[0]) await _tryAutoAllocate(id, res[0]);
   await sendSubmissionSms(circular, { ...data, token });
   return NextResponse.json({ result: 'success', token });
 }

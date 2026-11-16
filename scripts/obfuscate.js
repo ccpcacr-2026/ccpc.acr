@@ -513,6 +513,7 @@ const RESERVED = [
   '_admCandPrintFormTemplate','_admCandPrintAdmitTemplate',
   '_admCandRoomHandleImportFile','_admCandRoomConfirmImport','_admCandRoomFormOpen','_admCandRoomFormSave','_admCandRoomDelete','_admCandRoomBuildingSelectChange',
   '_admCandRunAllocation','_admCandClearAllocation','_admCandRenderAllocRoomPicker','_admCandUpdateAllocPreview',
+  '_admCandAutoAllocFormOpen','_admCandAutoAllocFormClose','_admCandAutoAllocFieldChange','_admCandAutoAllocSave','_admCandAutoAllocEdit','_admCandAutoAllocToggle','_admCandAutoAllocDelete',
   '_admCandTplBulkApply','_admCandSaveTemplateMap',
   '_admCandPrintSignatureSheet','_admCandPrintTokenList','_admCandBulkUpload',
   '_admCandScanShowMode','_admCandScanSetScope','_admCandScanChangeScope','_admCandScanStart','_admCandScanStop','_admCandScanManualLookup','_admCandScanChooseInput',

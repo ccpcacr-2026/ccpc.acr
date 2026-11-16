@@ -46034,7 +46034,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     const el = document.getElementById(id); if (el) el.classList.remove('hidden');
     if (id === 'adm-cand-rooms') _admCandLoadRooms();
-    else if (id === 'adm-cand-alloc') { _admCandLoadRooms(); _admCandPopulateFilterDropdowns(); }
+    else if (id === 'adm-cand-alloc') { _admCandLoadRooms(); _admCandPopulateFilterDropdowns(); _admCandLoadAutoAllocRules(); }
     else if (id === 'adm-cand-scan') { _admCandPopulateFilterDropdowns(); _admCandLoadScanOptions(); }
     else if (id === 'adm-cand-import') { _admCandLoadFormFieldsForMapping(); _admCandLoadTemplates().then(_admCandLoadVortibdPanel); }
   }
@@ -46229,6 +46229,35 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="_admCandClearAllocation()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase">Clear All Allocations</button>
           </div>
           <div id="admCandAllocResult" class="mt-3 text-sm"></div>
+        </div>
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mt-4">
+          <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+            <h3 class="font-black text-slate-800 text-sm">Live Auto-Allocation</h3>
+            <button onclick="_admCandAutoAllocFormOpen()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">+ New Rule</button>
+          </div>
+          <p class="text-xs text-slate-400 mb-3">
+            A rule here seats every FUTURE new arrival (import, online submission, or a new application you create) matching its filter — automatically and immediately, into the next open seat in its room list, in arrival order. Nothing already allocated before a rule existed is ever touched or renumbered. If a rule's rooms fill up, new arrivals matching it stay unallocated and show up flagged below — add more rooms to the rule to pick them up.
+          </p>
+          <div id="admCandAutoAllocForm" class="hidden bg-slate-50 border border-slate-200 rounded-xl p-4 mb-3">
+            <input type="hidden" id="admCandAutoAllocEditId">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+              <div>
+                <label class="text-[10px] uppercase text-slate-400 font-bold">Field</label>
+                <select id="admCandAutoAllocField" onchange="_admCandAutoAllocFieldChange()" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold mt-1">${_admCandAllocFieldOptionsHtml()}</select>
+              </div>
+              <div>
+                <label class="text-[10px] uppercase text-slate-400 font-bold">Value</label>
+                <select id="admCandAutoAllocValue" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold mt-1"></select>
+              </div>
+            </div>
+            <label class="text-[10px] uppercase text-slate-400 font-bold">Rooms to fill, in order shown</label>
+            <div id="admCandAutoAllocRoomPicker" class="flex flex-wrap gap-2 my-2"></div>
+            <div class="flex items-center gap-2 mt-2">
+              <button onclick="_admCandAutoAllocSave()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Save Rule</button>
+              <button onclick="_admCandAutoAllocFormClose()" class="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">Cancel</button>
+            </div>
+          </div>
+          <div id="admCandAutoAllocList" class="divide-y divide-slate-100"></div>
         </div>
       </div>
 
@@ -47772,6 +47801,126 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_admCandRequireCircular()) return;
     if (!confirm('Clear ALL room/seat allocations for this circular?')) return;
     try { await _admCandFetch('clearAllocation', { circular_id: _admCandActiveCircularId }); showToast('Allocations cleared', 'success'); _admCandLoadList(); _admCandLoadRooms(); } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+
+  // ── Live auto-seat-allocation (Part 14) ───────────────────────────────────
+  // A persistent, per-filter "keep seating new arrivals" rule, separate from
+  // the one-shot "Run Allocation" above it. Reuses the same ALLOC_FIELDS
+  // vocabulary (ADM_CAND_ALLOC_FIELD_LABELS/_admCandAllocFieldOptionsHtml)
+  // and the same room-picker visual idiom as the manual allocator, but its
+  // own room-picker instance (admCandAutoAllocRoomPicker, distinct class
+  // admCandAutoAllocRoomChk) since both cards can be on screen at once.
+  let _admCandAutoAllocRules = [];
+  async function _admCandLoadAutoAllocRules() {
+    if (!_admCandActiveCircularId) return;
+    try {
+      const res = await _admCandFetch('listAutoAllocationRules', { circular_id: _admCandActiveCircularId });
+      _admCandAutoAllocRules = res.rules || [];
+      _admCandRenderAutoAllocList();
+    } catch (e) {}
+  }
+  function _admCandRenderAutoAllocList() {
+    const host = document.getElementById('admCandAutoAllocList');
+    if (!host) return;
+    if (!_admCandAutoAllocRules.length) { host.innerHTML = '<p class="text-xs text-slate-400 py-2">No auto-allocation rules yet.</p>'; return; }
+    host.innerHTML = _admCandAutoAllocRules.map(r => {
+      const [field, value] = Object.entries(r.filters || {})[0] || ['', ''];
+      const fieldLabel = ADM_CAND_ALLOC_FIELD_LABELS[field] || field;
+      const roomsLabel = (r.room_names || []).join(', ') || '—';
+      const nextRoomName = (r.room_names && r.room_names[r.next_room_idx]) || (r.next_room_idx >= (r.room_ids || []).length ? 'full' : '—');
+      return `<div class="py-3 flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <p class="text-sm font-bold text-slate-700">${_escHtml(fieldLabel)} = ${_escHtml(value)}</p>
+          <p class="text-[11px] text-slate-400">Rooms: ${_escHtml(roomsLabel)} · Next seat: ${_escHtml(nextRoomName)}, seat ${r.next_seat_in_room + 1}
+            ${r.overflow_count ? `<span class="ml-2 px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 font-black">${r.overflow_count} waiting — rooms full</span>` : ''}
+          </p>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <label class="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 cursor-pointer"><input type="checkbox" ${r.active ? 'checked' : ''} onchange="_admCandAutoAllocToggle(${r.id}, this.checked)"> Active</label>
+          <button onclick="_admCandAutoAllocEdit(${r.id})" class="px-2 py-1 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">Edit</button>
+          <button onclick="_admCandAutoAllocDelete(${r.id})" class="px-2 py-1 border border-red-200 text-red-500 rounded-lg text-[10px] font-black uppercase">Delete</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+  function _admCandRenderAutoAllocRoomPicker(checkedIds) {
+    const host = document.getElementById('admCandAutoAllocRoomPicker');
+    if (!host) return;
+    const checked = checkedIds || new Set();
+    host.innerHTML = _admCandRooms.map(r => {
+      const building = _admCandRoomBuildingLabel(r);
+      return `<label class="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold cursor-pointer">
+        <input type="checkbox" class="admCandAutoAllocRoomChk" value="${r.id}" ${checked.has(r.id) ? 'checked' : ''}> ${_escHtml(r.room_name)}${building ? ` <span class="text-slate-400 font-normal">— ${_escHtml(building)}</span>` : ''}
+      </label>`;
+    }).join('') || '<p class="text-xs text-slate-400">No rooms yet — add some in the Rooms tab.</p>';
+  }
+  function _admCandAutoAllocFieldChange() {
+    const field = document.getElementById('admCandAutoAllocField')?.value;
+    const sel = document.getElementById('admCandAutoAllocValue');
+    if (!sel || !field) return;
+    const prev = sel.value;
+    const values = [...new Set(_admCandAllCandidates.map(c => c[field]).filter(Boolean))].sort();
+    sel.innerHTML = values.map(v => `<option value="${_escHtml(v)}" ${v === prev ? 'selected' : ''}>${_escHtml(v)}</option>`).join('') || '<option value="">(no data yet)</option>';
+  }
+  function _admCandAutoAllocFormOpen() {
+    document.getElementById('admCandAutoAllocEditId').value = '';
+    const fieldSel = document.getElementById('admCandAutoAllocField');
+    if (fieldSel) fieldSel.value = Object.keys(ADM_CAND_ALLOC_FIELD_LABELS)[0];
+    _admCandAutoAllocFieldChange();
+    _admCandRenderAutoAllocRoomPicker();
+    document.getElementById('admCandAutoAllocForm')?.classList.remove('hidden');
+  }
+  function _admCandAutoAllocFormClose() {
+    document.getElementById('admCandAutoAllocForm')?.classList.add('hidden');
+  }
+  function _admCandAutoAllocEdit(id) {
+    const r = _admCandAutoAllocRules.find(x => x.id === id);
+    if (!r) return;
+    document.getElementById('admCandAutoAllocEditId').value = id;
+    const [field, value] = Object.entries(r.filters || {})[0] || ['', ''];
+    const fieldSel = document.getElementById('admCandAutoAllocField');
+    if (fieldSel) fieldSel.value = field;
+    _admCandAutoAllocFieldChange();
+    const valSel = document.getElementById('admCandAutoAllocValue');
+    if (valSel) valSel.value = value;
+    _admCandRenderAutoAllocRoomPicker(new Set(r.room_ids || []));
+    document.getElementById('admCandAutoAllocForm')?.classList.remove('hidden');
+  }
+  async function _admCandAutoAllocSave() {
+    if (!_admCandRequireCircular()) return;
+    const field = document.getElementById('admCandAutoAllocField')?.value;
+    const value = document.getElementById('admCandAutoAllocValue')?.value;
+    if (!field || !value) { showToast('Pick a field and value', 'error'); return; }
+    const roomIds = Array.from(document.querySelectorAll('#admCandAutoAllocRoomPicker .admCandAutoAllocRoomChk:checked')).map(cb => parseInt(cb.value, 10));
+    if (!roomIds.length) { showToast('Pick at least one room', 'error'); return; }
+    const id = document.getElementById('admCandAutoAllocEditId')?.value;
+    try {
+      const res = await _admCandFetch('saveAutoAllocationRule', {
+        circular_id: _admCandActiveCircularId, id: id || undefined,
+        filters: { [field]: value }, room_ids: roomIds, active: true,
+      });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      showToast('Saved', 'success');
+      _admCandAutoAllocFormClose();
+      _admCandLoadAutoAllocRules();
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  async function _admCandAutoAllocToggle(id, active) {
+    try {
+      const res = await _admCandFetch('toggleAutoAllocationRuleActive', { id, active });
+      if (res.error) { showToast(res.error, 'error'); _admCandLoadAutoAllocRules(); return; }
+      const r = _admCandAutoAllocRules.find(x => x.id === id); if (r) r.active = active;
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  function _admCandAutoAllocDelete(id) {
+    showConfirm('Delete this auto-allocation rule? Future arrivals matching it will no longer auto-seat. Already-seated candidates keep their seats.', async () => {
+      try {
+        const res = await _admCandFetch('deleteAutoAllocationRule', { id });
+        if (res.error) { showToast(res.error, 'error'); return; }
+        showToast('Deleted', 'success');
+        _admCandLoadAutoAllocRules();
+      } catch (e) { showToast(e.message || 'Failed', 'error'); }
+    });
   }
 
   // ── Form/Admit Card template assignment per class/version/category

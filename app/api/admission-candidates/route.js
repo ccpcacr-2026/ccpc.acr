@@ -75,6 +75,56 @@ async function sbInventory(path, method = 'GET', body = null) {
   return text ? JSON.parse(text) : null;
 }
 
+// Part 14: live auto-seat-allocation -- called right after a genuinely NEW
+// admission_applications row is inserted (never on an update/edit, since an
+// already-existing candidate may already be seated). Finds the first active
+// rule whose filters all match this candidate and, if any room in its
+// room_ids still has capacity, claims the next seat from the rule's own
+// cursor (next_room_idx/next_seat_in_room) -- a monotonic pointer that only
+// ever advances, so an already-seated candidate is never moved/renumbered
+// by a later arrival. If every room is full, the candidate stays
+// unallocated and the rule's overflow_count is bumped instead of spilling
+// into an unrelated room. roomCapacityCache lets a caller processing many
+// new rows in one request (an import batch) avoid refetching the same
+// rule's room capacities on every single row.
+async function _tryAutoAllocate(circularId, candidate, roomCapacityCache) {
+  const rules = await sbAdmission(`seat_auto_allocation_rules?circular_id=eq.${circularId}&active=eq.true`);
+  if (!Array.isArray(rules) || !rules.length) return;
+  const rule = rules.find(r => {
+    const filters = r.filters || {};
+    const hasFilter = ALLOC_FIELDS.some(f => filters[f]);
+    return hasFilter && ALLOC_FIELDS.every(f => !filters[f] || filters[f] === candidate[f]);
+  });
+  if (!rule) return;
+  const roomIds = Array.isArray(rule.room_ids) ? rule.room_ids : [];
+  if (!roomIds.length) return;
+
+  let capacities = roomCapacityCache && roomCapacityCache[rule.id];
+  if (!capacities) {
+    const roomsRes = await sbInventory(`rooms?id=in.(${roomIds.join(',')})&select=id,capacity`);
+    const byId = {};
+    (Array.isArray(roomsRes) ? roomsRes : []).forEach(r => { byId[r.id] = r.capacity; });
+    capacities = roomIds.map(id => byId[id] || 0);
+    if (roomCapacityCache) roomCapacityCache[rule.id] = capacities;
+  }
+
+  let roomIdx = rule.next_room_idx || 0, seatInRoom = rule.next_seat_in_room || 0;
+  while (roomIdx < roomIds.length && seatInRoom >= capacities[roomIdx]) { roomIdx++; seatInRoom = 0; }
+  const now = new Date().toISOString();
+  if (roomIdx >= roomIds.length) {
+    await sbAdmission(`seat_auto_allocation_rules?id=eq.${rule.id}`, 'PATCH', { overflow_count: (rule.overflow_count || 0) + 1, updated_at: now });
+    return;
+  }
+
+  const roomId = roomIds[roomIdx];
+  const seatNo = String(seatInRoom + 1);
+  await sbAdmission(`admission_applications?id=eq.${candidate.id}`, 'PATCH', { room_id: roomId, seat_no: seatNo, updated_at: now });
+
+  seatInRoom++;
+  if (seatInRoom >= capacities[roomIdx]) { roomIdx++; seatInRoom = 0; }
+  await sbAdmission(`seat_auto_allocation_rules?id=eq.${rule.id}`, 'PATCH', { next_room_idx: roomIdx, next_seat_in_room: seatInRoom, updated_at: now });
+}
+
 // Fresh per-request check against teacher_staff.app_users -- never trust a cached role.
 async function _getUserRoles(userId) {
   if (!userId) return [];
@@ -426,7 +476,8 @@ export async function POST(req) {
       const res = await sbAdmission(q);
       if (Array.isArray(res)) res.forEach(x => existingKeys.add(x.external_key));
     }
-    const new_count = clean.filter(r => !existingKeys.has(r.external_key)).length;
+    const newExternalKeys = clean.filter(r => !existingKeys.has(r.external_key)).map(r => r.external_key);
+    const new_count = newExternalKeys.length;
     const updated_count = clean.length - new_count;
 
     for (const part of chunk(clean, 500)) {
@@ -437,6 +488,23 @@ export async function POST(req) {
       // clause, which PostgREST's on_conflict=col,col param can't express),
       // while the caller still reported a confident success with counts.
       if (upsertRes?.error) return { error: `Could not save candidates to the database: ${upsertRes.error}` };
+    }
+
+    // Part 14: live auto-seat-allocation for genuinely NEW rows only (never
+    // for updates to an already-existing candidate, who may already be
+    // seated). return=minimal above means the upsert never gave back row
+    // ids, so this is one small, targeted follow-up SELECT (just the fields
+    // _tryAutoAllocate needs, chunked the same way the existingKeys lookup
+    // above already is) -- not a select=*, consistent with keeping Supabase
+    // egress lean.
+    if (newExternalKeys.length) {
+      const roomCapacityCache = {};
+      for (const part of chunk(newExternalKeys, 150)) {
+        const q = `admission_applications?circular_id=eq.${circularId}&external_key=in.(${part.map(k => encodeURIComponent(k)).join(',')})&select=id,external_key,class,category,version,session,status,source`;
+        const newRows = await sbAdmission(q);
+        if (!Array.isArray(newRows)) continue;
+        for (const row of newRows) await _tryAutoAllocate(circularId, row, roomCapacityCache);
+      }
     }
 
     const batch = await sbAdmission('candidate_import_batches', 'POST', {
@@ -693,6 +761,76 @@ export async function POST(req) {
     const q = runId ? `admission_applications?allocation_run_id=eq.${runId}` : `admission_applications?circular_id=eq.${circularId}&allocation_run_id=not.is.null`;
     await sbAdmission(q, 'PATCH', { room_id: null, seat_no: null, allocation_run_id: null, updated_at: new Date().toISOString() });
     if (runId) await sbAdmission(`seat_allocation_runs?id=eq.${runId}`, 'PATCH', { cleared_at: new Date().toISOString() });
+    return NextResponse.json({ success: true });
+  }
+
+  // ── Live auto-seat-allocation (Part 14) ───────────────────────────────────
+  // A persistent, per-filter "keep seating new arrivals" rule, separate from
+  // the one-shot batch runSeatAllocation above. See
+  // migration_admission_seat_auto_allocation.sql for the ordering/overflow
+  // guarantees this encodes: the cursor only ever advances forward by one
+  // slot per successful assignment (never recomputed from a scan), so an
+  // already-seated candidate is never moved/renumbered by a later arrival,
+  // and a full rule leaves the candidate unallocated + bumps overflow_count
+  // rather than spilling into an unrelated room.
+  if (action === 'listAutoAllocationRules') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ rules: [] });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'alloc', 'view')) return _forbidden();
+    const rules = await sbAdmission(`seat_auto_allocation_rules?circular_id=eq.${circularId}&order=created_at.asc`);
+    if (rules?.error) return NextResponse.json({ error: rules.error });
+    const roomIds = [...new Set((rules || []).flatMap(r => r.room_ids || []))];
+    const roomsById = {};
+    if (roomIds.length) {
+      const roomsRes = await sbInventory(`rooms?id=in.(${roomIds.join(',')})&select=id,name`);
+      (Array.isArray(roomsRes) ? roomsRes : []).forEach(r => { roomsById[r.id] = r.name; });
+    }
+    const out = (rules || []).map(r => ({ ...r, room_names: (r.room_ids || []).map(id => roomsById[id] || `#${id}`) }));
+    return NextResponse.json({ rules: out });
+  }
+  if (action === 'saveAutoAllocationRule') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'alloc', 'edit')) return _forbidden();
+    const filters = {};
+    for (const f of ALLOC_FIELDS) { if (payload.filters && payload.filters[f]) filters[f] = String(payload.filters[f]); }
+    if (!Object.keys(filters).length) return NextResponse.json({ error: 'Pick at least one filter (e.g. Category) so this rule knows which new arrivals to seat.' });
+    const roomIds = Array.isArray(payload.room_ids) ? payload.room_ids.map(n => parseInt(n, 10)).filter(Boolean) : [];
+    if (!roomIds.length) return NextResponse.json({ error: 'Pick at least one room.' });
+    const id = parseInt(payload.id, 10);
+    if (id) {
+      const r = await sbAdmission(`seat_auto_allocation_rules?id=eq.${id}`, 'PATCH', {
+        filters, room_ids: roomIds, active: payload.active !== false, updated_at: new Date().toISOString(),
+      });
+      if (r?.error) return NextResponse.json({ error: r.error });
+      return NextResponse.json({ success: true });
+    }
+    const r = await sbAdmission('seat_auto_allocation_rules', 'POST', {
+      circular_id: circularId, filters, room_ids: roomIds, active: payload.active !== false,
+    });
+    if (r?.error) return NextResponse.json({ error: r.error });
+    return NextResponse.json({ success: true, id: r?.[0]?.id });
+  }
+  if (action === 'toggleAutoAllocationRuleActive') {
+    const id = parseInt(payload.id, 10);
+    if (!id) return NextResponse.json({ error: 'Missing id.' });
+    if (!isFullAdmin) {
+      const rows = await sbAdmission(`seat_auto_allocation_rules?id=eq.${id}&select=circular_id`);
+      const circularId = (Array.isArray(rows) && rows[0]) ? rows[0].circular_id : null;
+      if (!_tabOk(false, await _getCommitteePerms(user_id, circularId), 'alloc', 'edit')) return _forbidden();
+    }
+    await sbAdmission(`seat_auto_allocation_rules?id=eq.${id}`, 'PATCH', { active: !!payload.active, updated_at: new Date().toISOString() });
+    return NextResponse.json({ success: true });
+  }
+  if (action === 'deleteAutoAllocationRule') {
+    const id = parseInt(payload.id, 10);
+    if (!id) return NextResponse.json({ error: 'Missing id.' });
+    if (!isFullAdmin) {
+      const rows = await sbAdmission(`seat_auto_allocation_rules?id=eq.${id}&select=circular_id`);
+      const circularId = (Array.isArray(rows) && rows[0]) ? rows[0].circular_id : null;
+      if (!_tabOk(false, await _getCommitteePerms(user_id, circularId), 'alloc', 'edit')) return _forbidden();
+    }
+    await sbAdmission(`seat_auto_allocation_rules?id=eq.${id}`, 'DELETE');
     return NextResponse.json({ success: true });
   }
 
