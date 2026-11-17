@@ -42428,17 +42428,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       { key: 'status', label: 'Status', values: ADM_STATUSES },
       { key: 'source', label: 'Source', values: ['native', 'imported', 'online'] },
     ];
-    // Part 10: dynamic Scan Options (status/tag behaviors) become filter
-    // dimensions here too, so whatever gets marked/tagged while scanning is
-    // immediately filterable -- 'opt:<key>' namespaces them from the fixed
-    // dims above. 'form' behavior holds multiple sub-fields per scan, not
-    // one single value, so it isn't offered as a single filterable dimension.
+    // Part 10: every dynamic Scan Option becomes a filter dimension here,
+    // whatever its behavior -- 'opt:<key>' namespaces them from the fixed
+    // dims above. Each behavior always includes an explicit "has this been
+    // scanned at all" pair (done/pending, __has__/__none__) rather than only
+    // a single "done"/specific-value pill with no opposite -- otherwise
+    // there's no way to filter TO "not yet scanned"/"no value yet" at all.
+    // 'form' holds multiple sub-fields per scan (no single value to list as
+    // pills), so it only ever gets the has-any-value pair, same as 'tag'
+    // additionally gets alongside its real values.
     (_admCandScanOptions || []).forEach(o => {
-      if (o.behavior === 'status') { dims.push({ key: 'opt:' + o.key, label: o.label, values: ['done'] }); return; }
-      if (o.behavior !== 'tag') return;
+      if (o.behavior === 'status') { dims.push({ key: 'opt:' + o.key, label: o.label, values: ['done', 'pending'] }); return; }
+      if (o.behavior === 'form') { dims.push({ key: 'opt:' + o.key, label: o.label, values: ['__has__', '__none__'] }); return; }
+      // tag
       const cfg = o.config || {};
       const values = cfg.type === 'toggle' ? ['yes'] : cfg.type === 'dropdown' ? (cfg.options || []) : distinct(a => (a.scan_values || {})[o.key]);
-      if (values.length) dims.push({ key: 'opt:' + o.key, label: o.label, values });
+      values.push('__none__');
+      dims.push({ key: 'opt:' + o.key, label: o.label, values });
     });
     return dims;
   }
@@ -42506,6 +42512,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       ((o.config && o.config.fields) || []).map(f => ({ optKey: o.key, optLabel: o.label, field: f }))
     );
   }
+  // Human-readable label for a pill's VALUE (not its dimension label) --
+  // only the internal sentinel values used by the opt:/status pills need
+  // translating; every other pill value (a class name, a tag's dropdown
+  // option, ...) is already real data and displayed as-is.
+  const ADM_FILTER_VALUE_LABELS = { done: 'Done', pending: 'Pending', yes: 'Yes', __has__: 'Has value', __none__: 'No value yet' };
+  function _admFilterValueLabel(v) { return ADM_FILTER_VALUE_LABELS[v] || v; }
   function _admActiveFormFieldDims(st) {
     return _admFormFieldFilterDims().filter(({ optKey, field }) => {
       const base = `formf:${optKey}:${field.key}`;
@@ -42530,7 +42542,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const optKey = dimKey.slice(4);
       const opt = (_admCandScanOptions || []).find(o => o.key === optKey);
       const raw = (a.scan_values || {})[optKey];
-      const v = (opt && opt.behavior === 'status') ? (raw && raw.done ? 'done' : '') : (raw === true ? 'yes' : String(raw || ''));
+      let v;
+      if (opt && opt.behavior === 'status') v = (raw && raw.done) ? 'done' : 'pending';
+      else if (opt && opt.behavior === 'form') v = (raw && Object.keys(raw).length) ? '__has__' : '__none__';
+      else v = (raw === undefined || raw === null || raw === '') ? '__none__' : (raw === true ? 'yes' : String(raw));
       if (!st[dimKey].has(v)) return false;
     }
     for (const { optKey, field } of (activeFormFieldDims || [])) {
@@ -42582,7 +42597,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return `<div class="mb-3 last:mb-0">
         <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">${_escHtml(d.label)}</p>
         <div class="flex flex-wrap gap-1.5">
-          ${d.values.map(v => `<button type="button" onclick='toggleAdmFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(d.key)}, ${JSON.stringify(v)})' class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase ${sel.has(v) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(v)}</button>`).join('')}
+          ${d.values.map(v => `<button type="button" onclick='toggleAdmFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(d.key)}, ${JSON.stringify(v)})' class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase ${sel.has(v) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(_admFilterValueLabel(v))}</button>`).join('')}
         </div>
       </div>`;
     }).join('') + scanRangeHtml + formFieldsHtml + (_admFilterActiveCount(panelKey) ? `
