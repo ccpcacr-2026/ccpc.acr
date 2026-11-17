@@ -43112,7 +43112,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'guardian_contact', label: "Guardian's Contact", render: a => a.guardian_contact ? `<p class="text-xs text-slate-500">${_escHtml(a.guardian_contact)}</p>` : '' },
     { key: 'guardian_address', label: "Guardian's Office Address", render: a => a.guardian_office_address ? `<p class="text-xs text-slate-500">${_escHtml(a.guardian_office_address)}</p>` : '' },
     { key: 'index_id', label: 'Index ID', render: a => a.index_id ? `<p class="text-xs text-slate-600 font-mono">${_escHtml(a.index_id)}</p>` : '' },
-    { key: 'scan_values', label: 'Scan/Tag Results', render: a => { const badges = _admScanValuesCompact(a.scan_values).map(({ label, shown }) => `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[9px] font-bold whitespace-nowrap">${_escHtml(label)}: ${_escHtml(shown)}</span>`).join(''); return badges ? `<div class="flex flex-wrap gap-1">${badges}</div>` : ''; } },
+    { key: 'scan_values', label: 'Scan/Tag Results', render: a => { const badges = _admScanValuesCompact(a.scan_values, a.scan_dates).map(({ label, shown }) => `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[9px] font-bold whitespace-nowrap">${_escHtml(label)}: ${_escHtml(shown)}</span>`).join(''); return badges ? `<div class="flex flex-wrap gap-1">${badges}</div>` : ''; } },
   ];
   // Everything above is a hand-curated composite (combines several raw
   // columns, or formats one specially). Any OTHER real column on the
@@ -43125,7 +43125,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // internal columns, and anything object/array-shaped (those need a
   // dedicated renderer, not generic text).
   const ADM_APP_FIELD_AUTO_EXCLUDE = new Set([
-    'id', 'circular_id', 'created_at', 'updated_at', 'extra_fields', 'scan_values', 'tags',
+    'id', 'circular_id', 'created_at', 'updated_at', 'extra_fields', 'scan_values', 'scan_dates', 'tags',
     'academic_records', 'siblings',
     'student_photo', 'father_photo', 'mother_photo', 'guardian_photo',
     'tracking_id', 'name_english', 'name_bangla', 'class', 'category', 'version', 'session', 'status', 'source', 'mobile',
@@ -43690,7 +43690,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       document.getElementById('adm-sibling-tbody').innerHTML = '';
       (Array.isArray(a.siblings) ? a.siblings : []).forEach(r => _admAddSiblingRow(r));
       _admRenderCustomFieldsBlock(a.extra_fields || {});
-      _admRenderScanDataBlock(a.scan_values || {});
+      _admRenderScanDataBlock(a.scan_values || {}, a.scan_dates || {});
       document.querySelector('#adm-ftabs .adm-ftab').click();
       // Re-apply now that the real academic/sibling rows exist -- the
       // earlier call (right after _admShowView above) only covered the
@@ -43717,21 +43717,34 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>`).join('');
     block.classList.remove('hidden');
   }
+  // Shared by every place a scan option's recorded date(s) are shown --
+  // joins every timestamp in the array (newest first), not just the latest,
+  // so a candidate scanned more than once under one option shows its full
+  // history right in the column value instead of silently overwriting it.
+  function _admFormatScanDates(dates) {
+    const arr = Array.isArray(dates) ? dates.filter(Boolean) : [];
+    if (!arr.length) return '';
+    return [...arr].reverse().map(d => new Date(d).toLocaleString()).join('; ');
+  }
   // Shared by the read-only Scan-data block below AND the Applications
   // table's row (_admRenderTable) -- one formatter so "what a tag/status/
   // form scan result looks like" never drifts between the two places it's
   // shown. Returns [{label, shown}], already filtered to populated keys.
-  function _admScanValuesCompact(scanValues) {
+  // scanDates (the parallel scan_dates column) carries every scan timestamp
+  // per option, not just the current value's own scanned_at.
+  function _admScanValuesCompact(scanValues, scanDates) {
     const values = scanValues || {};
+    const dates = scanDates || {};
     const keys = Object.keys(values).filter(k => values[k] != null && values[k] !== '');
     return keys.map(k => {
       const opt = (_admCandScanOptions || []).find(o => o.key === k);
       const label = opt ? opt.label : k;
       const v = values[k];
+      const datesText = _admFormatScanDates(dates[k]);
       let shown;
-      if (opt && opt.behavior === 'status') shown = v && v.done ? `Done${v.scanned_at ? ' — ' + new Date(v.scanned_at).toLocaleString() : ''}` : 'Pending';
-      else if (opt && opt.behavior === 'form') shown = Object.entries(v || {}).map(([fk, fv]) => { const f = (opt.config?.fields || []).find(x => x.key === fk); return `${f ? f.label : fk}: ${fv}`; }).join(', ') || '—';
-      else shown = v === true ? 'Yes' : String(v);
+      if (opt && opt.behavior === 'status') shown = (v && v.done ? 'Done' : 'Pending') + (v && v.done && datesText ? ' — ' + datesText : '');
+      else if (opt && opt.behavior === 'form') shown = (Object.entries(v || {}).map(([fk, fv]) => { const f = (opt.config?.fields || []).find(x => x.key === fk); return `${f ? f.label : fk}: ${fv}`; }).join(', ') || '—') + (datesText ? ' (' + datesText + ')' : '');
+      else shown = (v === true ? 'Yes' : String(v)) + (datesText ? ' — ' + datesText : '');
       return { label, shown };
     });
   }
@@ -43740,11 +43753,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // record itself has no edit path for these, same reasoning as the custom
   // fields block above; only _admCandScanOptions (loaded once per circular
   // entry) is needed for label lookups, no extra fetch required here.
-  function _admRenderScanDataBlock(scanValues) {
+  function _admRenderScanDataBlock(scanValues, scanDates) {
     const block = document.getElementById('adm-scan-data-block');
     const body = document.getElementById('adm-scan-data-body');
     if (!block || !body) return;
-    const entries = _admScanValuesCompact(scanValues);
+    const entries = _admScanValuesCompact(scanValues, scanDates);
     if (!entries.length) { block.classList.add('hidden'); return; }
     body.innerHTML = entries.map(({ label, shown }) => {
       return `<div class="bg-slate-50 rounded-lg p-2.5">
@@ -45584,6 +45597,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _admCandExcelHeaders = [], _admCandExcelRows = [], _admCandImportFileName = '';
   let _admCandMapRows = [], _admCandRowSeq = 0, _admCandPrimaryKeyRowId = null, _admCandAppliedTemplateId = null;
   let _admCandTemplates = [], _admCandAllCandidates = [], _admCandRooms = [];
+  // Minimal-column roster used ONLY by the Scan tab's local-first resolution
+  // (see _admCandLoadScanRoster/_admCandFindLocalCandidate below) -- kept
+  // deliberately separate from _admCandAllCandidates (the Candidates tab's
+  // own select=* cache) so reloading it fresh on every scan-session start
+  // never pulls extra_fields/academic_records/family/address/photos-other-
+  // than-student's-own across a 1000+ row roster just to resolve a code.
+  let _admCandScanRoster = [];
   // listCandidates is a select=* fetch (it has to be -- printing needs
   // student_photo for signature-sheet avatars) on a roster that can run
   // into the thousands of rows, some carrying base64 photo data -- a real,
@@ -47429,6 +47449,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admCandPopulateFilterDropdowns();
     } catch (e) {}
   }
+  // Loads _admCandScanRoster via the minimal-column listCandidatesForScan
+  // action -- called fresh every time a scan session (re)starts (see
+  // _admCandScanChooseInput), instead of the full select=* _admCandLoadList
+  // above, which stays reserved for the Candidates tab's own display.
+  async function _admCandLoadScanRoster() {
+    try {
+      const res = await _admCandFetch('listCandidatesForScan', { circular_id: _admCandActiveCircularId });
+      _admCandScanRoster = res.candidates || [];
+    } catch (e) { _admCandScanRoster = []; }
+  }
   let _admCandSelectedIds = new Set();
   function _admCandRenderList(list) {
     const body = document.getElementById('admCandListBody');
@@ -48513,17 +48543,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // filterable by value, right below the option panel. Reuses _admAllApps
   // (already loaded for the Dashboard/Applications tab -- same roster,
   // same scan_values) rather than a second server round-trip.
-  function _admCandScanValueForOption(opt, raw) {
+  function _admCandScanValueForOption(opt, raw, dates) {
     if (!opt) return '—';
-    if (opt.behavior === 'status') return raw && raw.done ? `Done${raw.scanned_at ? ' — ' + new Date(raw.scanned_at).toLocaleString() : ''}` : 'Pending';
+    const datesText = _admFormatScanDates(dates);
+    if (opt.behavior === 'status') return (raw && raw.done ? 'Done' : 'Pending') + (raw && raw.done && datesText ? ' — ' + datesText : '');
     if (opt.behavior === 'form') {
       const fields = (opt.config && opt.config.fields) || [];
       if (!raw || !Object.keys(raw).length) return '—';
-      return fields.map(f => `${f.label}: ${raw[f.key] ?? '—'}`).join(', ') || '—';
+      return (fields.map(f => `${f.label}: ${raw[f.key] ?? '—'}`).join(', ') || '—') + (datesText ? ' (' + datesText + ')' : '');
     }
     // tag
     if (raw === undefined || raw === null || raw === '') return '—';
-    return raw === true ? 'Yes' : String(raw);
+    return (raw === true ? 'Yes' : String(raw)) + (datesText ? ' — ' + datesText : '');
   }
   // Any actual filter/search/sort change goes through this -- it jumps back
   // to page 1 before re-rendering, since staying on e.g. page 4 after
@@ -48664,7 +48695,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <td class="px-2 py-2 text-slate-500 whitespace-nowrap">${_escHtml(a.category || '—')}</td>
           <td class="px-2 py-2 text-slate-400 whitespace-nowrap">${a.last_scanned_at ? _escHtml(new Date(a.last_scanned_at).toLocaleString()) : '—'}</td>
           ${extraTds}
-          <td class="px-2 py-2">${_escHtml(_admCandScanValueForOption(opt, (a.scan_values || {})[opt.key]))}</td>
+          <td class="px-2 py-2">${_escHtml(_admCandScanValueForOption(opt, (a.scan_values || {})[opt.key], (a.scan_dates || {})[opt.key]))}</td>
         </tr>`;
       }).join('') || `<tr><td colspan="${colCount}" class="px-2 py-6 text-center text-slate-400">No matches.</td></tr>`;
     }
@@ -48690,7 +48721,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         a.category || '',
         a.last_scanned_at ? new Date(a.last_scanned_at).toLocaleString() : '',
         ..._admCandScanDataExtraCols.map(k => _gfCsvPlainText(_admAppFieldRender(k, a))),
-        _admCandScanValueForOption(opt, (a.scan_values || {})[opt.key]),
+        _admCandScanValueForOption(opt, (a.scan_values || {})[opt.key], (a.scan_dates || {})[opt.key]),
       ]);
     });
     const csv = csvRows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -48716,7 +48747,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <td>${_escHtml(a.category || '')}</td>
         <td>${a.last_scanned_at ? _escHtml(new Date(a.last_scanned_at).toLocaleString()) : ''}</td>
         ${extraTds}
-        <td>${_escHtml(_admCandScanValueForOption(opt, (a.scan_values || {})[opt.key]))}</td>
+        <td>${_escHtml(_admCandScanValueForOption(opt, (a.scan_values || {})[opt.key], (a.scan_dates || {})[opt.key]))}</td>
       </tr>`;
     }).join('');
     const body = `
@@ -48948,10 +48979,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // not per scan. _admCandResolveScan then resolves every individual scan
     // against this in-memory snapshot with zero DB read, falling back to a
     // server-side lookup only for a candidate this snapshot doesn't have yet
-    // (e.g. imported by someone else after this reload).
+    // (e.g. imported by someone else after this reload). Uses the minimal-
+    // column _admCandLoadScanRoster, not the Candidates tab's full
+    // _admCandLoadList -- a scan session never needs extra_fields/academic
+    // records/family/addresses, only the lookup+scope+result-card fields.
     const preNote = document.getElementById('admCandScanNote');
     if (preNote) preNote.textContent = 'Loading roster…';
-    await _admCandLoadList();
+    await _admCandLoadScanRoster();
     if (preNote) preNote.textContent = '';
     _admCandScanInputMode = mode;
     document.getElementById('admCandScanChooser')?.classList.add('hidden');
@@ -49129,16 +49163,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Part 15: mirrors findCandidateByCode/scopeMatches server-side
   // (app/api/admission-candidates/route.js) exactly, so resolving locally
   // vs. falling back to the server is never a behavior difference. Searches
-  // _admCandAllCandidates -- the Candidates module's own full roster
-  // (reloaded fresh whenever a scan session starts, see
-  // _admCandScanChooseInput), which unlike _admAllApps actually carries
-  // photos (needed for the scan result card's avatar) since listCandidates
-  // is a select=*.
+  // _admCandScanRoster -- a dedicated minimal-column snapshot (reloaded
+  // fresh whenever a scan session starts, see _admCandScanChooseInput),
+  // deliberately NOT the Candidates tab's full _admCandAllCandidates --
+  // scanning only needs the 4 lookup fields, the 3 scope fields, and
+  // name/photo/scan_values for the result card, not the whole roster's
+  // extra_fields/academic records/family/addresses.
   function _admCandFindLocalCandidate(code) {
     const c = String(code || '').trim();
     if (!c) return null;
     for (const field of ['token', 'external_key', 'tracking_id', 'index_id']) {
-      const hit = _admCandAllCandidates.find(x => x[field] && String(x[field]) === c);
+      const hit = _admCandScanRoster.find(x => x[field] && String(x[field]) === c);
       if (hit) return hit;
     }
     return null;

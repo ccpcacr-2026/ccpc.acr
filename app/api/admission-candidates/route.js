@@ -554,6 +554,21 @@ export async function POST(req) {
     if (rows?.error) return NextResponse.json({ error: rows.error });
     return NextResponse.json({ candidates: rows || [] });
   }
+  // Lightweight roster load for the Scan tab specifically (reloaded fresh
+  // every time a scan session starts, see _admCandLoadScanRoster) --
+  // deliberately NOT the same select=* as listCandidates above. Scanning
+  // only ever needs: the 4 code-lookup fields, the 3 scope fields, and
+  // name/photo/scan_values for the result card -- everything else
+  // (extra_fields, academic_records, family info, addresses, etc.) is real
+  // weight across a 1000+ row roster that a scan session never reads.
+  if (action === 'listCandidatesForScan') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ candidates: [] });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'scan', 'view')) return _forbidden();
+    const rows = await sbAdmission(`admission_applications?select=id,token,external_key,tracking_id,index_id,class,category,room_id,name_english,student_photo,scan_values&circular_id=eq.${circularId}&order=created_at.desc&limit=5000`);
+    if (rows?.error) return NextResponse.json({ error: rows.error });
+    return NextResponse.json({ candidates: rows || [] });
+  }
   if (action === 'deleteCandidate') {
     const candId = parseInt(payload.id, 10) || 0;
     if (!isFullAdmin) {
@@ -1042,17 +1057,26 @@ export async function POST(req) {
     return NextResponse.json({ success: true, fields });
   }
   async function _applyScanValue(candidateId, optionKey, value) {
-    await sbAdmission('scan_option_history', 'POST', { candidate_id: candidateId, option_key: optionKey, value });
-    const rows = await sbAdmission(`admission_applications?id=eq.${candidateId}&select=scan_values`);
-    const current = (Array.isArray(rows) && rows[0] && rows[0].scan_values) || {};
-    const scan_values = { ...current, [optionKey]: value };
-    // last_scanned_at is a flat timestamp column (distinct from scan_values'
-    // own per-option scanned_at, which 'tag'/'form' behaviors don't always
-    // carry) -- stamped on every scan regardless of behavior so the
-    // Applications tab can sort/filter by "most recently scanned" uniformly.
     const now = new Date().toISOString();
-    await sbAdmission(`admission_applications?id=eq.${candidateId}`, 'PATCH', { scan_values, last_scanned_at: now, updated_at: now });
-    return scan_values;
+    await sbAdmission('scan_option_history', 'POST', { candidate_id: candidateId, option_key: optionKey, value });
+    const rows = await sbAdmission(`admission_applications?id=eq.${candidateId}&select=scan_values,scan_dates`);
+    const row = (Array.isArray(rows) && rows[0]) || {};
+    const current = row.scan_values || {};
+    const scan_values = { ...current, [optionKey]: value };
+    // scan_dates[optionKey] is the full, append-only list of every scan
+    // timestamp for this option (distinct from scan_values' own per-option
+    // scanned_at, which only ever holds the CURRENT one, and from
+    // last_scanned_at below, which is global across every option) -- lets
+    // the Applications/Scan Data columns show every scan date, not just the
+    // latest, when a candidate was scanned more than once under one option.
+    const priorDates = row.scan_dates || {};
+    const priorForKey = Array.isArray(priorDates[optionKey]) ? priorDates[optionKey] : [];
+    const scan_dates = { ...priorDates, [optionKey]: [...priorForKey, now] };
+    // last_scanned_at is a flat timestamp column, stamped on every scan
+    // regardless of behavior so the Applications tab can sort/filter by
+    // "most recently scanned" uniformly across all options at once.
+    await sbAdmission(`admission_applications?id=eq.${candidateId}`, 'PATCH', { scan_values, scan_dates, last_scanned_at: now, updated_at: now });
+    return { scan_values, scan_dates };
   }
   // The scan-triggered write, for 'status' and 'tag' behaviors (an
   // immediate mark on scan) -- 'form'-behavior options instead use
@@ -1078,8 +1102,8 @@ export async function POST(req) {
     if (!candidate) return NextResponse.json({ error: `No candidate matches "${payload.code}".` });
     if (!scopeMatches(candidate, payload.scope)) return NextResponse.json({ error: 'This candidate is outside the selected scope.', out_of_scope: true, candidate });
     const value = payload.value !== undefined ? payload.value : { done: true, scanned_at: new Date().toISOString() };
-    const scan_values = await _applyScanValue(candidate.id, optionKey, value);
-    return NextResponse.json({ success: true, candidate: { ...candidate, scan_values } });
+    const { scan_values, scan_dates } = await _applyScanValue(candidate.id, optionKey, value);
+    return NextResponse.json({ success: true, candidate: { ...candidate, scan_values, scan_dates } });
   }
   // The 'form'-behavior submit path (candidate already resolved via a prior
   // lookupCandidateByToken call) -- also doubles as the direct-admin
@@ -1094,8 +1118,8 @@ export async function POST(req) {
       const perms = await _getCommitteePerms(user_id, circularId);
       if ((!_tabOk(false, perms, 'scan', 'view') || !_scanOk(false, perms, optionKey)) && !_tabOk(false, perms, 'candidates', 'edit')) return _forbidden();
     }
-    const scan_values = await _applyScanValue(candidateId, optionKey, payload.value);
-    return NextResponse.json({ success: true, scan_values });
+    const { scan_values, scan_dates } = await _applyScanValue(candidateId, optionKey, payload.value);
+    return NextResponse.json({ success: true, scan_values, scan_dates });
   }
   if (action === 'getScanOptionHistory') {
     const candidateId = parseInt(payload.candidate_id, 10);
