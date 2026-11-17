@@ -42875,21 +42875,30 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     catch (e) { _admCustomCounters = []; }
     _admRenderCustomCounters();
   }
-  // Single big number with no Group By fields picked; a combination-wise
-  // breakdown table otherwise -- every combination gets its own row, no
-  // top-N cap (a tall table scrolls inside the card instead of truncating).
+  // Single big number with no Group By fields picked; grouped by exactly
+  // ONE field -- the common case, especially a Scan Option's Yes/No
+  // has-value split -- renders as small side-by-side count tiles instead
+  // of a table, so e.g. "Has value" vs "No value" compare at a glance
+  // rather than needing to scan down rows; a true combination matrix
+  // (2+ Group By fields) still renders as a table, where columns genuinely
+  // carry information a row of tiles couldn't.
   function _admCustomCounterRenderBody(conditions, groupFields, fill) {
     if (!groupFields.length) return `<p class="text-2xl font-black text-slate-800 tabular-nums">${_admCustomCounterCountFor(conditions)}</p>`;
     const rows = _admCustomCounterGroupedCounts(conditions, groupFields);
     if (!rows.length) return '<p class="text-xs text-slate-400">No matching data.</p>';
-    const labels = groupFields.map(_admCustomCounterFieldLabel);
-    // fill=true (GridStack card body, a sized ancestor) lets the table use
-    // the card's own resized height instead of a fixed cap, so dragging a
-    // card taller shows more rows before any scrollbar kicks in. The
-    // builder's live preview below the condition/group-by pickers has no
-    // bounded ancestor, so it keeps the fixed max-h-72 cap there (fill
-    // omitted/false).
+    // fill=true (GridStack card body, a sized ancestor) lets the body use
+    // the card's own resized height instead of a fixed cap. The builder's
+    // live preview below the condition/group-by pickers has no bounded
+    // ancestor, so it keeps the fixed max-h-72 cap there (fill omitted/false).
     const scrollCls = fill ? 'h-full overflow-y-auto' : 'max-h-72 overflow-y-auto';
+    if (groupFields.length === 1) {
+      return `<div class="${scrollCls} flex flex-wrap content-start gap-2">${rows.map(r => `
+        <div class="flex-1 min-w-[84px] bg-slate-50 rounded-xl px-3 py-2 text-center">
+          <p class="text-lg font-black text-slate-800 tabular-nums">${r.count}</p>
+          <p class="text-[9px] uppercase text-slate-400 font-bold truncate" title="${_escHtml(r.parts[0])}">${_escHtml(r.parts[0])}</p>
+        </div>`).join('')}</div>`;
+    }
+    const labels = groupFields.map(_admCustomCounterFieldLabel);
     return `<div class="${scrollCls}">
       <table class="w-full text-xs">
         <thead><tr class="text-left text-slate-400 font-bold uppercase text-[9px]">${labels.map(l => `<th class="pr-3 pb-1">${_escHtml(l)}</th>`).join('')}<th class="pb-1 text-right">Count</th></tr></thead>
