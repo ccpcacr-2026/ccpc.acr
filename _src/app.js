@@ -42345,6 +42345,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admAppsFingerprint = _admComputeAppsFingerprint();
       _admFilterState = { class: new Set(), category: new Set(), version: new Set(), status: new Set(), source: new Set() };
       document.getElementById('admFilterPanel')?.classList.add('hidden');
+      _admRenderAppSortOptions();
       _admTablePage = 0;
       // Stat tiles first, then yield one tick before the table's own
       // (heavier on a large roster: builds a search haystack per row, then
@@ -42371,6 +42372,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admAllApps = res.applications || [];
       _admAppsFingerprint = _admComputeAppsFingerprint();
       _admLoadStats();
+      _admRenderAppSortOptions();
       setTimeout(_admFilterApps, 0);
     } catch (e) { if (!silent) showToast(e.message || 'Could not refresh', 'error'); }
   }
@@ -43440,7 +43442,52 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admTablePage = 0;
     _admRenderTable(filtered);
   }
+  // Generic raw-value sort key for any catalog field, built by stripping
+  // tags from its own render() output rather than needing a separate raw
+  // accessor per field -- same approach as the Scan Data tab's own
+  // _admCandScanDataSortValue. Works for simple fields (Mobile, Session,
+  // Index ID, a custom mapped field, ...) and composites alike.
+  function _admAppFieldSortValue(fieldKey, a) {
+    const html = _admAppFieldRender(fieldKey, a) || '';
+    return html.replace(/<[^>]+>/g, '').trim().toLowerCase();
+  }
+  // Keeps the Sort By dropdown offering every field the column catalog
+  // knows about (built-in, auto-discovered, and custom/mapped) -- not just
+  // the handful of hand-picked fixed options, which previously left fields
+  // like Mobile, Session, Index ID, Room/Seat, or any custom field with no
+  // way to sort by them at all even though they're selectable as columns.
+  // 'name'/'tracking_id' catalog entries are excluded since the fixed
+  // Name/Tracking ID options above already cover the same data.
+  function _admRenderAppSortOptions() {
+    const sel = document.getElementById('adm-sort-by');
+    if (!sel) return;
+    const prev = sel.value;
+    const EXCLUDE = new Set(['name', 'tracking_id']);
+    const opt = f => `<option value="field:${f.key}">${_escHtml(f.label)}</option>`;
+    const builtinOpts = ADM_APP_FIELD_CATALOG_BUILTIN.filter(f => !EXCLUDE.has(f.key)).map(opt).join('');
+    const autos = _admAppFieldAutoCatalog();
+    const customs = (_admCandFormFieldDefs || []).filter(f => !f.built_in);
+    sel.innerHTML = `
+      <option value="scanned_desc">Last Scanned (Newest)</option>
+      <option value="scanned_asc">Last Scanned (Oldest)</option>
+      <option value="created_desc">Newest First</option>
+      <option value="created_asc">Oldest First</option>
+      <option value="name_asc">Name (A-Z)</option>
+      <option value="name_desc">Name (Z-A)</option>
+      <option value="class_asc">Class</option>
+      <option value="category_asc">Category</option>
+      <option value="status_asc">Status</option>
+      <option value="tracking_asc">Tracking ID</option>
+      <optgroup label="More fields">${builtinOpts}</optgroup>
+      ${autos.length ? `<optgroup label="Other fields">${autos.map(opt).join('')}</optgroup>` : ''}
+      ${customs.length ? `<optgroup label="Custom (mapped)">${customs.map(f => `<option value="field:extra:${_escHtml(f.key)}">${_escHtml(f.label)}</option>`).join('')}</optgroup>` : ''}`;
+    if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+  }
   function _admSortApps(list, sortBy) {
+    if (sortBy.startsWith('field:')) {
+      const fieldKey = sortBy.slice(6);
+      return [...list].sort((a, b) => _admAppFieldSortValue(fieldKey, a).localeCompare(_admAppFieldSortValue(fieldKey, b), undefined, { numeric: true }));
+    }
     const sepIdx = sortBy.lastIndexOf('_');
     const field = sortBy.slice(0, sepIdx), dir = sortBy.slice(sepIdx + 1);
     const mul = dir === 'desc' ? -1 : 1;
@@ -46659,8 +46706,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // The Applications tab's admin-configurable columns feature draws its
     // "Custom (mapped)" field options from this same cache -- refresh its
     // head/body now that the catalog may have changed (new field defined,
-    // or this is the first load after entering the circular).
+    // or this is the first load after entering the circular). Sort By's
+    // own "Custom (mapped)" group draws from the same cache too.
     _admRenderTableHead();
+    _admRenderAppSortOptions();
     _admFilterApps();
   }
   // Known aliases for common external naming conventions (e.g. VortiBD's own
