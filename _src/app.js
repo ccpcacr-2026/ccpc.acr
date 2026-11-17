@@ -42009,6 +42009,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
              updated only via GridStack's own .load(), never innerHTML. -->
         <div id="adm-custom-counters-cards-toolbar" class="hidden flex items-center justify-between gap-2 mt-3"></div>
         <div id="adm-custom-counters-cards" class="mt-2"></div>
+        <div id="adm-submission-summary-section" class="mt-3"></div>
       </div>
 
       <div id="admAdminAppList" class="hidden">
@@ -42689,6 +42690,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>`;
     if (window.lucide) lucide.createIcons();
     _admRenderCustomCounters();
+    _admRenderSubmissionSummaryCard();
   }
 
   // ── Custom Count cards ───────────────────────────────────────────────────
@@ -43087,6 +43089,162 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     } catch (e) { showToast(e.message || 'Could not save layout', 'error'); }
     _admCustomCounterArranging = false;
     _admCustomCounterSyncGrid(true);
+  }
+
+  // ── Class/Version/Category Submission Summary report ────────────────────
+  // A fixed-shape pivot report matching the admin's own manual tracking
+  // sheet: for every (Class, Version) combination, one row per Category
+  // showing Applied / Submitted Total / Submitted Today counts, with a
+  // (Class, Version)-level Applied/Submitted subtotal merged down the side,
+  // and a final Category-wise grand-total block at the bottom. Computed
+  // entirely client-side from the already-loaded _admAllApps roster (same
+  // data the stat tiles/Custom Count cards already use) -- no extra fetch.
+  // "Submitted" = the chosen Scan Option (defaults to the 'submission' key
+  // seeded for every circular, see migration_admission_scan_options.sql)
+  // being marked as having a value, same has-value semantics as the Custom
+  // Count cards' own _admCustomCounterScanHasValue. "Submitted Today"
+  // additionally requires one of that option's scan_dates to fall on today.
+  let _admSubmissionSummaryOptionKey = null;
+  function _admSubmissionSummaryDefaultOptionKey() {
+    const opts = _admCandScanOptions || [];
+    if (opts.some(o => o.key === 'submission')) return 'submission';
+    return opts.length ? opts[0].key : null;
+  }
+  // Row/group order mirrors whatever order the admin configured for this
+  // circular's Class/Version/Category bounds (the multi-select pickers on
+  // the circular form) -- a value not in that list (legacy data, or none
+  // configured) just sorts to the end, alphabetically among itself.
+  function _admOrderIndex(list, value) {
+    if (!Array.isArray(list) || !list.length) return 9999;
+    const idx = list.indexOf(value);
+    return idx === -1 ? 9999 : idx;
+  }
+  function _admIsScannedToday(app, optionKey) {
+    const dates = (app.scan_dates || {})[optionKey];
+    if (!Array.isArray(dates) || !dates.length) return false;
+    const today = new Date().toISOString().slice(0, 10);
+    return dates.some(d => String(d || '').slice(0, 10) === today);
+  }
+  function _admBuildSubmissionSummaryData(optionKey) {
+    const apps = _admAllApps || [];
+    const circ = (_admCandCirculars || []).find(x => x.id === _admCandActiveCircularId);
+    const bounds = (circ && circ.bounds) || {};
+    const classOrder = Array.isArray(bounds.class) ? bounds.class : [];
+    const versionOrder = Array.isArray(bounds.version) ? bounds.version : [];
+    const categoryOrder = Array.isArray(bounds.student_category) ? bounds.student_category : [];
+    const groupMap = new Map(); // "class\u0001version" -> group
+    const categoryTotals = new Map(); // category -> {applied, submitted}
+    let grandApplied = 0, grandSubmitted = 0;
+    apps.forEach(a => {
+      const cls = a.class || '(none)', ver = a.version || '(none)', cat = a.category || '(none)';
+      const submitted = optionKey ? _admCustomCounterScanHasValue(a, optionKey) : false;
+      const today = optionKey ? _admIsScannedToday(a, optionKey) : false;
+      grandApplied++;
+      if (submitted) grandSubmitted++;
+      const gKey = cls + '\u0001' + ver;
+      if (!groupMap.has(gKey)) groupMap.set(gKey, { class: cls, version: ver, rows: new Map(), applied: 0, submitted: 0 });
+      const g = groupMap.get(gKey);
+      g.applied++;
+      if (submitted) g.submitted++;
+      if (!g.rows.has(cat)) g.rows.set(cat, { category: cat, applied: 0, submitted: 0, today: 0 });
+      const r = g.rows.get(cat);
+      r.applied++;
+      if (submitted) r.submitted++;
+      if (today) r.today++;
+      if (!categoryTotals.has(cat)) categoryTotals.set(cat, { category: cat, applied: 0, submitted: 0 });
+      const ct = categoryTotals.get(cat);
+      ct.applied++;
+      if (submitted) ct.submitted++;
+    });
+    const groups = [...groupMap.values()].map(g => ({
+      ...g,
+      rows: [...g.rows.values()].sort((a, b) => _admOrderIndex(categoryOrder, a.category) - _admOrderIndex(categoryOrder, b.category) || a.category.localeCompare(b.category)),
+    })).sort((a, b) =>
+      _admOrderIndex(classOrder, a.class) - _admOrderIndex(classOrder, b.class) ||
+      a.class.localeCompare(b.class) ||
+      _admOrderIndex(versionOrder, a.version) - _admOrderIndex(versionOrder, b.version) ||
+      a.version.localeCompare(b.version)
+    );
+    const catTotalsSorted = [...categoryTotals.values()].sort((a, b) => _admOrderIndex(categoryOrder, a.category) - _admOrderIndex(categoryOrder, b.category) || a.category.localeCompare(b.category));
+    return { groups, catTotalsSorted, grandApplied, grandSubmitted };
+  }
+  // Shared by the live Dashboard card AND the print output -- one renderer
+  // so the two never drift, same convention as _admScanValuesCompact above.
+  function _admSubmissionSummaryTableHtml(data) {
+    const { groups, catTotalsSorted, grandApplied, grandSubmitted } = data;
+    if (!groups.length) return '<p class="text-xs text-slate-400">No applications yet.</p>';
+    const bodyRows = [];
+    groups.forEach(g => {
+      g.rows.forEach((r, i) => {
+        bodyRows.push(`<tr>
+          ${i === 0 ? `<td class="px-2 py-1.5 font-bold text-slate-700" rowspan="${g.rows.length}">${_escHtml(g.class)}</td><td class="px-2 py-1.5 text-slate-600" rowspan="${g.rows.length}">${_escHtml(g.version)}</td>` : ''}
+          <td class="px-2 py-1.5 text-slate-600">${_escHtml(r.category)}</td>
+          <td class="px-2 py-1.5 text-right tabular-nums">${r.applied}</td>
+          <td class="px-2 py-1.5 text-right tabular-nums">${r.submitted || ''}</td>
+          <td class="px-2 py-1.5 text-right tabular-nums">${r.today || ''}</td>
+          ${i === 0 ? `<td class="px-2 py-1.5 text-right font-black text-slate-800 tabular-nums" rowspan="${g.rows.length}">${g.applied}</td><td class="px-2 py-1.5 text-right font-black text-slate-800 tabular-nums" rowspan="${g.rows.length}">${g.submitted || ''}</td>` : ''}
+        </tr>`);
+      });
+    });
+    const totalRows = catTotalsSorted.map((t, i) => `<tr>
+      ${i === 0 ? `<td class="px-2 py-1.5 font-black" colspan="2" rowspan="${catTotalsSorted.length}">Total=</td>` : ''}
+      <td class="px-2 py-1.5 font-bold text-slate-700">${_escHtml(t.category)}</td>
+      <td class="px-2 py-1.5 text-right font-bold tabular-nums">${t.applied}</td>
+      <td class="px-2 py-1.5 text-right font-bold tabular-nums">${t.submitted || ''}</td>
+      <td class="px-2 py-1.5"></td>
+      ${i === 0 ? `<td class="px-2 py-1.5 text-right font-black tabular-nums" rowspan="${catTotalsSorted.length}">${grandApplied}</td><td class="px-2 py-1.5 text-right font-black tabular-nums" rowspan="${catTotalsSorted.length}">${grandSubmitted}</td>` : ''}
+    </tr>`).join('');
+    return `<div class="overflow-x-auto adm-submission-summary-table">
+      <table class="w-full text-xs border-collapse">
+        <thead><tr class="text-left text-slate-400 font-bold uppercase text-[9px] bg-slate-50">
+          <th class="px-2 py-1.5">Class</th><th class="px-2 py-1.5">Version</th><th class="px-2 py-1.5">Category</th>
+          <th class="px-2 py-1.5 text-right">Applied</th><th class="px-2 py-1.5 text-right">Submitted Total</th><th class="px-2 py-1.5 text-right">Submitted Today</th>
+          <th class="px-2 py-1.5 text-right">Applied</th><th class="px-2 py-1.5 text-right">Submitted</th>
+        </tr></thead>
+        <tbody>${bodyRows.join('')}${totalRows}</tbody>
+      </table>
+    </div>`;
+  }
+  function _admSubmissionSummaryOptionChange(key) {
+    _admSubmissionSummaryOptionKey = key || null;
+    _admRenderSubmissionSummaryCard();
+  }
+  function _admRenderSubmissionSummaryCard() {
+    const host = document.getElementById('adm-submission-summary-section');
+    if (!host) return;
+    const opts = _admCandScanOptions || [];
+    if (!opts.length) { host.innerHTML = ''; return; }
+    if (_admSubmissionSummaryOptionKey === null || !opts.some(o => o.key === _admSubmissionSummaryOptionKey)) {
+      _admSubmissionSummaryOptionKey = _admSubmissionSummaryDefaultOptionKey();
+    }
+    const data = _admBuildSubmissionSummaryData(_admSubmissionSummaryOptionKey);
+    host.innerHTML = `<div class="bg-white rounded-2xl border border-slate-100 p-4">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+        <p class="text-[10px] uppercase text-slate-400 font-bold">Class / Version / Category Summary</p>
+        <div class="flex items-center gap-2">
+          <label class="text-[10px] font-bold text-slate-500 uppercase">Submitted =</label>
+          <select onchange="_admSubmissionSummaryOptionChange(this.value)" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold">
+            ${opts.map(o => `<option value="${_escHtml(o.key)}" ${o.key === _admSubmissionSummaryOptionKey ? 'selected' : ''}>${_escHtml(o.label)}</option>`).join('')}
+          </select>
+          <button type="button" onclick="_admPrintSubmissionSummary()" class="flex items-center gap-1 px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase"><i data-lucide="printer" class="h-3.5 w-3.5"></i> Print</button>
+        </div>
+      </div>
+      <p class="text-sm font-bold text-slate-600 mb-2">Total Application: <span class="text-blue-600 font-black">${data.grandApplied}</span> &nbsp;·&nbsp; Total Form Submission: <span class="text-emerald-600 font-black">${data.grandSubmitted}</span></p>
+      ${_admSubmissionSummaryTableHtml(data)}
+    </div>`;
+    if (window.lucide) lucide.createIcons();
+  }
+  function _admPrintSubmissionSummary() {
+    const data = _admBuildSubmissionSummaryData(_admSubmissionSummaryOptionKey);
+    const circ = (_admCandCirculars || []).find(x => x.id === _admCandActiveCircularId);
+    const body = `${_gfPrintLetterheadHtml()}
+      <h2 style="text-align:center;font-size:14px;margin:4px 0">Admission${circ && circ.name ? ' - ' + _escHtml(circ.name) : ''}</h2>
+      <p style="text-align:center;font-size:13px;font-weight:800;margin:2px 0">Total Application : ${data.grandApplied}</p>
+      <p style="text-align:center;font-size:11px;margin:0 0 10px">Total Form Submission - ${data.grandSubmitted}</p>
+      ${_admSubmissionSummaryTableHtml(data)}
+      <p style="text-align:right;font-size:9px;color:#6b7280;margin-top:10px">Date: ${new Date().toLocaleString()}</p>`;
+    const css = `.adm-submission-summary-table table { width:100%; border-collapse: collapse; } .adm-submission-summary-table th, .adm-submission-summary-table td { border: 1px solid #cbd5e1; }`;
+    _gfOpenPrintWindow('Submission Summary', body, css);
   }
 
   // ── Admin-configurable Applicant table columns ───────────────────────────
