@@ -48473,6 +48473,35 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Pure filter+sort, no DOM writes -- shared by the on-screen (paginated)
   // table render below AND the Export CSV / Print actions, so "what you see
   // is what exports/prints" without duplicating this logic three times.
+  // Raw-value sort key for any catalog field, built generically by
+  // stripping tags from its own render() output rather than needing a
+  // separate raw-accessor per field -- works for simple fields (Index No.,
+  // Mobile, Session, ...) and composite ones (Name, Class/Category/Version)
+  // alike, with no catalog changes needed.
+  function _admCandScanDataSortValue(fieldKey, a) {
+    const html = _admAppFieldRender(fieldKey, a) || '';
+    return html.replace(/<[^>]+>/g, '').trim().toLowerCase();
+  }
+  // Keeps the Sort By dropdown offering every currently-selected extra
+  // column (previously only Last Scanned/Name/Tracking ID were sortable,
+  // even though "Add a Column" lets the admin show any field -- e.g. Index
+  // No. was visible as a column but had no way to sort by it). Rebuilt
+  // whenever the table re-renders (i.e. whenever columns change too),
+  // preserving whichever sort was already selected if it still applies.
+  function _admCandScanDataRenderSortOptions() {
+    const sel = document.getElementById('admCandScanDataSort');
+    if (!sel) return;
+    const prev = sel.value;
+    const byKey = {}; _admAppFieldCatalog().forEach(f => { byKey[f.key] = f; });
+    const extraOptions = _admCandScanDataExtraCols.map(k => `<option value="col:${k}">${_escHtml((byKey[k] || {}).label || k)}</option>`).join('');
+    sel.innerHTML = `
+      <option value="scanned_desc">Last Scanned (Newest)</option>
+      <option value="scanned_asc">Last Scanned (Oldest)</option>
+      <option value="name_asc">Name (A-Z)</option>
+      <option value="tracking_asc">Tracking ID</option>
+      ${extraOptions}`;
+    if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+  }
   function _admCandScanDataComputeFilteredRows() {
     const opt = _admCandScanSelectedOption;
     if (!opt) return { opt: null, rows: [] };
@@ -48490,6 +48519,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admMatchesFilterState(a, st, activeFormFieldDims)
     );
     rows = [...rows].sort((a, b) => {
+      if (sortBy.startsWith('col:')) {
+        const fieldKey = sortBy.slice(4);
+        return _admCandScanDataSortValue(fieldKey, a).localeCompare(_admCandScanDataSortValue(fieldKey, b), undefined, { numeric: true });
+      }
       switch (sortBy) {
         case 'scanned_asc': return (a.last_scanned_at || '').localeCompare(b.last_scanned_at || '');
         case 'name_asc': return (a.name_english || '').toLowerCase().localeCompare((b.name_english || '').toLowerCase());
@@ -48505,6 +48538,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const opt = _admCandScanSelectedOption;
     if (!opt) { box.classList.add('hidden'); return; }
     box.classList.remove('hidden');
+    _admCandScanDataRenderSortOptions();
     const all = _admAllApps || [];
     // Class/Version/Category/Status/Source + every Scan Option are now the
     // shared Filters panel's dims (_admFilterDims, _admFormFieldFilterDims),
