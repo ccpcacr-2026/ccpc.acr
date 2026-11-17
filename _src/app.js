@@ -48841,11 +48841,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // the chooser and reveals just that box (never both at once), so a phone
   // screen in the field shows one clear next step instead of a camera
   // preview and a text input competing for space.
-  function _admCandScanChooseInput(mode) {
+  async function _admCandScanChooseInput(mode) {
     if (_admCandScanSelectedOption?.behavior === 'tag' && _admCandScanTagValue === null) {
       const tagNote = document.getElementById('admCandScanTagNote'); if (tagNote) tagNote.textContent = 'Lock a value first.';
       return;
     }
+    // Part 15: reload the roster fresh right as a scan session (re)starts --
+    // not per scan. _admCandResolveScan then resolves every individual scan
+    // against this in-memory snapshot with zero DB read, falling back to a
+    // server-side lookup only for a candidate this snapshot doesn't have yet
+    // (e.g. imported by someone else after this reload).
+    const preNote = document.getElementById('admCandScanNote');
+    if (preNote) preNote.textContent = 'Loading roster…';
+    await _admCandLoadList();
+    if (preNote) preNote.textContent = '';
     _admCandScanInputMode = mode;
     document.getElementById('admCandScanChooser')?.classList.add('hidden');
     const overlay = document.getElementById('admCandScanCameraOverlay');
@@ -49019,6 +49028,40 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return segments.length ? segments[segments.length - 1].trim() : s;
     } catch (e) { return s; }
   }
+  // Part 15: mirrors findCandidateByCode/scopeMatches server-side
+  // (app/api/admission-candidates/route.js) exactly, so resolving locally
+  // vs. falling back to the server is never a behavior difference. Searches
+  // _admCandAllCandidates -- the Candidates module's own full roster
+  // (reloaded fresh whenever a scan session starts, see
+  // _admCandScanChooseInput), which unlike _admAllApps actually carries
+  // photos (needed for the scan result card's avatar) since listCandidates
+  // is a select=*.
+  function _admCandFindLocalCandidate(code) {
+    const c = String(code || '').trim();
+    if (!c) return null;
+    for (const field of ['token', 'external_key', 'tracking_id', 'index_id']) {
+      const hit = _admCandAllCandidates.find(x => x[field] && String(x[field]) === c);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  function _admCandLocalScopeMatches(c, scope) {
+    if (!scope) return true;
+    if (scope.class && c.class !== scope.class) return false;
+    if (scope.category && c.category !== scope.category) return false;
+    if (scope.room_id && String(c.room_id) !== String(scope.room_id)) return false;
+    return true;
+  }
+  // Found locally -> send candidate_id (server resolves by primary key,
+  // always indexed, instead of running findCandidateByCode's by-code
+  // search). Not found (a stale snapshot -- e.g. imported by someone else
+  // since this scan session's roster load) -> fall back to code, exactly
+  // the original behavior, so correctness never depends on the local cache
+  // being perfectly fresh.
+  function _admCandResolveLocalOrCode(code) {
+    const local = _admCandFindLocalCandidate(code);
+    return { local, payload: local ? { candidate_id: local.id } : { code } };
+  }
   async function _admCandResolveScan(rawCode) {
     const code = _admCandExtractScanCode(rawCode);
     const note = document.getElementById('admCandScanNote');
@@ -49027,12 +49070,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (opt.behavior === 'tag' && _admCandScanTagValue === null) { if (note) note.textContent = 'Lock a value first.'; return; }
     if (_admCandMarksFormOpen) return; // a form is already open awaiting submit/cancel -- ignore stray scans
     if (note) note.textContent = 'Looking up ' + code + '…';
+    const { local, payload: codeOrIdPayload } = _admCandResolveLocalOrCode(code);
+    // Resolved locally and out of scope -- reject instantly, no server
+    // round-trip at all (nothing should be marked anyway).
+    if (local && !_admCandLocalScopeMatches(local, _admCandScanScope)) {
+      if (note) note.textContent = 'This candidate is outside the selected scope.';
+      _admCandRenderScanResult(local, true, rawCode);
+      return;
+    }
     // 'form' behavior is a lookup, not an immediate write -- it opens a form
     // instead of marking anything, and the actual save only happens when the
     // admin submits that form (_admCandSubmitMarksForm).
     if (opt.behavior === 'form') {
       try {
-        const r = await _admCandFetch('lookupCandidateByToken', { circular_id: _admCandActiveCircularId, code, scope: _admCandScanScope });
+        const r = await _admCandFetch('lookupCandidateByToken', { circular_id: _admCandActiveCircularId, scope: _admCandScanScope, ...codeOrIdPayload });
         if (r.error) {
           if (note) note.textContent = r.error;
           if (r.out_of_scope && r.candidate) _admCandRenderScanResult(r.candidate, true, rawCode);
@@ -49045,7 +49096,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     try {
       const extra = opt.behavior === 'tag' ? { value: _admCandScanTagValue } : {};
-      const r = await _admCandFetch('applyScanOption', { circular_id: _admCandActiveCircularId, option_key: opt.key, code, scope: _admCandScanScope, ...extra });
+      const r = await _admCandFetch('applyScanOption', { circular_id: _admCandActiveCircularId, option_key: opt.key, scope: _admCandScanScope, ...codeOrIdPayload, ...extra });
       if (r.error) {
         if (note) note.textContent = r.error;
         if (r.out_of_scope && r.candidate) _admCandRenderScanResult(r.candidate, true, rawCode);

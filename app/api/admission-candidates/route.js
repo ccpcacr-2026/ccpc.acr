@@ -925,11 +925,31 @@ export async function POST(req) {
     }
     return null;
   }
+  // Part 15: the client now resolves most scans against its own
+  // already-loaded roster (_admCandAllCandidates, reloaded fresh whenever a
+  // scan session starts) and sends the resolved candidate_id straight
+  // through -- a primary-key lookup, always indexed, trivially cheap --
+  // instead of forcing findCandidateByCode's by-code search (indexed as of
+  // migration_admission_applications_scan_lookup_indexes.sql, but still a
+  // real query) on every single scan. code-based lookup stays as the
+  // fallback for a stale local cache (a candidate imported mid-session) or
+  // manual entry misses -- correctness never depends on the client's
+  // snapshot being perfectly fresh, only the common case gets fast-pathed.
+  // circular_id is re-checked on the id path so a stale/forged candidate_id
+  // can never resolve a row from a different circular.
+  async function _resolveScanCandidate(circularId, payload) {
+    const candidateId = parseInt(payload.candidate_id, 10);
+    if (candidateId) {
+      const rows = await sbAdmission(`admission_applications?id=eq.${candidateId}&circular_id=eq.${circularId}&select=*`);
+      if (Array.isArray(rows) && rows[0]) return rows[0];
+    }
+    return findCandidateByCode(circularId, payload.code);
+  }
   if (action === 'lookupCandidateByToken') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
     if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'scan', 'view')) return _forbidden();
-    const candidate = await findCandidateByCode(circularId, payload.code);
+    const candidate = await _resolveScanCandidate(circularId, payload);
     if (!candidate) return NextResponse.json({ error: `No candidate matches "${payload.code}".` });
     if (!scopeMatches(candidate, payload.scope)) return NextResponse.json({ error: 'This candidate is outside the selected scope.', out_of_scope: true, candidate });
     return NextResponse.json({ candidate });
@@ -1054,7 +1074,7 @@ export async function POST(req) {
       const perms = await _getCommitteePerms(user_id, circularId);
       if (!_tabOk(false, perms, 'scan', 'view') || !_scanOk(false, perms, optionKey)) return _forbidden();
     }
-    const candidate = await findCandidateByCode(circularId, payload.code);
+    const candidate = await _resolveScanCandidate(circularId, payload);
     if (!candidate) return NextResponse.json({ error: `No candidate matches "${payload.code}".` });
     if (!scopeMatches(candidate, payload.scope)) return NextResponse.json({ error: 'This candidate is outside the selected scope.', out_of_scope: true, candidate });
     const value = payload.value !== undefined ? payload.value : { done: true, scanned_at: new Date().toISOString() };
