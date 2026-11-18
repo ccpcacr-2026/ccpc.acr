@@ -1631,3 +1631,14 @@ button { user-select: none; }
   background: rgba(37,99,235,.3) !important;
   border-radius: 5px;
 }
+
+/* Submission Summary report (Dashboard) -- visible cell borders on-screen,
+   matching the borders already hardcoded into its print CSS so the live
+   card and the printed report look the same. */
+.adm-submission-summary-table table {
+  border-collapse: collapse;
+}
+.adm-submission-summary-table th,
+.adm-submission-summary-table td {
+  border: 1px solid #e2e8f0;
+}

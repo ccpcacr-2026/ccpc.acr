@@ -43105,6 +43105,68 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Count cards' own _admCustomCounterScanHasValue. "Submitted Today"
   // additionally requires one of that option's scan_dates to fall on today.
   let _admSubmissionSummaryOptionKey = null;
+  // null = every class included (no filter applied yet); once the admin
+  // unchecks anything it becomes a concrete array of the classes to keep.
+  let _admSubmissionSummaryClassFilter = null;
+  // Which of the three count metrics render as columns -- unlike the class
+  // filter this always starts as "all three on", since hiding a column is a
+  // deliberate declutter action, not a default-narrowed view.
+  let _admSubmissionSummaryColumns = { applied: true, submitted: true, today: true };
+  // Admin-defined "treat these categories as one row" groups -- e.g. merge
+  // a session's 'General'+'Quota' categories into a single 'General+Quota'
+  // row. Resolved into the real category before grouping (see
+  // _admSubmissionSummaryResolveCategory), so it reshapes the report's rows
+  // rather than just relabeling them after the fact.
+  let _admSubmissionSummaryCombines = []; // [{label, categories: [...]}]
+  // Authoritative class/category lists come from the circular's own
+  // configured bounds (same source _admBuildSubmissionSummaryData already
+  // uses for row ordering) -- falling back to whatever distinct values are
+  // actually present in the roster if a circular has no bounds configured
+  // (legacy data), so the checklists are never empty for real data.
+  function _admSubmissionSummaryClassList() {
+    const circ = (_admCandCirculars || []).find(x => x.id === _admCandActiveCircularId);
+    const fromBounds = circ && Array.isArray(circ.bounds && circ.bounds.class) ? circ.bounds.class : [];
+    if (fromBounds.length) return fromBounds;
+    return [...new Set((_admAllApps || []).map(a => a.class || '(none)'))];
+  }
+  function _admSubmissionSummaryCategoryList() {
+    const circ = (_admCandCirculars || []).find(x => x.id === _admCandActiveCircularId);
+    const fromBounds = circ && Array.isArray(circ.bounds && circ.bounds.student_category) ? circ.bounds.student_category : [];
+    if (fromBounds.length) return fromBounds;
+    return [...new Set((_admAllApps || []).map(a => a.category || '(none)'))];
+  }
+  // A category already spoken for by one combine group can't join another --
+  // first match wins, same semantics as every other first-match lookup here.
+  function _admSubmissionSummaryResolveCategory(cat) {
+    const combo = _admSubmissionSummaryCombines.find(c => c.categories.includes(cat));
+    return combo ? combo.label : cat;
+  }
+  function _admSubmissionSummaryToggleClass(cls, checked) {
+    const all = _admSubmissionSummaryClassList();
+    let current = Array.isArray(_admSubmissionSummaryClassFilter) ? _admSubmissionSummaryClassFilter.slice() : all.slice();
+    current = checked ? [...new Set([...current, cls])] : current.filter(c => c !== cls);
+    // All boxes checked again collapses back to "no filter" (null) rather
+    // than staying a filter that happens to list every class -- keeps a
+    // fresh circular's default state (nothing unchecked yet) stable.
+    _admSubmissionSummaryClassFilter = (current.length === all.length) ? null : current;
+    _admRenderSubmissionSummaryCard();
+  }
+  function _admSubmissionSummaryToggleColumn(col, checked) {
+    _admSubmissionSummaryColumns[col] = checked;
+    _admRenderSubmissionSummaryCard();
+  }
+  function _admSubmissionSummaryAddCombine() {
+    const label = (document.getElementById('admSubSummaryCombineLabel') || {}).value;
+    const boxes = document.querySelectorAll('#admSubSummaryCombinePicker input[type=checkbox]:checked');
+    const categories = [...boxes].map(b => b.value);
+    if (!label || !label.trim() || categories.length < 2) { showToast('Pick a label and at least 2 categories to combine', 'error'); return; }
+    _admSubmissionSummaryCombines.push({ label: label.trim(), categories });
+    _admRenderSubmissionSummaryCard();
+  }
+  function _admSubmissionSummaryRemoveCombine(i) {
+    _admSubmissionSummaryCombines.splice(i, 1);
+    _admRenderSubmissionSummaryCard();
+  }
   function _admSubmissionSummaryDefaultOptionKey() {
     const opts = _admCandScanOptions || [];
     if (opts.some(o => o.key === 'submission')) return 'submission';
@@ -43126,17 +43188,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return dates.some(d => String(d || '').slice(0, 10) === today);
   }
   function _admBuildSubmissionSummaryData(optionKey) {
-    const apps = _admAllApps || [];
+    let apps = _admAllApps || [];
+    if (Array.isArray(_admSubmissionSummaryClassFilter)) {
+      apps = apps.filter(a => _admSubmissionSummaryClassFilter.includes(a.class || '(none)'));
+    }
     const circ = (_admCandCirculars || []).find(x => x.id === _admCandActiveCircularId);
     const bounds = (circ && circ.bounds) || {};
     const classOrder = Array.isArray(bounds.class) ? bounds.class : [];
     const versionOrder = Array.isArray(bounds.version) ? bounds.version : [];
+    // Combined category labels have no place of their own in the circular's
+    // configured order -- they fall to the end (via _admOrderIndex's own
+    // not-found fallback), same as any other unrecognized value.
     const categoryOrder = Array.isArray(bounds.student_category) ? bounds.student_category : [];
     const groupMap = new Map(); // "class\u0001version" -> group
     const categoryTotals = new Map(); // category -> {applied, submitted}
     let grandApplied = 0, grandSubmitted = 0;
     apps.forEach(a => {
-      const cls = a.class || '(none)', ver = a.version || '(none)', cat = a.category || '(none)';
+      const cls = a.class || '(none)', ver = a.version || '(none)', cat = _admSubmissionSummaryResolveCategory(a.category || '(none)');
       const submitted = optionKey ? _admCustomCounterScanHasValue(a, optionKey) : false;
       const today = optionKey ? _admIsScannedToday(a, optionKey) : false;
       grandApplied++;
@@ -43173,33 +43241,38 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admSubmissionSummaryTableHtml(data) {
     const { groups, catTotalsSorted, grandApplied, grandSubmitted } = data;
     if (!groups.length) return '<p class="text-xs text-slate-400">No applications yet.</p>';
+    // Each toggleable metric is independent of the others, including its own
+    // group-total/grand-total twin -- "Submitted Today" has no twin at all
+    // (never aggregated above row level), so it only ever drops the one cell.
+    const cols = _admSubmissionSummaryColumns || { applied: true, submitted: true, today: true };
+    const showApplied = cols.applied !== false, showSubmitted = cols.submitted !== false, showToday = cols.today !== false;
     const bodyRows = [];
     groups.forEach(g => {
       g.rows.forEach((r, i) => {
         bodyRows.push(`<tr>
           ${i === 0 ? `<td class="px-2 py-1.5 font-bold text-slate-700" rowspan="${g.rows.length}">${_escHtml(g.class)}</td><td class="px-2 py-1.5 text-slate-600" rowspan="${g.rows.length}">${_escHtml(g.version)}</td>` : ''}
           <td class="px-2 py-1.5 text-slate-600">${_escHtml(r.category)}</td>
-          <td class="px-2 py-1.5 text-right tabular-nums">${r.applied}</td>
-          <td class="px-2 py-1.5 text-right tabular-nums">${r.submitted || ''}</td>
-          <td class="px-2 py-1.5 text-right tabular-nums">${r.today || ''}</td>
-          ${i === 0 ? `<td class="px-2 py-1.5 text-right font-black text-slate-800 tabular-nums" rowspan="${g.rows.length}">${g.applied}</td><td class="px-2 py-1.5 text-right font-black text-slate-800 tabular-nums" rowspan="${g.rows.length}">${g.submitted || ''}</td>` : ''}
+          ${showApplied ? `<td class="px-2 py-1.5 text-right tabular-nums">${r.applied}</td>` : ''}
+          ${showSubmitted ? `<td class="px-2 py-1.5 text-right tabular-nums">${r.submitted || ''}</td>` : ''}
+          ${showToday ? `<td class="px-2 py-1.5 text-right tabular-nums">${r.today || ''}</td>` : ''}
+          ${i === 0 ? `${showApplied ? `<td class="px-2 py-1.5 text-right font-black text-slate-800 tabular-nums" rowspan="${g.rows.length}">${g.applied}</td>` : ''}${showSubmitted ? `<td class="px-2 py-1.5 text-right font-black text-slate-800 tabular-nums" rowspan="${g.rows.length}">${g.submitted || ''}</td>` : ''}` : ''}
         </tr>`);
       });
     });
     const totalRows = catTotalsSorted.map((t, i) => `<tr>
       ${i === 0 ? `<td class="px-2 py-1.5 font-black" colspan="2" rowspan="${catTotalsSorted.length}">Total=</td>` : ''}
       <td class="px-2 py-1.5 font-bold text-slate-700">${_escHtml(t.category)}</td>
-      <td class="px-2 py-1.5 text-right font-bold tabular-nums">${t.applied}</td>
-      <td class="px-2 py-1.5 text-right font-bold tabular-nums">${t.submitted || ''}</td>
-      <td class="px-2 py-1.5"></td>
-      ${i === 0 ? `<td class="px-2 py-1.5 text-right font-black tabular-nums" rowspan="${catTotalsSorted.length}">${grandApplied}</td><td class="px-2 py-1.5 text-right font-black tabular-nums" rowspan="${catTotalsSorted.length}">${grandSubmitted}</td>` : ''}
+      ${showApplied ? `<td class="px-2 py-1.5 text-right font-bold tabular-nums">${t.applied}</td>` : ''}
+      ${showSubmitted ? `<td class="px-2 py-1.5 text-right font-bold tabular-nums">${t.submitted || ''}</td>` : ''}
+      ${showToday ? `<td class="px-2 py-1.5"></td>` : ''}
+      ${i === 0 ? `${showApplied ? `<td class="px-2 py-1.5 text-right font-black tabular-nums" rowspan="${catTotalsSorted.length}">${grandApplied}</td>` : ''}${showSubmitted ? `<td class="px-2 py-1.5 text-right font-black tabular-nums" rowspan="${catTotalsSorted.length}">${grandSubmitted}</td>` : ''}` : ''}
     </tr>`).join('');
     return `<div class="overflow-x-auto adm-submission-summary-table">
       <table class="w-full text-xs border-collapse">
         <thead><tr class="text-left text-slate-400 font-bold uppercase text-[9px] bg-slate-50">
           <th class="px-2 py-1.5">Class</th><th class="px-2 py-1.5">Version</th><th class="px-2 py-1.5">Category</th>
-          <th class="px-2 py-1.5 text-right">Applied</th><th class="px-2 py-1.5 text-right">Submitted Total</th><th class="px-2 py-1.5 text-right">Submitted Today</th>
-          <th class="px-2 py-1.5 text-right">Applied</th><th class="px-2 py-1.5 text-right">Submitted</th>
+          ${showApplied ? `<th class="px-2 py-1.5 text-right">Applied</th>` : ''}${showSubmitted ? `<th class="px-2 py-1.5 text-right">Submitted Total</th>` : ''}${showToday ? `<th class="px-2 py-1.5 text-right">Submitted Today</th>` : ''}
+          ${showApplied ? `<th class="px-2 py-1.5 text-right">Applied</th>` : ''}${showSubmitted ? `<th class="px-2 py-1.5 text-right">Submitted</th>` : ''}
         </tr></thead>
         <tbody>${bodyRows.join('')}${totalRows}</tbody>
       </table>
@@ -43229,6 +43302,38 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button type="button" onclick="_admPrintSubmissionSummary()" class="flex items-center gap-1 px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase"><i data-lucide="printer" class="h-3.5 w-3.5"></i> Print</button>
         </div>
       </div>
+      <details class="mb-2.5 rounded-xl border border-slate-200 p-2.5">
+        <summary class="text-[10px] font-black text-slate-500 uppercase tracking-widest cursor-pointer">Customize report</summary>
+        <div class="mt-2.5 grid gap-3 sm:grid-cols-2">
+          <div>
+            <p class="text-[10px] uppercase text-slate-400 font-bold mb-1">Classes</p>
+            <div class="flex flex-wrap gap-2">
+              ${_admSubmissionSummaryClassList().map(c => `<label class="flex items-center gap-1 text-xs font-bold text-slate-600"><input type="checkbox" onchange='_admSubmissionSummaryToggleClass(${JSON.stringify(c)}, this.checked)' ${(!Array.isArray(_admSubmissionSummaryClassFilter) || _admSubmissionSummaryClassFilter.includes(c)) ? 'checked' : ''}> ${_escHtml(c)}</label>`).join('')}
+            </div>
+          </div>
+          <div>
+            <p class="text-[10px] uppercase text-slate-400 font-bold mb-1">Columns</p>
+            <div class="flex flex-wrap gap-2">
+              <label class="flex items-center gap-1 text-xs font-bold text-slate-600"><input type="checkbox" onchange="_admSubmissionSummaryToggleColumn('applied', this.checked)" ${_admSubmissionSummaryColumns.applied !== false ? 'checked' : ''}> Applied</label>
+              <label class="flex items-center gap-1 text-xs font-bold text-slate-600"><input type="checkbox" onchange="_admSubmissionSummaryToggleColumn('submitted', this.checked)" ${_admSubmissionSummaryColumns.submitted !== false ? 'checked' : ''}> Submitted Total</label>
+              <label class="flex items-center gap-1 text-xs font-bold text-slate-600"><input type="checkbox" onchange="_admSubmissionSummaryToggleColumn('today', this.checked)" ${_admSubmissionSummaryColumns.today !== false ? 'checked' : ''}> Submitted Today</label>
+            </div>
+          </div>
+          <div class="sm:col-span-2">
+            <p class="text-[10px] uppercase text-slate-400 font-bold mb-1">Combine categories into one row</p>
+            <div class="flex flex-wrap gap-1.5 mb-1.5">
+              ${_admSubmissionSummaryCombines.map((c, i) => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-violet-50 text-violet-700 rounded-full text-[10px] font-black">${_escHtml(c.label)} = ${c.categories.map(_escHtml).join(' + ')}<button type="button" onclick="_admSubmissionSummaryRemoveCombine(${i})" class="ml-0.5 text-violet-400 hover:text-violet-700">&times;</button></span>`).join('')}
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <div id="admSubSummaryCombinePicker" class="flex flex-wrap gap-2">
+                ${_admSubmissionSummaryCategoryList().map(c => `<label class="flex items-center gap-1 text-xs font-bold text-slate-600"><input type="checkbox" value="${_escHtml(c)}"> ${_escHtml(c)}</label>`).join('')}
+              </div>
+              <input type="text" id="admSubSummaryCombineLabel" placeholder="Combined label" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold" style="min-width:140px">
+              <button type="button" onclick="_admSubmissionSummaryAddCombine()" class="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-[10px] font-black uppercase">+ Combine</button>
+            </div>
+          </div>
+        </div>
+      </details>
       <p class="text-sm font-bold text-slate-600 mb-2">Total Application: <span class="text-blue-600 font-black">${data.grandApplied}</span> &nbsp;·&nbsp; Total Form Submission: <span class="text-emerald-600 font-black">${data.grandSubmitted}</span></p>
       ${_admSubmissionSummaryTableHtml(data)}
     </div>`;
