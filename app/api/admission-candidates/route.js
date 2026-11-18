@@ -1526,6 +1526,19 @@ export async function POST(req) {
     if (res?.error) return NextResponse.json({ error: res.error });
     return NextResponse.json({ success: true });
   }
+  // Admin-defined "combine these categories into one row" groups for the
+  // Submission Summary report -- shared across every admin/committee member
+  // viewing this circular's Dashboard, not a per-browser preference, so it
+  // persists on the circular itself (same PATCH pattern as saveVortibdCircularLink).
+  if (action === 'saveSubmissionSummaryCombines') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Missing circular.' });
+    if (!isFullAdmin && !_tabOk(isFullAdmin, await _getCommitteePerms(user_id, circularId), 'applications', 'edit')) return _forbidden();
+    const combines = Array.isArray(payload.combines) ? payload.combines : [];
+    const res = await sbAdmission(`exam_circulars?id=eq.${circularId}`, 'PATCH', { submission_summary_combines: combines });
+    if (res?.error) return NextResponse.json({ error: res.error });
+    return NextResponse.json({ success: true });
+  }
   if (action === 'vortibdPullFile') {
     const circularId = parseInt(payload.circular_id, 10);
     const circRows = circularId ? await sbAdmission(`exam_circulars?id=eq.${circularId}&select=vortibd_circular_id`) : null;

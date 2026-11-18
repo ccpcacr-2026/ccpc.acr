@@ -401,7 +401,7 @@
   // localStorage/session untouched, so coming back later doesn't require
   // logging in again. Irrelevant (and hidden) in a normal browser tab.
   function switchToStudentPortal() {
-    window.location.href = 'https://ccpc-portal.vercel.app';
+    window.location.href = 'https://ccpc.portal.getinstigen.com';
   }
   (function () {
     if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
@@ -30349,7 +30349,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // fresh or already-logged-in visitor straight on this one Group Form's
   // pane, skipping the nav hunt. Same mechanism/base URL a dynamic Tab's
   // own "Link" button (Setup screen) uses with ?tab=<tab_name> instead.
-  const STUDENT_PORTAL_URL = 'https://ccpc-portal.vercel.app';
+  const STUDENT_PORTAL_URL = 'https://ccpc.portal.getinstigen.com';
 
   // Copy/Download buttons deliberately take no inline-interpolated string
   // (previously onclick="...writeText(${JSON.stringify(url)})..." — url is
@@ -33173,7 +33173,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // button) since each action here (add/rename/enable/regenerate/delete) is
   // already a single, independent server call, same as the roster card's
   // own Active/Open toggles.
-  const STUDENT_PORTAL_ORIGIN_FOR_JUDGE = 'https://ccpc-acr.vercel.app';
+  const STUDENT_PORTAL_ORIGIN_FOR_JUDGE = 'https://ccpc.getinstigen.com';
   let _gfJudges = [];
   function toggleGroupFormJudgesPanel() {
     const panel = document.getElementById('gfJudgesPanel');
@@ -43118,6 +43118,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // _admSubmissionSummaryResolveCategory), so it reshapes the report's rows
   // rather than just relabeling them after the fact.
   let _admSubmissionSummaryCombines = []; // [{label, categories: [...]}]
+  // Which circular _admSubmissionSummaryCombines was last loaded from --
+  // persisted on exam_circulars.submission_summary_combines (shared across
+  // every admin/committee member, not a per-browser preference), so a
+  // circular switch re-syncs it instead of carrying over stale groups.
+  let _admSubmissionSummaryCombinesLoadedFor = null;
+  function _admSubmissionSummaryEnsureCombinesLoaded() {
+    if (_admSubmissionSummaryCombinesLoadedFor === _admCandActiveCircularId) return;
+    const circ = (_admCandCirculars || []).find(x => x.id === _admCandActiveCircularId);
+    _admSubmissionSummaryCombines = Array.isArray(circ && circ.submission_summary_combines) ? circ.submission_summary_combines.slice() : [];
+    _admSubmissionSummaryCombinesLoadedFor = _admCandActiveCircularId;
+  }
+  function _admSubmissionSummarySaveCombines() {
+    const circularId = _admCandActiveCircularId;
+    const circ = (_admCandCirculars || []).find(x => x.id === circularId);
+    if (circ) circ.submission_summary_combines = _admSubmissionSummaryCombines;
+    _admCandFetch('saveSubmissionSummaryCombines', { circular_id: circularId, combines: _admSubmissionSummaryCombines })
+      .then(res => { if (res && res.error) showToast(res.error, 'error'); })
+      .catch(err => showToast(err.message || 'Failed to save combine settings', 'error'));
+  }
   // Authoritative class/category lists come from the circular's own
   // configured bounds (same source _admBuildSubmissionSummaryData already
   // uses for row ordering) -- falling back to whatever distinct values are
@@ -43161,10 +43180,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const categories = [...boxes].map(b => b.value);
     if (!label || !label.trim() || categories.length < 2) { showToast('Pick a label and at least 2 categories to combine', 'error'); return; }
     _admSubmissionSummaryCombines.push({ label: label.trim(), categories });
+    _admSubmissionSummarySaveCombines();
     _admRenderSubmissionSummaryCard();
   }
   function _admSubmissionSummaryRemoveCombine(i) {
     _admSubmissionSummaryCombines.splice(i, 1);
+    _admSubmissionSummarySaveCombines();
     _admRenderSubmissionSummaryCard();
   }
   function _admSubmissionSummaryDefaultOptionKey() {
@@ -43285,6 +43306,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admRenderSubmissionSummaryCard() {
     const host = document.getElementById('adm-submission-summary-section');
     if (!host) return;
+    _admSubmissionSummaryEnsureCombinesLoaded();
     const opts = _admCandScanOptions || [];
     if (!opts.length) { host.innerHTML = ''; return; }
     if (_admSubmissionSummaryOptionKey === null || !opts.some(o => o.key === _admSubmissionSummaryOptionKey)) {

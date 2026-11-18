@@ -33,7 +33,7 @@ function prQrBlock(data, caption, size){
 function verifyQrData(a, collegeName){
   if (a.qr_data) return String(a.qr_data);
   const code = a.tracking_id || a.index_id || '';
-  return 'https://ccpc-admission.vercel.app/verify.html?code=' + encodeURIComponent(code);
+  return 'https://ccpc.admission.getinstigen.com/verify.html?code=' + encodeURIComponent(code);
 }
 function fmtAge(dob){
   if(!dob) return '';
