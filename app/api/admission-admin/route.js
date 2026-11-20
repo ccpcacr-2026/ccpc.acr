@@ -419,7 +419,18 @@ export async function POST(req) {
     // option) is what the existing Scanned-Between filter/Last-Scanned sort
     // actually need -- it was missing from this select entirely before, so
     // those silently had nothing to compare against.
-    let q = `admission_applications?select=id,tracking_id,index_id,token,source,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,room_id,seat_no,scan_values,scan_dates,last_scanned_at,extra_fields,created_at,updated_at,date_of_birth,gender,blood_group,present_address,permanent_address,father_name,father_profession,father_designation,father_contact,father_office_address,mother_name,mother_profession,mother_designation,mother_contact,mother_office_address,guardian_name,guardian_contact,guardian_relation&circular_id=eq.${circularId}&order=created_at.desc`;
+    // order=created_at.desc,id.desc -- created_at alone is NOT unique (bulk
+    // VortiBD/Excel imports routinely insert many rows in the same instant),
+    // and sbAdmissionAllRows below pages this via PARALLEL Range-header
+    // requests. Without a unique tie-breaker, Postgres has no guarantee which
+    // order tied rows come back in across separate query executions, so a
+    // row sitting at a page boundary could land on both pages (inflating the
+    // Dashboard's totals) or neither (deflating them) from one fetch to the
+    // next, with zero real data changes -- this is what was actually behind
+    // a live-reported "Custom Count/Submission Summary fluctuates even with
+    // no one inputting anything" bug. `id` (the primary key) makes the sort
+    // fully deterministic regardless of how many rows share a created_at.
+    let q = `admission_applications?select=id,tracking_id,index_id,token,source,name_english,name_bangla,class,category,version,session,status,stage,payment_status,room_no,room_id,seat_no,scan_values,scan_dates,last_scanned_at,extra_fields,created_at,updated_at,date_of_birth,gender,blood_group,present_address,permanent_address,father_name,father_profession,father_designation,father_contact,father_office_address,mother_name,mother_profession,mother_designation,mother_contact,mother_office_address,guardian_name,guardian_contact,guardian_relation&circular_id=eq.${circularId}&order=created_at.desc,id.desc`;
     if (payload.class)   q += `&class=eq.${encodeURIComponent(payload.class)}`;
     if (payload.status)  q += `&status=eq.${encodeURIComponent(payload.status)}`;
     if (payload.source)  q += `&source=eq.${encodeURIComponent(payload.source)}`;
