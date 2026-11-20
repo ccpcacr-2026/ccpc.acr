@@ -416,7 +416,11 @@ export async function POST(req) {
   // ever only have ONE upsert implementation to keep correct.
   async function _upsertMappedRows(circularId, rows, meta) {
     if (!rows.length) return { error: 'No rows to import.' };
-    if (rows.length > 5000) return { error: 'Import 5000 rows or fewer at a time.' };
+    // Was capped at 5000 to stay inside Vercel's serverless execution-time
+    // limit; now self-hosted (no such limit), and every real DB write below
+    // is already done in safe internal batches of 500/150, so this is just a
+    // sanity ceiling against a truly malformed/giant paste, not a feature cap.
+    if (rows.length > 50000) return { error: 'Import 50000 rows or fewer at a time.' };
 
     const circRows = await sbAdmission(`exam_circulars?id=eq.${circularId}&select=bounds`);
     const bounds = (Array.isArray(circRows) && circRows[0] && circRows[0].bounds) || {};
