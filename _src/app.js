@@ -357,6 +357,7 @@
           // that stale value from being tracked.
           if (loginId) loginId.value = '';
           if (loginPw) loginPw.value = '';
+          _qrFabInit();
           launchDashboard();
         } else if (isAuto) {
           if (loginId) loginId.value = id;
@@ -1294,12 +1295,47 @@
         google.script.run
           .withSuccessHandler(data => {
             try { renderTeacherProfile(data); } catch (e) { console.error(e); }
+            try { _diaryRenderMyReportsSection(); } catch (e) { console.error(e); }
             showLoading(false);
           })
           .withFailureHandler(e => { console.error(e); showLoading(false); })
           .getMyProfile(email, uid);
       })
       .catch(e => { console.error('[CCPC] Profile view load failed:', e); showLoading(false); });
+  }
+
+  // "My Reports" — a second rendering surface for the signed-in user's own
+  // Diary entries (same data as the Diary module's own "My Entries" tab,
+  // reusing the exact same getDiaryEntries(myId,'mine',{}) call and
+  // _diaryEntryCardHtml renderer) so Edit/Delete are reachable straight
+  // from the Profile page without navigating to the Diary module at all.
+  // Purely a second view of existing data — no new backend action.
+  function _diaryRenderMyReportsSection() {
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    let section = document.getElementById('myReportsSection');
+    if (!section) {
+      section = document.createElement('div');
+      section.id = 'myReportsSection';
+      section.className = 'max-w-3xl mx-auto mt-6';
+      section.innerHTML = `<h3 class="font-black text-slate-800 text-sm mb-3">My Reports (Diary / Cases)</h3><div id="myReportsList" class="flex flex-col gap-2"><div class="text-center py-10 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>`;
+      container.appendChild(section);
+    }
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      const list = document.getElementById('myReportsList');
+      if (!list) return;
+      if (!res || res.result !== 'success') { list.innerHTML = `<div class="text-center py-10 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to load')}</div>`; return; }
+      const entries = res.entries || [];
+      list.innerHTML = entries.length ? entries.map(e => _diaryEntryCardHtml(e)).join('') : `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm text-center py-10 text-slate-400 text-xs font-black uppercase tracking-widest">You haven't logged any diary entries yet</div>`;
+      lucide.createIcons();
+    }).withFailureHandler(() => { const list = document.getElementById('myReportsList'); if (list) list.innerHTML = `<div class="text-center py-10 text-red-400 text-xs font-black uppercase tracking-widest">Network error</div>`; }).getDiaryEntries(myId, 'mine', {});
+  }
+
+  // Lets _diaryEntryEditSave refresh the Profile page's own copy of the
+  // list too, when that's the surface the edit was made from.
+  function _diaryProfileReload() {
+    if (document.getElementById('myReportsSection')) _diaryRenderMyReportsSection();
   }
 
   // ── Student Tab Data (delegated access) ──────────────────────────────────
@@ -6965,12 +7001,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'wish', label: 'Wish', emoji: '🎉', grad: 'from-fuchsia-500 to-purple-600' },
     { key: 'homework', label: 'Homework / To-do', emoji: '📚', grad: 'from-blue-500 to-indigo-600' },
   ];
-  let _diaryScope = 'mine'; // 'mine' | 'oversight'
+  let _diaryScope = 'mine'; // 'mine' | 'oversight' | 'my_cases' | 'committees'
   let _diaryEntries = [];
   let _diaryComposerType = 'discipline';
   let _diaryAudience = null;   // {mode, session, class, section, student_ids}
   let _diaryAudienceStudents = [];
   let _diaryClassSectionOptions = { classes: [], sections: {} }; // Class -> [Section] dropdown data, from real student records
+  // Case Type (Part 18): 'notify' (today's existing behavior) | 'committee'
+  // (routes into a committee's untriaged queue) -- only offered when the
+  // audience picker narrows to exactly one student, since a committee case
+  // always targets a single student.
+  let _diaryCaseType = 'notify';
+  let _diaryCommitteesCache = null; // [{id, name, my_role}], loaded lazily
+  let _diaryComposerFromScan = false; // true when this composer was opened from the QR-scan student panel
 
   function loadDiaryView() {
     _setViewHash('student_portal');
@@ -6979,6 +7022,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const container = document.getElementById('view-container');
     if (!container) return;
     _diaryComposerType = 'discipline';
+    _diaryCaseType = 'notify';
+    _diaryComposerFromScan = false;
     container.innerHTML = `
       <div class="pt-4 max-w-3xl mx-auto pb-10">
         <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-4 mb-5">
@@ -7002,6 +7047,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div id="diaryAudStudentList" class="hidden max-h-40 overflow-y-auto space-y-1"></div>
             <p id="diaryAudSummary" class="text-[10px] font-bold text-slate-500"></p>
           </div>
+          <div id="diaryCaseTypeRow" class="hidden p-3 rounded-xl border border-rose-200 bg-rose-50/40 space-y-2 mb-3">
+            <p class="text-[10px] font-black text-rose-600 uppercase tracking-widest">Case Type</p>
+            <div class="flex gap-2 flex-wrap">
+              <button onclick="_diarySelectCaseType('notify')" id="diaryCaseTypeBtn-notify" class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase border">Notify / No Action Needed</button>
+              <button onclick="_diarySelectCaseType('committee')" id="diaryCaseTypeBtn-committee" class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase border">Action Needed (Committee)</button>
+            </div>
+            <select id="diaryCaseCommittee" class="hidden w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold"><option value="">Loading committees…</option></select>
+          </div>
           <div id="diaryHomeworkFields" class="hidden mb-3">
             <div class="grid grid-cols-2 gap-2 mb-2">
               <input id="diarySubject" placeholder="Subject (e.g. Mathematics)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold">
@@ -7021,9 +7074,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button id="diarySubmitBtn" onclick="_diarySubmit()" class="mt-3 w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Submit Diary Entry</button>
         </div>
 
-        <div class="flex gap-2 mb-3">
+        <div class="flex gap-2 mb-3 flex-wrap">
           <button onclick="_diarySetScope('mine')" id="diaryTabMine" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">My Entries</button>
           <button onclick="_diarySetScope('oversight')" id="diaryTabOversight" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Oversight</button>
+          <button onclick="_diarySetScope('my_cases')" id="diaryTabMyCases" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">My Cases</button>
+          <button onclick="_diarySetScope('committees')" id="diaryTabCommittees" class="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all">Committees</button>
         </div>
         <div id="diaryList" class="flex flex-col gap-2">
           <div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>
@@ -7126,6 +7181,44 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (mode === 'class') _diaryAudience.section = '';
     if (mode === 'students') _diaryAudienceSearchStudents();
     _diaryAudienceUpdateSummary();
+    _diaryUpdateCaseTypeAvailability();
+  }
+
+  // A Committee case always targets exactly one student (see
+  // createDiaryEntry's server-side validation) -- the Case Type row only
+  // ever shows once the audience narrows to that. Changing the audience
+  // away from exactly-one-student silently resets the choice back to
+  // 'notify' so a stale 'committee' selection can never submit against a
+  // class/section audience.
+  function _diaryUpdateCaseTypeAvailability() {
+    const row = document.getElementById('diaryCaseTypeRow');
+    if (!row) return;
+    const a = _diaryAudience;
+    const eligible = a && a.mode === 'students' && a.student_ids.length === 1;
+    row.classList.toggle('hidden', !eligible);
+    if (!eligible) { _diarySelectCaseType('notify'); return; }
+    if (!_diaryCommitteesCache) _diaryLoadCommitteesForComposer();
+  }
+
+  function _diaryLoadCommitteesForComposer() {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      _diaryCommitteesCache = (res && res.result === 'success') ? (res.committees || []) : [];
+      const sel = document.getElementById('diaryCaseCommittee');
+      if (sel) sel.innerHTML = _diaryCommitteesCache.length
+        ? `<option value="">Pick a committee…</option>` + _diaryCommitteesCache.map(c => `<option value="${c.id}">${_escHtml(c.name)}</option>`).join('')
+        : `<option value="">No committees exist yet</option>`;
+    }).withFailureHandler(() => {}).listDiaryCommittees(myId);
+  }
+
+  function _diarySelectCaseType(key) {
+    _diaryCaseType = key;
+    ['notify', 'committee'].forEach(k => {
+      const btn = document.getElementById(`diaryCaseTypeBtn-${k}`);
+      if (btn) btn.className = `px-2.5 py-1 rounded-full text-[10px] font-black uppercase border ${key === k ? 'bg-rose-600 text-white border-transparent' : 'border-slate-200 text-slate-500'}`;
+    });
+    const committeeSel = document.getElementById('diaryCaseCommittee');
+    if (committeeSel) committeeSel.classList.toggle('hidden', key !== 'committee');
   }
 
   function _diaryAudienceSearchStudents() {
@@ -7136,6 +7229,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const roll = rollEl ? rollEl.value.trim() : '';
     _diaryAudience.session = session; _diaryAudience.class = cls; _diaryAudience.section = section;
     _diaryAudienceUpdateSummary();
+    _diaryUpdateCaseTypeAvailability();
     if (_diaryAudience.mode !== 'students' || !cls) { _diaryAudienceStudents = []; document.getElementById('diaryAudStudentList').innerHTML = ''; return; }
     const myId = window.APP_USER && window.APP_USER.user_id;
     google.script.run.withSuccessHandler(res => {
@@ -7159,6 +7253,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (checked) { if (!_diaryAudience.student_ids.includes(id)) _diaryAudience.student_ids.push(id); }
     else { _diaryAudience.student_ids = _diaryAudience.student_ids.filter(x => x !== id); }
     _diaryAudienceUpdateSummary();
+    _diaryUpdateCaseTypeAvailability();
   }
 
   function _diaryAudienceUpdateSummary() {
@@ -7176,6 +7271,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!message) { showToast('Write a message first', 'error'); return; }
     if (!_diaryAudience || !_diaryAudience.class) { showToast('Pick a Class this entry is for', 'error'); return; }
     if (_diaryAudience.mode === 'students' && !_diaryAudience.student_ids.length) { showToast('Pick at least one student', 'error'); return; }
+    let committeeId = null;
+    if (_diaryCaseType === 'committee') {
+      if (_diaryAudience.mode !== 'students' || _diaryAudience.student_ids.length !== 1) { showToast('A Committee case must target exactly one student', 'error'); return; }
+      const sel = document.getElementById('diaryCaseCommittee');
+      committeeId = sel ? parseInt(sel.value, 10) || null : null;
+      if (!committeeId) { showToast('Pick a committee for this case', 'error'); return; }
+    }
     const btn = document.getElementById('diarySubmitBtn');
     if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
     const myId = window.APP_USER && window.APP_USER.user_id;
@@ -7183,6 +7285,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       entry_type: _diaryComposerType, audience: _diaryAudience, message,
       subject: _diaryComposerType === 'homework' ? (document.getElementById('diarySubject').value || '').trim() : '',
       due_date: _diaryComposerType === 'homework' ? (document.getElementById('diaryDueDate').value || '') : '',
+      case_type: _diaryCaseType, committee_id: committeeId, scanned_from_qr: _diaryComposerFromScan,
     };
     google.script.run.withSuccessHandler(res => {
       if (btn) { btn.disabled = false; btn.textContent = 'Submit Diary Entry'; }
@@ -7195,7 +7298,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const dueWdEl = document.getElementById('diaryDueWeekday'); if (dueWdEl) { dueWdEl.value = ''; dueWdEl.classList.add('hidden'); }
       if (dueEl) dueEl.classList.remove('hidden');
       const dueResolvedEl = document.getElementById('diaryDueResolved'); if (dueResolvedEl) dueResolvedEl.classList.add('hidden');
+      _diarySelectCaseType('notify');
       if (_diaryScope === 'mine') _diaryLoadList();
+      if (typeof _diaryScanPanelAfterSubmit === 'function' && _diaryComposerFromScan) _diaryScanPanelAfterSubmit(res.entry);
     }).withFailureHandler(() => {
       if (btn) { btn.disabled = false; btn.textContent = 'Submit Diary Entry'; }
       showToast('Network error while submitting', 'error');
@@ -7206,11 +7311,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _diaryScope = scope;
     const active = 'bg-blue-600 text-white shadow-lg shadow-blue-500/20';
     const inactive = 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50';
-    const mineBtn = document.getElementById('diaryTabMine');
-    const overBtn = document.getElementById('diaryTabOversight');
-    if (mineBtn) mineBtn.className = `px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${scope === 'mine' ? active : inactive}`;
-    if (overBtn) overBtn.className = `px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${scope === 'oversight' ? active : inactive}`;
-    _diaryLoadList();
+    const base = 'px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all';
+    const ids = { mine: 'diaryTabMine', oversight: 'diaryTabOversight', my_cases: 'diaryTabMyCases', committees: 'diaryTabCommittees' };
+    Object.entries(ids).forEach(([s, elId]) => { const btn = document.getElementById(elId); if (btn) btn.className = `${base} ${scope === s ? active : inactive}`; });
+    if (scope === 'my_cases') _diaryLoadMyCases();
+    else if (scope === 'committees') _diaryLoadCommitteesTab();
+    else _diaryLoadList();
   }
 
   function _diaryLoadList() {
@@ -7227,26 +7333,686 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).withFailureHandler(() => { list.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">Network error</div>`; }).getDiaryEntries(myId, _diaryScope, {});
   }
 
+  // ── "My Cases" — every committee case currently assigned to me ───────────
+  function _diaryLoadMyCases() {
+    const list = document.getElementById('diaryList');
+    if (!list) return;
+    list.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { list.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to load')}</div>`; return; }
+      const cases = res.cases || [];
+      if (!cases.length) { list.innerHTML = `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Nothing assigned to you right now</div>`; return; }
+      _diaryEntries = cases; // so _diaryEntryEditOpen can find these too
+      list.innerHTML = cases.map(e => _diaryEntryCardHtml(e)).join('');
+      lucide.createIcons();
+    }).withFailureHandler(() => { list.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">Network error</div>`; }).getMyCommitteeCases(myId);
+  }
+
+  // ── Committees — overview + sub-panels (Members/Subtypes/Queue/Rules) ─────
+  // All rendered into the same #diaryList container the other scopes
+  // already use, with a "← Back" link, rather than a second nested tab bar.
+  let _diaryActiveCommitteePanel = null; // {type, committeeId} — lets a save/triage action refresh whichever panel is open
+
+  function _diaryLoadCommitteesTab() {
+    const list = document.getElementById('diaryList');
+    if (!list) return;
+    list.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
+    _diaryActiveCommitteePanel = null;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      _diaryCommitteesCache = (res && res.result === 'success') ? (res.committees || []) : [];
+      _diaryRenderCommitteesOverview();
+    }).withFailureHandler(() => { list.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">Network error</div>`; }).listDiaryCommittees(myId);
+  }
+
+  function _diaryRenderCommitteesOverview() {
+    const list = document.getElementById('diaryList');
+    if (!list) return;
+    const isAdmin = _lpIsAdmin();
+    list.innerHTML = `
+      ${isAdmin ? `<button onclick="_diaryCommitteeFormOpen()" class="mb-3 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest bg-indigo-600 text-white hover:bg-black">+ New Committee</button>` : ''}
+      <div class="flex flex-col gap-2">
+        ${_diaryCommitteesCache.map(c => `
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+            <div class="flex items-center justify-between flex-wrap gap-2">
+              <div class="flex items-center gap-2">
+                <span class="font-black text-slate-800 text-sm">${_escHtml(c.name)}</span>
+                ${c.my_role ? `<span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-indigo-100 text-indigo-700">${_escHtml(c.my_role)}</span>` : ''}
+              </div>
+              ${isAdmin ? `<div class="flex gap-1">
+                <button onclick="_diaryCommitteeFormOpen(${c.id})" title="Edit" class="p-1.5 hover:bg-blue-50 rounded-lg text-blue-400 hover:text-blue-600"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+                <button onclick="_diaryCommitteeDelete(${c.id})" title="Delete" class="p-1.5 hover:bg-red-50 rounded-lg text-red-400 hover:text-red-600"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>
+              </div>` : ''}
+            </div>
+            <div class="flex gap-2 flex-wrap mt-3">
+              ${isAdmin ? `<button onclick="_diaryCommitteeOpenMembers(${c.id})" class="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase bg-slate-100 text-slate-600 hover:bg-slate-200">Members</button>` : ''}
+              ${(c.my_role || isAdmin) ? `<button onclick="_diaryCommitteeOpenSubtypes(${c.id})" class="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase bg-slate-100 text-slate-600 hover:bg-slate-200">Subtypes</button>` : ''}
+              ${(c.my_role || isAdmin) ? `<button onclick="_diaryCommitteeOpenQueue(${c.id})" class="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase bg-slate-100 text-slate-600 hover:bg-slate-200">Incoming Queue</button>` : ''}
+              ${(c.my_role === 'chairman' || isAdmin) ? `<button onclick="_diaryCommitteeOpenRules(${c.id})" class="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase bg-slate-100 text-slate-600 hover:bg-slate-200">Assignment Rules</button>` : ''}
+            </div>
+          </div>
+        `).join('') || `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No committees yet</div>`}
+      </div>`;
+    lucide.createIcons();
+  }
+
+  function _diaryCommitteesBackButton() {
+    return `<button onclick="_diaryRenderCommitteesOverview()" class="mb-3 text-[10px] font-black uppercase tracking-widest text-indigo-500 hover:text-indigo-700 flex items-center gap-1"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i> Back to Committees</button>`;
+  }
+
+  function _diaryCommitteesReloadActivePanel() {
+    if (!_diaryActiveCommitteePanel) return;
+    const { type, committeeId } = _diaryActiveCommitteePanel;
+    if (type === 'queue') _diaryCommitteeOpenQueue(committeeId);
+    else if (type === 'rules') _diaryCommitteeOpenRules(committeeId);
+    else if (type === 'subtypes') _diaryCommitteeOpenSubtypes(committeeId);
+    else if (type === 'members') _diaryCommitteeOpenMembers(committeeId);
+  }
+
+  // ── Committee CRUD (name only — members/subtypes/rules are their own panels) ──
+  function _diaryCommitteeFormOpen(id) {
+    const c = id ? _diaryCommitteesCache.find(x => x.id === id) : null;
+    _diaryShowSimpleModal(id ? 'Edit Committee' : 'New Committee', `
+      <input id="diaryCommitteeNameInput" placeholder="Committee name" value="${c ? _escHtml(c.name) : ''}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold mb-3">
+      <button onclick="_diaryCommitteeFormSave(${id || 'null'})" class="w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black transition-all">Save</button>
+    `);
+  }
+
+  function _diaryCommitteeFormSave(id) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const name = (document.getElementById('diaryCommitteeNameInput').value || '').trim();
+    if (!name) { showToast('Name is required', 'error'); return; }
+    const payload = id ? { id, name } : { name };
+    const fn = id ? 'updateDiaryCommittee' : 'createDiaryCommittee';
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not save', 'error'); return; }
+      showToast('Saved', 'success');
+      _diaryCloseSimpleModal();
+      _diaryLoadCommitteesTab();
+    }).withFailureHandler(() => showToast('Network error', 'error'))[fn](myId, payload);
+  }
+
+  function _diaryCommitteeDelete(id) {
+    if (!confirm('Delete this committee? This cannot be undone.')) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not delete', 'error'); return; }
+      showToast('Committee deleted', 'success');
+      _diaryLoadCommitteesTab();
+    }).withFailureHandler(() => showToast('Network error', 'error')).deleteDiaryCommittee(myId, id);
+  }
+
+  // ── Members panel ──────────────────────────────────────────────────────────
+  function _diaryCommitteeOpenMembers(committeeId) {
+    _diaryActiveCommitteePanel = { type: 'members', committeeId };
+    const list = document.getElementById('diaryList');
+    if (!list) return;
+    list.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    _ensureStaffCache(() => {
+      google.script.run.withSuccessHandler(res => {
+        const members = (res && res.result === 'success') ? (res.members || []) : [];
+        list.innerHTML = _diaryCommitteesBackButton() + `
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mb-3">
+            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Add Member</p>
+            <select id="diaryMemberAddSelect" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mb-2">
+              <option value="">Pick a staff member…</option>
+              ${allStaffCache.map(s => `<option value="${s.teacher_id}">${_escHtml(staffLabel(s.teacher_id))}</option>`).join('')}
+            </select>
+            <label class="flex items-center gap-2 text-xs font-bold text-slate-600 mb-2"><input type="checkbox" id="diaryMemberAddChairman"> Make chairman</label>
+            <button onclick="_diaryCommitteeMemberAdd(${committeeId})" class="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black">Add</button>
+          </div>
+          <div class="flex flex-col gap-2">
+            ${members.map(m => `
+              <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-3 flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="font-bold text-slate-700 text-xs">${_escHtml(m.full_name)}</span>
+                  ${m.is_chairman ? `<span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-indigo-100 text-indigo-700">Chairman</span>` : ''}
+                </div>
+                <div class="flex gap-1">
+                  <button onclick="_diaryCommitteeMemberToggleChairman(${committeeId}, '${m.user_id}', ${!m.is_chairman})" title="${m.is_chairman ? 'Remove chairman' : 'Make chairman'}" class="p-1.5 hover:bg-amber-50 rounded-lg text-amber-400 hover:text-amber-600"><i data-lucide="star" class="h-3.5 w-3.5"></i></button>
+                  <button onclick="_diaryCommitteeMemberRemove(${m.id})" title="Remove" class="p-1.5 hover:bg-red-50 rounded-lg text-red-400 hover:text-red-600"><i data-lucide="x" class="h-3.5 w-3.5"></i></button>
+                </div>
+              </div>
+            `).join('') || `<p class="text-xs text-slate-400 font-bold text-center py-6">No members yet</p>`}
+          </div>`;
+        lucide.createIcons();
+      }).withFailureHandler(() => { list.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">Network error</div>`; }).listDiaryCommitteeMembers(myId, committeeId);
+    });
+  }
+
+  function _diaryCommitteeMemberAdd(committeeId) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const userId = document.getElementById('diaryMemberAddSelect').value;
+    const isChairman = document.getElementById('diaryMemberAddChairman').checked;
+    if (!userId) { showToast('Pick a staff member', 'error'); return; }
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not add', 'error'); return; }
+      showToast('Member added', 'success');
+      _diaryCommitteeOpenMembers(committeeId);
+    }).withFailureHandler(() => showToast('Network error', 'error')).saveDiaryCommitteeMember(myId, { committee_id: committeeId, user_id: userId, is_chairman: isChairman });
+  }
+
+  function _diaryCommitteeMemberToggleChairman(committeeId, userId, makeChairman) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not update', 'error'); return; }
+      _diaryCommitteeOpenMembers(committeeId);
+    }).withFailureHandler(() => showToast('Network error', 'error')).saveDiaryCommitteeMember(myId, { committee_id: committeeId, user_id: userId, is_chairman: makeChairman });
+  }
+
+  function _diaryCommitteeMemberRemove(memberRowId) {
+    if (!confirm('Remove this member?')) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const committeeId = _diaryActiveCommitteePanel && _diaryActiveCommitteePanel.committeeId;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not remove', 'error'); return; }
+      showToast('Member removed', 'success');
+      _diaryCommitteeOpenMembers(committeeId);
+    }).withFailureHandler(() => showToast('Network error', 'error')).removeDiaryCommitteeMember(myId, memberRowId);
+  }
+
+  // ── Subtypes panel ──────────────────────────────────────────────────────────
+  function _diaryCommitteeOpenSubtypes(committeeId) {
+    _diaryActiveCommitteePanel = { type: 'subtypes', committeeId };
+    const list = document.getElementById('diaryList');
+    if (!list) return;
+    list.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      const subtypes = (res && res.result === 'success') ? (res.subtypes || []) : [];
+      list.innerHTML = _diaryCommitteesBackButton() + `
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mb-3">
+          <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Add Subtype</p>
+          <div class="flex gap-2">
+            <input id="diarySubtypeAddInput" placeholder="Subtype label (e.g. Bullying)" class="flex-1 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold">
+            <button onclick="_diarySubtypeSave(${committeeId})" class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-black uppercase">Add</button>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          ${subtypes.map(s => `<span class="px-3 py-1.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700 flex items-center gap-2">${_escHtml(s.label)}<button onclick="_diarySubtypeDelete(${committeeId}, ${s.id})" class="text-red-400 hover:text-red-600"><i data-lucide="x" class="h-3 w-3"></i></button></span>`).join('') || `<p class="text-xs text-slate-400 font-bold">No subtypes yet</p>`}
+        </div>`;
+      lucide.createIcons();
+    }).withFailureHandler(() => { list.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">Network error</div>`; }).listDiaryCommitteeSubtypes(myId, committeeId);
+  }
+
+  function _diarySubtypeSave(committeeId) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const label = (document.getElementById('diarySubtypeAddInput').value || '').trim();
+    if (!label) { showToast('Label is required', 'error'); return; }
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not save', 'error'); return; }
+      _diaryCommitteeOpenSubtypes(committeeId);
+    }).withFailureHandler(() => showToast('Network error', 'error')).saveDiaryCommitteeSubtype(myId, { committee_id: committeeId, label });
+  }
+
+  function _diarySubtypeDelete(committeeId, id) {
+    if (!confirm('Delete this subtype?')) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not delete', 'error'); return; }
+      _diaryCommitteeOpenSubtypes(committeeId);
+    }).withFailureHandler(() => showToast('Network error', 'error')).deleteDiaryCommitteeSubtype(myId, { committee_id: committeeId, id });
+  }
+
+  // ── Incoming Queue panel ────────────────────────────────────────────────────
+  function _diaryCommitteeOpenQueue(committeeId) {
+    _diaryActiveCommitteePanel = { type: 'queue', committeeId };
+    const list = document.getElementById('diaryList');
+    if (!list) return;
+    list.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { list.innerHTML = _diaryCommitteesBackButton() + `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to load')}</div>`; return; }
+      const cases = res.cases || [];
+      list.innerHTML = _diaryCommitteesBackButton() + (cases.length
+        ? `<div class="flex flex-col gap-2">${cases.map(e => `
+            <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex items-center justify-between gap-3 flex-wrap">
+              <p class="text-xs font-semibold text-slate-700 flex-1">${_escHtml((e.message || '').slice(0, 140))}</p>
+              <button onclick="_diaryCaseTriageOpen(${e.id})" class="px-3 py-1.5 rounded-lg text-xs font-black uppercase bg-indigo-600 text-white hover:bg-black">Triage</button>
+            </div>`).join('')}</div>`
+        : `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Nothing untriaged right now</div>`);
+      lucide.createIcons();
+    }).withFailureHandler(() => { list.innerHTML = _diaryCommitteesBackButton() + `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">Network error</div>`; }).getIncomingCommitteeCases(myId, committeeId);
+  }
+
+  // ── Assignment Rules panel (desktop table + mobile cards, "Duplicate") ─────
+  let _diaryRuleScope = null; // {mode, class, section, student_ids}
+  let _diaryRulePendingCommitteeId = null;
+  let _diaryRulesCache = []; // full rows (incl. raw scope) from the last listAssignmentRules load, for Edit/Duplicate prefill
+
+  function _diaryCommitteeOpenRules(committeeId) {
+    _diaryActiveCommitteePanel = { type: 'rules', committeeId };
+    const list = document.getElementById('diaryList');
+    if (!list) return;
+    list.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { list.innerHTML = _diaryCommitteesBackButton() + `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to load')}</div>`; return; }
+      const rules = res.rules || [];
+      _diaryRulesCache = rules;
+      const scopeSummary = r => {
+        const s = r.scope || {};
+        if (s.mode === 'students') return `${(s.student_ids || []).length} student(s)`;
+        return `${s.class || '—'}${s.mode === 'class_section' && s.section ? '/' + s.section : ''}`;
+      };
+      const rowHtml = r => `
+        <button onclick="_diaryRuleFormOpen(${committeeId}, ${r.id})" title="Edit" class="p-1.5 hover:bg-blue-50 rounded-lg text-blue-400 hover:text-blue-600"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>
+        <button onclick="_diaryRuleDuplicate(${committeeId}, ${r.id})" title="Duplicate" class="p-1.5 hover:bg-indigo-50 rounded-lg text-indigo-400 hover:text-indigo-600"><i data-lucide="copy" class="h-3.5 w-3.5"></i></button>
+        <button onclick="_diaryRuleDelete(${committeeId}, ${r.id})" title="Delete" class="p-1.5 hover:bg-red-50 rounded-lg text-red-400 hover:text-red-600"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>`;
+      list.innerHTML = _diaryCommitteesBackButton() + `
+        <button onclick="_diaryRuleFormOpen(${committeeId})" class="mb-3 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest bg-indigo-600 text-white hover:bg-black">+ New Assignment Rule</button>
+        <div class="inv-desktop-block overflow-x-auto bg-white rounded-2xl border border-slate-200 shadow-sm">
+          <table class="w-full text-xs">
+            <thead><tr class="border-b border-slate-100"><th class="text-left p-3 font-black text-slate-400 uppercase text-[10px]">Subtype</th><th class="text-left p-3 font-black text-slate-400 uppercase text-[10px]">Member</th><th class="text-left p-3 font-black text-slate-400 uppercase text-[10px]">Scope</th><th class="text-right p-3"></th></tr></thead>
+            <tbody>${rules.map(r => `<tr class="border-b border-slate-50 last:border-0"><td class="p-3 font-bold">${_escHtml(r.subtype_label)}</td><td class="p-3 font-bold">${_escHtml(r.member_name)}</td><td class="p-3 text-slate-500">${_escHtml(scopeSummary(r))}</td><td class="p-3 text-right whitespace-nowrap">${rowHtml(r)}</td></tr>`).join('') || `<tr><td colspan="4" class="p-6 text-center text-slate-400 font-black uppercase text-[10px]">No rules yet</td></tr>`}</tbody>
+          </table>
+        </div>
+        <div class="md:hidden flex flex-col gap-1.5">
+          ${rules.map(r => `
+            <div class="bg-white rounded-xl border border-slate-200 p-3">
+              <div class="flex items-center justify-between gap-2">
+                <div><p class="font-black text-slate-800 text-xs">${_escHtml(r.subtype_label)}</p><p class="text-[10px] text-slate-500 font-bold">${_escHtml(r.member_name)} · ${_escHtml(scopeSummary(r))}</p></div>
+                <div class="flex">${rowHtml(r)}</div>
+              </div>
+            </div>`).join('') || `<p class="text-center text-slate-400 font-black uppercase text-[10px] py-6">No rules yet</p>`}
+        </div>`;
+      lucide.createIcons();
+    }).withFailureHandler(() => { list.innerHTML = _diaryCommitteesBackButton() + `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">Network error</div>`; }).listAssignmentRules(myId, committeeId);
+  }
+
+  function _diaryRuleFormOpen(committeeId, ruleId, prefillFrom) {
+    _diaryRulePendingCommitteeId = committeeId;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const existing = prefillFrom || (ruleId ? (_diaryRulesCache || []).find(r => r.id === ruleId) : null);
+    _diaryRuleScope = (existing && existing.scope) ? { ...existing.scope } : { mode: 'class', class: '', section: '', student_ids: [] };
+    _ensureStaffCache(() => {
+      google.script.run.withSuccessHandler(subRes => {
+        const subtypes = (subRes && subRes.result === 'success') ? (subRes.subtypes || []) : [];
+        google.script.run.withSuccessHandler(memRes => {
+          const members = (memRes && memRes.result === 'success') ? (memRes.members || []) : [];
+          _diaryShowSimpleModal(ruleId && !prefillFrom ? 'Edit Assignment Rule' : 'New Assignment Rule', `
+            <input type="hidden" id="diaryRuleEditId" value="${ruleId && !prefillFrom ? ruleId : ''}">
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Subtype</label>
+            <select id="diaryRuleSubtype" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mb-2">
+              ${subtypes.map(s => `<option value="${s.id}" ${existing && existing.subtype_id === s.id ? 'selected' : ''}>${_escHtml(s.label)}</option>`).join('')}
+            </select>
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Member</label>
+            <select id="diaryRuleMember" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mb-2">
+              ${members.map(m => `<option value="${m.user_id}" ${existing && existing.member_user_id === m.user_id ? 'selected' : ''}>${_escHtml(m.full_name)}</option>`).join('')}
+            </select>
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Scope</label>
+            <div class="flex gap-2 flex-wrap mb-2">
+              <button onclick="_diaryRuleScopeSetMode('class')" id="diaryRuleScopeBtn-class" class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase border">Whole Class</button>
+              <button onclick="_diaryRuleScopeSetMode('class_section')" id="diaryRuleScopeBtn-class_section" class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase border">Class + Section</button>
+              <button onclick="_diaryRuleScopeSetMode('students')" id="diaryRuleScopeBtn-students" class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase border">Specific Student(s)</button>
+            </div>
+            <input id="diaryRuleScopeClass" placeholder="Class" value="${_escHtml(_diaryRuleScope.class || '')}" oninput="_diaryRuleScopeUpdate()" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mb-2">
+            <input id="diaryRuleScopeSection" placeholder="Section (optional)" value="${_escHtml(_diaryRuleScope.section || '')}" oninput="_diaryRuleScopeUpdate()" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mb-2">
+            <input id="diaryRuleScopeStudents" placeholder="Student IDs, comma separated" value="${_escHtml((_diaryRuleScope.student_ids || []).join(', '))}" oninput="_diaryRuleScopeUpdate()" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mb-3">
+            <button onclick="_diaryRuleSave()" class="w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black transition-all">${ruleId && !prefillFrom ? 'Save Changes' : 'Create Rule'}</button>
+          `);
+          _diaryRuleScopeSetMode(_diaryRuleScope.mode || 'class');
+        }).withFailureHandler(() => {}).listDiaryCommitteeMembers(myId, committeeId);
+      }).withFailureHandler(() => {}).listDiaryCommitteeSubtypes(myId, committeeId);
+    });
+  }
+
+  function _diaryRuleScopeSetMode(mode) {
+    _diaryRuleScope.mode = mode;
+    ['class', 'class_section', 'students'].forEach(m => {
+      const btn = document.getElementById(`diaryRuleScopeBtn-${m}`);
+      if (btn) btn.className = `px-2.5 py-1 rounded-full text-[10px] font-black uppercase border ${mode === m ? 'bg-indigo-600 text-white border-transparent' : 'border-slate-200 text-slate-500'}`;
+    });
+    const secInput = document.getElementById('diaryRuleScopeSection');
+    const classInput = document.getElementById('diaryRuleScopeClass');
+    const studentsInput = document.getElementById('diaryRuleScopeStudents');
+    if (classInput) classInput.style.display = (mode === 'students') ? 'none' : '';
+    if (secInput) secInput.style.display = (mode === 'class_section') ? '' : 'none';
+    if (studentsInput) studentsInput.style.display = (mode === 'students') ? '' : 'none';
+  }
+
+  function _diaryRuleScopeSearchStudents() { /* reserved for a future real picker — student IDs are typed directly for now */ }
+
+  function _diaryRuleScopeUpdate() {
+    _diaryRuleScope.class = (document.getElementById('diaryRuleScopeClass').value || '').trim();
+    _diaryRuleScope.section = (document.getElementById('diaryRuleScopeSection').value || '').trim();
+    _diaryRuleScope.student_ids = (document.getElementById('diaryRuleScopeStudents').value || '').split(',').map(s => s.trim()).filter(Boolean);
+  }
+
+  function _diaryRuleSave() {
+    _diaryRuleScopeUpdate();
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const committeeId = _diaryRulePendingCommitteeId;
+    const idInput = document.getElementById('diaryRuleEditId');
+    const id = idInput && idInput.value ? parseInt(idInput.value, 10) : null;
+    const subtypeId = parseInt(document.getElementById('diaryRuleSubtype').value, 10);
+    const memberUserId = document.getElementById('diaryRuleMember').value;
+    if (!subtypeId || !memberUserId) { showToast('Subtype and member are required', 'error'); return; }
+    const payload = { committee_id: committeeId, subtype_id: subtypeId, member_user_id: memberUserId, scope: _diaryRuleScope };
+    if (id) payload.id = id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not save', 'error'); return; }
+      showToast('Saved', 'success');
+      _diaryCloseSimpleModal();
+      _diaryCommitteeOpenRules(committeeId);
+    }).withFailureHandler(() => showToast('Network error', 'error')).saveAssignmentRule(myId, payload);
+  }
+
+  // Duplicate = open the same form pre-filled from the source row, with no
+  // id — Save always inserts a brand-new row, mirroring _lpDuplicatePlan's
+  // exact pattern (never mutates the row it was copied from).
+  function _diaryRuleDuplicate(committeeId, ruleId) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      const rule = (res && res.result === 'success') ? (res.rules || []).find(r => r.id === ruleId) : null;
+      if (!rule) { showToast('Could not load rule', 'error'); return; }
+      _diaryRuleFormOpen(committeeId, null, rule);
+    }).withFailureHandler(() => showToast('Network error', 'error')).listAssignmentRules(myId, committeeId);
+  }
+
+  function _diaryRuleDelete(committeeId, id) {
+    if (!confirm('Delete this assignment rule?')) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not delete', 'error'); return; }
+      _diaryCommitteeOpenRules(committeeId);
+    }).withFailureHandler(() => showToast('Network error', 'error')).deleteAssignmentRule(myId, { committee_id: committeeId, id });
+  }
+
+  const DIARY_CASE_STATUS_META = {
+    untriaged: { label: 'Untriaged', cls: 'bg-amber-100 text-amber-700' },
+    in_progress: { label: 'In Progress', cls: 'bg-blue-100 text-blue-700' },
+    closed: { label: 'Closed', cls: 'bg-slate-200 text-slate-600' },
+  };
+
   function _diaryEntryCardHtml(e) {
     const myId = window.APP_USER && window.APP_USER.user_id;
     const t = DIARY_ENTRY_TYPES.find(x => x.key === e.entry_type) || DIARY_ENTRY_TYPES[0];
     const a = e.audience || {};
     const audienceLabel = a.mode === 'students' ? `${(a.student_ids || []).length} student(s) in ${a.class}${a.section ? '/' + a.section : ''}`
       : `${a.class}${a.section ? '/' + a.section : ''}${a.mode === 'class' ? ' (all sections)' : ''}`;
-    const canDelete = e.teacher_id === myId || _lpIsAdmin();
+    const canManage = e.teacher_id === myId || _lpIsAdmin();
+    const isCase = e.case_type === 'committee';
+    const statusMeta = isCase ? (DIARY_CASE_STATUS_META[e.status] || DIARY_CASE_STATUS_META.untriaged) : null;
     return `
       <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
         <div class="flex items-start justify-between gap-3 flex-wrap">
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-wrap">
             <span class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-gradient-to-r ${t.grad} text-white">${t.emoji} ${_escHtml(t.label)}</span>
+            ${isCase ? `<span class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${statusMeta.cls}"><i data-lucide="users" class="h-3 w-3 inline -mt-0.5"></i> ${_escHtml(e.committee_name || 'Committee')} · ${statusMeta.label}</span>` : ''}
+            ${e.scanned_from_qr ? `<span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-slate-100 text-slate-500">Via QR Scan</span>` : ''}
             <span class="text-[10px] font-bold text-slate-500">${_escHtml(audienceLabel)}</span>
           </div>
-          ${canDelete ? `<button onclick="_diaryDeleteEntry(${e.id})" title="Delete" class="p-1.5 hover:bg-red-50 rounded-lg text-red-400 hover:text-red-600"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>` : ''}
+          <div class="flex items-center gap-1">
+            ${isCase ? `<button onclick="_diaryCaseOpenDetail(${e.id})" title="View Case" class="p-1.5 hover:bg-indigo-50 rounded-lg text-indigo-400 hover:text-indigo-600"><i data-lucide="external-link" class="h-3.5 w-3.5"></i></button>` : ''}
+            ${canManage ? `<button onclick="_diaryEntryEditOpen(${e.id})" title="Edit" class="p-1.5 hover:bg-blue-50 rounded-lg text-blue-400 hover:text-blue-600"><i data-lucide="pencil" class="h-3.5 w-3.5"></i></button>` : ''}
+            ${canManage ? `<button onclick="_diaryDeleteEntry(${e.id})" title="Delete" class="p-1.5 hover:bg-red-50 rounded-lg text-red-400 hover:text-red-600"><i data-lucide="trash-2" class="h-3.5 w-3.5"></i></button>` : ''}
+          </div>
         </div>
         ${e.subject || e.due_date ? `<p class="text-[10px] font-bold text-slate-400 mt-2">${e.subject ? _escHtml(e.subject) : ''}${e.subject && e.due_date ? ' · ' : ''}${e.due_date ? 'Due ' + _escHtml(e.due_date) : ''}</p>` : ''}
         <p class="text-sm font-semibold text-slate-700 mt-2 whitespace-pre-wrap">${_escHtml(e.message || '')}</p>
         <p class="text-[10px] text-slate-400 font-bold mt-2">${e.teacher_name ? `By ${_escHtml(e.teacher_name)} · ` : ''}${_forumTimeAgo(e.created_at)}</p>
+        ${_diaryRepliesSectionHtml(e.id)}
       </div>`;
+  }
+
+  // Content-only edit (subject/message/due_date) — never audience/case_type/
+  // committee_id, matching updateDiaryEntry's own server-side restriction.
+  function _diaryEntryEditOpen(id) {
+    const e = _diaryEntries.find(x => x.id === id) || (_diaryScanPanelEntries || []).find(x => x.id === id);
+    if (!e) return;
+    const showDue = e.entry_type === 'homework';
+    _diaryShowSimpleModal('Edit Diary Entry', `
+      ${showDue ? `<input id="diaryEditSubject" placeholder="Subject" value="${_escHtml(e.subject || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold mb-2">` : ''}
+      <textarea id="diaryEditMessage" rows="4" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-sm resize-none mb-2">${_escHtml(e.message || '')}</textarea>
+      ${showDue ? `<input id="diaryEditDueDate" type="date" value="${_escHtml(e.due_date || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold mb-2">` : ''}
+      <button onclick="_diaryEntryEditSave(${id})" class="w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Save Changes</button>
+    `);
+  }
+
+  function _diaryEntryEditSave(id) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const subjEl = document.getElementById('diaryEditSubject');
+    const dueEl = document.getElementById('diaryEditDueDate');
+    const payload = { id, message: (document.getElementById('diaryEditMessage').value || '').trim() };
+    if (subjEl) payload.subject = subjEl.value.trim();
+    if (dueEl) payload.due_date = dueEl.value;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not save', 'error'); return; }
+      showToast('Entry updated', 'success');
+      _diaryCloseSimpleModal();
+      if (_diaryScope === 'mine' || _diaryScope === 'oversight') _diaryLoadList();
+      if (typeof _diaryProfileReload === 'function') _diaryProfileReload();
+      if (typeof _diaryScanPanelReloadHistory === 'function') _diaryScanPanelReloadHistory();
+    }).withFailureHandler(() => showToast('Network error', 'error')).updateDiaryEntry(myId, payload);
+  }
+
+  // ── Small shared modal shell for every new Diary/Committee popup below ────
+  // (own state per feature, matching this file's established convention —
+  // not a portal-wide generic modal).
+  function _diaryEnsureModal() {
+    if (document.getElementById('diaryModalWrap')) return;
+    const wrap = document.createElement('div');
+    wrap.id = 'diaryModalWrap';
+    wrap.className = 'fixed inset-0 z-[1200] hidden items-center justify-center bg-black/40 p-4';
+    wrap.innerHTML = `
+      <div class="bg-white rounded-3xl shadow-xl w-full max-w-md max-h-[85vh] overflow-y-auto p-5 relative">
+        <button onclick="_diaryCloseSimpleModal()" class="absolute top-3 right-3 p-1.5 hover:bg-slate-100 rounded-lg text-slate-400"><i data-lucide="x" class="h-4 w-4"></i></button>
+        <h3 id="diaryModalTitle" class="font-black text-slate-800 text-sm mb-3 pr-6"></h3>
+        <div id="diaryModalBody"></div>
+      </div>`;
+    wrap.addEventListener('mousedown', e => { if (e.target === wrap) _diaryCloseSimpleModal(); });
+    document.body.appendChild(wrap);
+  }
+
+  function _diaryShowSimpleModal(title, bodyHtml) {
+    _diaryEnsureModal();
+    document.getElementById('diaryModalTitle').textContent = title;
+    document.getElementById('diaryModalBody').innerHTML = bodyHtml;
+    const wrap = document.getElementById('diaryModalWrap');
+    wrap.classList.remove('hidden'); wrap.classList.add('flex');
+    lucide.createIcons();
+  }
+
+  function _diaryCloseSimpleModal() {
+    const wrap = document.getElementById('diaryModalWrap');
+    if (wrap) { wrap.classList.add('hidden'); wrap.classList.remove('flex'); }
+  }
+
+  // ── Case detail / triage / referral ────────────────────────────────────────
+
+  function _diaryCaseOpenDetail(id) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not load case', 'error'); return; }
+      _diaryRenderCaseDetail(res.entry);
+    }).withFailureHandler(() => showToast('Network error', 'error')).getCaseDetail(myId, id);
+  }
+
+  function _diaryRenderCaseDetail(e) {
+    const statusMeta = DIARY_CASE_STATUS_META[e.status] || DIARY_CASE_STATUS_META.untriaged;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const isHandler = e.current_handler_id === myId;
+    const canClose = isHandler && e.status !== 'closed';
+    let body = `
+      <div class="flex items-center gap-2 flex-wrap mb-3">
+        <span class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${statusMeta.cls}">${statusMeta.label}</span>
+        <span class="text-xs font-bold text-slate-500">${_escHtml(e.committee_name || '')}${e.subtype_label ? ' · ' + _escHtml(e.subtype_label) : ''}</span>
+      </div>
+      <p class="text-sm font-semibold text-slate-700 whitespace-pre-wrap mb-3">${_escHtml(e.message || '')}</p>
+      ${e.current_handler_name ? `<p class="text-[11px] font-bold text-slate-500 mb-3">Current handler: ${_escHtml(e.current_handler_name)}</p>` : ''}
+      <div id="diaryCaseActionRow" class="flex gap-2 flex-wrap mb-3">
+        ${e.status === 'untriaged' ? `<button onclick="_diaryCaseTriageOpen(${e.id})" class="px-3 py-1.5 rounded-lg text-xs font-black uppercase bg-indigo-600 text-white hover:bg-black">Triage</button>` : ''}
+        ${e.status !== 'closed' ? `<button onclick="_diaryCaseReferOpen(${e.id})" class="px-3 py-1.5 rounded-lg text-xs font-black uppercase bg-amber-500 text-white hover:bg-black">Refer</button>` : ''}
+        ${canClose ? `<button onclick="_diaryCaseClose(${e.id})" class="px-3 py-1.5 rounded-lg text-xs font-black uppercase bg-slate-700 text-white hover:bg-black">Close Case</button>` : ''}
+      </div>
+      <div id="diaryCaseTrail"></div>
+      ${_diaryRepliesSectionHtml(e.id)}`;
+    _diaryShowSimpleModal('Case Detail', body);
+    google.script.run.withSuccessHandler(trailRes => {
+      const el = document.getElementById('diaryCaseTrail');
+      if (!el || !trailRes || trailRes.result !== 'success') return; // not a committee member — trail stays hidden, not an error
+      const trail = trailRes.trail || [];
+      if (!trail.length) return;
+      el.innerHTML = `<p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Trail</p>` + trail.map(t => `
+        <p class="text-[11px] font-bold text-slate-500 mb-1">${t.action === 'triaged' ? 'Triaged' : 'Referred'} ${t.from_name ? 'by ' + _escHtml(t.from_name) + ' ' : ''}to ${_escHtml(t.to_name)}${t.note ? ' — ' + _escHtml(t.note) : ''} <span class="text-slate-300">(${_forumTimeAgo(t.created_at)})</span></p>
+      `).join('');
+    }).withFailureHandler(() => {}).getCaseReferralTrail(myId, e.id);
+  }
+
+  function _diaryCaseTriageOpen(id) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(entryRes => {
+      if (!entryRes || entryRes.result !== 'success') { showToast('Could not load case', 'error'); return; }
+      const committeeId = entryRes.entry.committee_id;
+      google.script.run.withSuccessHandler(subRes => {
+        const subtypes = (subRes && subRes.result === 'success') ? (subRes.subtypes || []) : [];
+        google.script.run.withSuccessHandler(memRes => {
+          const members = (memRes && memRes.result === 'success') ? (memRes.members || []) : [];
+          _diaryShowSimpleModal('Triage Case', `
+            <input type="hidden" id="diaryTriageEntryId" value="${id}">
+            <input type="hidden" id="diaryTriageCommitteeId" value="${committeeId}">
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Subtype</label>
+            <select id="diaryTriageSubtype" onchange="_diaryCaseTriageSubtypeChange()" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mb-2">
+              <option value="">Pick a subtype…</option>
+              ${subtypes.map(s => `<option value="${s.id}">${_escHtml(s.label)}</option>`).join('')}
+            </select>
+            <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Handler</label>
+            <select id="diaryTriageHandler" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mb-3">
+              <option value="">Pick a handler…</option>
+              ${members.map(m => `<option value="${m.user_id}">${_escHtml(m.full_name)}${m.is_chairman ? ' (Chairman)' : ''}</option>`).join('')}
+            </select>
+            <button onclick="_diaryCaseTriageSave(${id})" class="w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black transition-all">Assign</button>
+          `);
+        }).withFailureHandler(() => {}).listDiaryCommitteeMembers(myId, committeeId);
+      }).withFailureHandler(() => {}).listDiaryCommitteeSubtypes(myId, committeeId);
+    }).withFailureHandler(() => showToast('Network error', 'error')).getCaseDetail(myId, id);
+  }
+
+  // Re-sorts the handler <select> so suggested matches (per the chosen
+  // subtype's assignment rules) float to the top, starred — fully
+  // overridable, never a server-side restriction.
+  function _diaryCaseTriageSubtypeChange() {
+    const entryId = parseInt(document.getElementById('diaryTriageEntryId').value, 10);
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const handlerSel = document.getElementById('diaryTriageHandler');
+    if (!handlerSel) return;
+    google.script.run.withSuccessHandler(res => {
+      const suggested = (res && res.result === 'success') ? (res.suggestions || []).map(s => s.member_user_id) : [];
+      Array.from(handlerSel.options).forEach(opt => {
+        if (!opt.value) return;
+        const starred = suggested.includes(opt.value);
+        opt.textContent = opt.textContent.replace(/^★ /, '') ;
+        if (starred) opt.textContent = '★ ' + opt.textContent;
+      });
+      // Float starred options to the top
+      const opts = Array.from(handlerSel.options);
+      opts.sort((a, b) => (b.textContent.startsWith('★') ? 1 : 0) - (a.textContent.startsWith('★') ? 1 : 0));
+      handlerSel.innerHTML = '';
+      opts.forEach(o => handlerSel.appendChild(o));
+    }).withFailureHandler(() => {}).suggestHandlersForCase(myId, entryId);
+  }
+
+  function _diaryCaseTriageSave(id) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const subtypeId = parseInt(document.getElementById('diaryTriageSubtype').value, 10);
+    const handlerId = document.getElementById('diaryTriageHandler').value;
+    if (!subtypeId || !handlerId) { showToast('Pick a subtype and a handler', 'error'); return; }
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not triage', 'error'); return; }
+      showToast('Case triaged', 'success');
+      _diaryCloseSimpleModal();
+      if (_diaryScope === 'committees') _diaryCommitteesReloadActivePanel();
+      if (_diaryScope === 'mine' || _diaryScope === 'oversight') _diaryLoadList();
+    }).withFailureHandler(() => showToast('Network error', 'error')).triageCase(myId, { diary_entry_id: id, subtype_id: subtypeId, handler_user_id: handlerId });
+  }
+
+  function _diaryCaseReferOpen(id) {
+    _ensureStaffCache(() => {
+      _diaryShowSimpleModal('Refer Case', `
+        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Refer to</label>
+        <select id="diaryReferTo" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mb-2">
+          <option value="">Pick a staff member…</option>
+          ${allStaffCache.map(s => `<option value="${s.teacher_id}">${_escHtml(staffLabel(s.teacher_id))}</option>`).join('')}
+        </select>
+        <textarea id="diaryReferNote" rows="2" placeholder="Note (optional)" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold mb-3 resize-none"></textarea>
+        <button onclick="_diaryCaseReferSave(${id})" class="w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-amber-500 text-white hover:bg-black transition-all">Refer</button>
+      `);
+    });
+  }
+
+  function _diaryCaseReferSave(id) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const toUserId = document.getElementById('diaryReferTo').value;
+    const note = (document.getElementById('diaryReferNote').value || '').trim();
+    if (!toUserId) { showToast('Pick who to refer this case to', 'error'); return; }
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not refer', 'error'); return; }
+      showToast('Case referred', 'success');
+      _diaryCloseSimpleModal();
+      if (_diaryScope === 'my_cases' || _diaryScope === 'committees') _diaryLoadList();
+    }).withFailureHandler(() => showToast('Network error', 'error')).referCase(myId, { diary_entry_id: id, to_user_id: toUserId, note });
+  }
+
+  // ── Replies (guardian <-> filing teacher, two-way, chronological) ─────────
+  // Shared block mounted wherever a diary/case entry is already shown — the
+  // Diary list's own cards AND the Case Detail modal — so there's exactly
+  // one implementation of "show + post a reply," never duplicated per surface.
+  function _diaryRepliesSectionHtml(entryId) {
+    return `
+      <div class="mt-2 pt-2 border-t border-slate-100">
+        <button onclick="_diaryRepliesToggle(${entryId})" id="diaryRepliesToggle-${entryId}" class="text-[10px] font-black uppercase tracking-widest text-indigo-500 hover:text-indigo-700 flex items-center gap-1"><i data-lucide="reply" class="h-3 w-3"></i> Replies</button>
+        <div id="diaryRepliesBox-${entryId}" class="hidden mt-2"></div>
+      </div>`;
+  }
+
+  function _diaryRepliesToggle(entryId) {
+    const box = document.getElementById('diaryRepliesBox-' + entryId);
+    if (!box) return;
+    const opening = box.classList.contains('hidden');
+    box.classList.toggle('hidden', !opening);
+    if (!opening) return;
+    box.innerHTML = `<p class="text-center py-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Loading…</p>`;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      const replies = (res && res.result === 'success') ? (res.replies || []) : [];
+      box.innerHTML = `
+        <div class="flex flex-col gap-1.5 mb-2">
+          ${replies.map(r => `<p class="text-[11px]"><span class="font-black text-slate-700">${r.author_role === 'teacher' ? _escHtml(r.author_name || 'Staff') : 'Guardian'}</span> <span class="text-slate-500">${_escHtml(r.message || '')}</span></p>`).join('') || `<p class="text-[11px] text-slate-400">No replies yet</p>`}
+        </div>
+        <div class="flex gap-2">
+          <input id="diaryReplyInput-${entryId}" placeholder="Write a reply…" onkeydown="if(event.key==='Enter'){_diaryReplySend(${entryId});}" class="flex-1 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold">
+          <button onclick="_diaryReplySend(${entryId})" class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white"><i data-lucide="send" class="h-3.5 w-3.5"></i></button>
+        </div>`;
+      lucide.createIcons();
+    }).withFailureHandler(() => { box.innerHTML = `<p class="text-center py-2 text-[10px] font-black text-red-400 uppercase tracking-widest">Network error</p>`; }).getDiaryEntryReplies(myId, entryId);
+  }
+
+  function _diaryReplySend(entryId) {
+    const input = document.getElementById('diaryReplyInput-' + entryId);
+    const message = input ? input.value.trim() : '';
+    if (!message) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    input.disabled = true;
+    google.script.run.withSuccessHandler(res => {
+      input.disabled = false;
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not send', 'error'); return; }
+      _diaryRepliesToggle(entryId); // closes
+      _diaryRepliesToggle(entryId); // reopens fresh with the new reply
+    }).withFailureHandler(() => { input.disabled = false; showToast('Network error', 'error'); }).addDiaryEntryReply(myId, { diary_entry_id: entryId, message });
+  }
+
+  function _diaryCaseClose(id) {
+    if (!confirm('Close this case?')) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not close', 'error'); return; }
+      showToast('Case closed', 'success');
+      _diaryCloseSimpleModal();
+      if (_diaryScope === 'my_cases') _diaryLoadList();
+    }).withFailureHandler(() => showToast('Network error', 'error')).closeCase(myId, id);
   }
 
   function _diaryDeleteEntry(id) {
@@ -7257,6 +8023,331 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       showToast('Entry deleted', 'success');
       _diaryLoadList();
     }).withFailureHandler(() => showToast('Network error', 'error')).deleteDiaryEntry(myId, id);
+  }
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  QR HUB — a role-aware floating launcher, not a Diary-only button.
+  //  Tapping it animates open a radial menu of every scanning destination
+  //  the current signed-in user actually has access to (always "Student
+  //  Case / Diary"; additionally one entry per Admission circular they can
+  //  scan for, routed straight into Part 10's already-built dynamic Scan
+  //  Options UI — zero duplicated scanning logic for that destination).
+  // ════════════════════════════════════════════════════════════════════════
+
+  let _qrFabOpen = false;
+
+  function _qrFabInit() {
+    if (document.getElementById('qrFabBtn')) return; // once per session
+    const saved = parseFloat(localStorage.getItem('ccpc_qr_fab_y') || '');
+    const btn = document.createElement('button');
+    btn.id = 'qrFabBtn';
+    btn.title = 'Scan QR';
+    btn.style.cssText = `position:fixed;right:16px;top:${isNaN(saved) ? window.innerHeight * 0.6 : saved}px;z-index:1100;width:52px;height:52px;border-radius:9999px;background:linear-gradient(135deg,#4f46e5,#7c3aed);box-shadow:0 8px 20px rgba(79,70,229,0.4);border:none;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;touch-action:none;`;
+    btn.innerHTML = '<i data-lucide="qr-code" class="h-6 w-6"></i>';
+    document.body.appendChild(btn);
+    const menu = document.createElement('div');
+    menu.id = 'qrFabMenu';
+    menu.style.cssText = 'position:fixed;z-index:1099;pointer-events:none;';
+    document.body.appendChild(menu);
+    lucide.createIcons();
+
+    // Drag with a tap-vs-drag threshold, same idiom the shell's own
+    // edge-docked button already uses — position persisted so it comes
+    // back where the user left it.
+    let dragging = false, startY = 0, startTop = 0, moved = false;
+    const onDown = e => {
+      dragging = true; moved = false;
+      startY = (e.touches ? e.touches[0].clientY : e.clientY);
+      startTop = btn.getBoundingClientRect().top;
+      e.preventDefault();
+    };
+    const onMove = e => {
+      if (!dragging) return;
+      const y = (e.touches ? e.touches[0].clientY : e.clientY);
+      if (Math.abs(y - startY) > 6) moved = true;
+      let top = startTop + (y - startY);
+      top = Math.max(8, Math.min(window.innerHeight - 60, top));
+      btn.style.top = top + 'px';
+      if (_qrFabOpen) _qrFabPositionMenu();
+    };
+    const onUp = () => {
+      if (!dragging) return;
+      dragging = false;
+      if (moved) { localStorage.setItem('ccpc_qr_fab_y', parseFloat(btn.style.top)); }
+      else _qrFabToggle();
+    };
+    btn.addEventListener('mousedown', onDown); window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp);
+    btn.addEventListener('touchstart', onDown, { passive: false }); window.addEventListener('touchmove', onMove, { passive: true }); window.addEventListener('touchend', onUp);
+  }
+
+  function _qrFabToggle() {
+    if (_qrFabOpen) { _qrFabClose(); return; }
+    _qrFabOpen = true;
+    const menu = document.getElementById('qrFabMenu');
+    menu.innerHTML = `<div class="text-center py-2 px-3 bg-white rounded-xl shadow-lg text-[10px] font-black uppercase tracking-widest text-slate-400">Loading…</div>`;
+    menu.style.pointerEvents = 'auto';
+    _qrFabPositionMenu();
+    _qrFabLoadOptions();
+  }
+
+  function _qrFabClose() {
+    _qrFabOpen = false;
+    const menu = document.getElementById('qrFabMenu');
+    if (menu) { menu.style.pointerEvents = 'none'; menu.innerHTML = ''; }
+  }
+
+  function _qrFabPositionMenu() {
+    const btn = document.getElementById('qrFabBtn');
+    const menu = document.getElementById('qrFabMenu');
+    if (!btn || !menu) return;
+    const r = btn.getBoundingClientRect();
+    menu.style.right = (window.innerWidth - r.left + 10) + 'px';
+    menu.style.top = (r.top - 8) + 'px';
+  }
+
+  function _qrFabLoadOptions() {
+    const options = [{ key: 'diary', circular_id: null, label: 'Student Case / Diary' }];
+    _admCandFetch('getMyCommitteeAccess', {}).then(res => {
+      if (res && res.is_full_admin) {
+        options.push({ key: 'admission', circular_id: null, label: 'Admission Scan' });
+      } else if (res && res.circulars) {
+        Object.entries(res.circulars).forEach(([id, c]) => {
+          const perms = c.permissions || {};
+          const scanTab = perms.tabs && perms.tabs.scan;
+          if ((scanTab === 'view' || scanTab === 'edit') && (perms.scan_options || []).length) {
+            options.push({ key: 'admission', circular_id: parseInt(id, 10), label: 'Admission — ' + c.name });
+          }
+        });
+      }
+      _qrFabRenderMenu(options);
+    }).catch(() => _qrFabRenderMenu(options));
+  }
+
+  // Each option fans out along an arc above the FAB with a staggered
+  // transition-delay — a plain CSS transition on a toggled class, no
+  // animation library needed.
+  function _qrFabRenderMenu(options) {
+    if (!_qrFabOpen) return;
+    const menu = document.getElementById('qrFabMenu');
+    if (!menu) return;
+    menu.innerHTML = options.map((o, i) => `
+      <div data-qr-opt-i="${i}" style="opacity:0;transform:translateY(12px);transition:opacity 0.18s ease ${i * 0.04}s,transform 0.18s ease ${i * 0.04}s;margin-bottom:8px;">
+        <button class="qr-fab-opt-btn" style="white-space:nowrap;background:#fff;border:1px solid #e2e8f0;border-radius:9999px;padding:8px 16px;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:0.05em;color:#334155;box-shadow:0 4px 12px rgba(0,0,0,0.12);cursor:pointer;">${_escHtml(o.label)}</button>
+      </div>`).reverse().join('');
+    Array.from(menu.querySelectorAll('.qr-fab-opt-btn')).forEach((btn, idx) => {
+      const o = options[options.length - 1 - idx];
+      btn.addEventListener('click', () => { _qrFabClose(); if (o.key === 'diary') _qrFabChooseDiary(); else _qrFabChooseAdmission(o.circular_id); });
+    });
+    requestAnimationFrame(() => {
+      menu.querySelectorAll('[data-qr-opt-i]').forEach(el => { el.style.opacity = '1'; el.style.transform = 'translateY(0)'; });
+    });
+  }
+
+  function _qrFabChooseDiary() {
+    if (_diaryQrIsInShell()) _diaryQrScanStart();
+    else _diaryQrOpenManualPrompt();
+  }
+
+  // loadAdmissionAdminView() renders the module's container and (at its own
+  // end) kicks off _admEnterAdmissionModule()'s async committee-access
+  // lookup — a plain setTimeout chain, matching this codebase's own
+  // established pattern for sequencing after a fire-and-forget async call
+  // (see _diaryCaseOpenFromNotification just above for the identical idiom).
+  function _qrFabChooseAdmission(circularId) {
+    loadAdmissionAdminView();
+    setTimeout(() => {
+      if (circularId) _admCandEnterCircular(circularId);
+      setTimeout(() => { _admShowTopTab('scan', null); }, 300);
+    }, 400);
+  }
+
+  // ── Diary-specific native scan consumer (own requestId namespace) ─────────
+  let _diaryQrReqSeq = 0;
+  let _diaryQrPending = null;
+  let _diaryQrListenerBound = false;
+
+  function _diaryQrIsInShell() { try { return window.parent && window.parent !== window; } catch (e) { return false; } }
+
+  function _diaryQrEnsureListener() {
+    if (_diaryQrListenerBound) return;
+    _diaryQrListenerBound = true;
+    window.addEventListener('message', ev => {
+      const data = ev.data;
+      if (!data || typeof data.type !== 'string' || data.requestId !== _diaryQrPending) return;
+      if (data.type === 'ccpc-qrscan-result') {
+        _diaryQrPending = null;
+        _diaryQrHandleScannedValue(String(data.value || '').trim());
+      } else if (data.type === 'ccpc-qrscan-error') {
+        _diaryQrPending = null;
+        const messages = { unavailable: 'Native QR scanner not available — try Manual Entry.', denied: 'Camera permission denied — enable it in system settings.', failed: 'Scan failed — try again.' };
+        showToast(messages[data.error] || 'Scan failed', 'error');
+      }
+    });
+  }
+
+  function _diaryQrScanStart() {
+    _diaryQrEnsureListener();
+    const requestId = 'diaryqr' + (++_diaryQrReqSeq);
+    _diaryQrPending = requestId;
+    window.parent.postMessage({ type: 'ccpc-qrscan-start', requestId }, '*');
+  }
+
+  function _diaryQrScanStop() {
+    if (!_diaryQrPending) return;
+    window.parent.postMessage({ type: 'ccpc-qrscan-stop', requestId: _diaryQrPending }, '*');
+    _diaryQrPending = null;
+  }
+
+  function _diaryQrCloseScanner() {
+    _diaryQrScanStop();
+    const modal = document.getElementById('diaryScanPanelWrap');
+    if (modal) modal.remove();
+  }
+
+  // Graceful degrade for a plain browser with no native camera bridge —
+  // same precedent already used elsewhere in this codebase.
+  function _diaryQrOpenManualPrompt() {
+    _diaryShowSimpleModal('Enter Student ID', `
+      <input id="diaryQrManualInput" placeholder="Student ID" onkeydown="if(event.key==='Enter'){_diaryQrManualSubmit();}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold mb-3">
+      <button onclick="_diaryQrManualSubmit()" class="w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black transition-all">Look Up</button>
+    `);
+  }
+
+  function _diaryQrManualSubmit() {
+    const val = (document.getElementById('diaryQrManualInput').value || '').trim();
+    if (!val) return;
+    _diaryCloseSimpleModal();
+    _diaryQrHandleScannedValue(val);
+  }
+
+  function _diaryQrHandleScannedValue(raw) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    showToast('Looking up student…', 'info');
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Student not found', 'error'); return; }
+      _diaryCaseOpenStudentPanel(res.student);
+    }).withFailureHandler(() => showToast('Network error', 'error')).getStudentForScan(myId, raw);
+  }
+
+  // ── Scan-result student panel (photo/info + case/diary history + new entry) ──
+  let _diaryScanPanelStudent = null;
+  let _diaryScanPanelEntries = [];
+
+  function _diaryCaseOpenStudentPanel(student) {
+    _diaryScanPanelStudent = student;
+    let wrap = document.getElementById('diaryScanPanelWrap');
+    if (!wrap) {
+      wrap = document.createElement('div');
+      wrap.id = 'diaryScanPanelWrap';
+      wrap.className = 'fixed inset-0 z-[1250] flex items-center justify-center bg-black/50 p-4';
+      document.body.appendChild(wrap);
+    }
+    wrap.innerHTML = `
+      <div class="bg-white rounded-3xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto relative">
+        <button onclick="_diaryQrCloseScanner()" class="absolute top-3 right-3 p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 z-10"><i data-lucide="x" class="h-4 w-4"></i></button>
+        <div class="p-5 flex items-center gap-3 border-b border-slate-100">
+          ${student.photo ? `<img src="${_escHtml(student.photo)}" class="w-14 h-14 rounded-2xl object-cover border border-slate-200">` : `<div class="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400"><i data-lucide="user" class="h-6 w-6"></i></div>`}
+          <div>
+            <p class="font-black text-slate-800 text-sm">${_escHtml(student.student_name || student.student_id)}</p>
+            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">${_escHtml(student.class || '')}${student.section ? '/' + _escHtml(student.section) : ''} · ID ${_escHtml(student.student_id)}</p>
+          </div>
+        </div>
+        <div class="flex gap-2 px-5 pt-3">
+          <button onclick="_diaryCasePanelShowTab('history')" id="diaryScanTabHistory" class="px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest">History</button>
+          <button onclick="_diaryCasePanelShowTab('new')" id="diaryScanTabNew" class="px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest">New Entry</button>
+        </div>
+        <div class="p-5">
+          <div id="diaryScanPanelHistory"></div>
+          <div id="diaryScanPanelNew" class="hidden"></div>
+        </div>
+      </div>`;
+    lucide.createIcons();
+    _diaryCasePanelShowTab('history');
+  }
+
+  function _diaryCasePanelShowTab(tab) {
+    const active = 'bg-indigo-600 text-white';
+    const inactive = 'bg-slate-100 text-slate-500';
+    const h = document.getElementById('diaryScanTabHistory'); if (h) h.className = `px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest ${tab === 'history' ? active : inactive}`;
+    const n = document.getElementById('diaryScanTabNew'); if (n) n.className = `px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-widest ${tab === 'new' ? active : inactive}`;
+    document.getElementById('diaryScanPanelHistory').classList.toggle('hidden', tab !== 'history');
+    document.getElementById('diaryScanPanelNew').classList.toggle('hidden', tab !== 'new');
+    if (tab === 'history') _diaryCaseLoadHistory(_diaryScanPanelStudent.student_id);
+    else _diaryScanPanelRenderComposer();
+  }
+
+  function _diaryCaseLoadHistory(studentId) {
+    const el = document.getElementById('diaryScanPanelHistory');
+    if (!el) return;
+    el.innerHTML = `<div class="text-center py-10 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { el.innerHTML = `<div class="text-center py-10 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to load')}</div>`; return; }
+      _diaryScanPanelEntries = res.entries || [];
+      el.innerHTML = _diaryScanPanelEntries.length
+        ? `<div class="flex flex-col gap-2">${_diaryScanPanelEntries.map(e => _diaryEntryCardHtml(e)).join('')}</div>`
+        : `<div class="text-center py-10 text-slate-400 text-xs font-black uppercase tracking-widest">No history yet</div>`;
+      lucide.createIcons();
+    }).withFailureHandler(() => { el.innerHTML = `<div class="text-center py-10 text-red-400 text-xs font-black uppercase tracking-widest">Network error</div>`; }).getStudentDiaryHistory(myId, studentId);
+  }
+
+  function _diaryScanPanelReloadHistory() {
+    if (_diaryScanPanelStudent && !document.getElementById('diaryScanPanelHistory').classList.contains('hidden')) {
+      _diaryCaseLoadHistory(_diaryScanPanelStudent.student_id);
+    }
+  }
+
+  // The "New Entry" tab mounts the Diary composer's own markup, pre-locked
+  // to this one student — audience picker UI hidden entirely, per "skip the
+  // usual class/section picker since the student is already identified."
+  function _diaryScanPanelRenderComposer() {
+    const el = document.getElementById('diaryScanPanelNew');
+    if (!el) return;
+    const student = _diaryScanPanelStudent;
+    _diaryAudience = { mode: 'students', session: '', class: student.class || '', section: student.section || '', student_ids: [String(student.student_id)] };
+    _diaryComposerType = 'discipline';
+    _diaryCaseType = 'notify';
+    _diaryComposerFromScan = true;
+    el.innerHTML = `
+      <div class="flex gap-1.5 flex-wrap mb-3">
+        ${DIARY_ENTRY_TYPES.map(t => `<button onclick="_diarySelectType('${t.key}')" id="diaryTypeBtn-${t.key}" class="px-3 py-1.5 rounded-full text-xs font-black border-2 transition-all ${_diaryComposerType === t.key ? `bg-gradient-to-r ${t.grad} text-white border-transparent` : 'border-slate-200 text-slate-500 hover:border-slate-300'}">${t.emoji} ${_escHtml(t.label)}</button>`).join('')}
+      </div>
+      <div id="diaryCaseTypeRow" class="p-3 rounded-xl border border-rose-200 bg-rose-50/40 space-y-2 mb-3">
+        <p class="text-[10px] font-black text-rose-600 uppercase tracking-widest">Case Type</p>
+        <div class="flex gap-2 flex-wrap">
+          <button onclick="_diarySelectCaseType('notify')" id="diaryCaseTypeBtn-notify" class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase border">Notify / No Action Needed</button>
+          <button onclick="_diarySelectCaseType('committee')" id="diaryCaseTypeBtn-committee" class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase border">Action Needed (Committee)</button>
+        </div>
+        <select id="diaryCaseCommittee" class="hidden w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold"><option value="">Loading committees…</option></select>
+      </div>
+      <div id="diaryHomeworkFields" class="hidden mb-3">
+        <div class="grid grid-cols-2 gap-2 mb-2">
+          <input id="diarySubject" placeholder="Subject (e.g. Mathematics)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold">
+          <select id="diaryDueMode" onchange="_diaryOnDueModeChange()" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold">
+            <option value="date">Due: Specific Date</option>
+            <option value="weekday">Due: Next Weekday</option>
+          </select>
+        </div>
+        <input id="diaryDueDate" type="date" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold">
+        <select id="diaryDueWeekday" onchange="_diaryUpdateDueDateFromWeekday()" class="hidden w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold">
+          <option value="">Which day does this class next meet?</option>
+          ${DIARY_WEEKDAY_NAMES.map((w, i) => `<option value="${i}">Next ${w}</option>`).join('')}
+        </select>
+        <p id="diaryDueResolved" class="hidden text-[10px] font-bold text-indigo-600 mt-1"></p>
+      </div>
+      <textarea id="diaryMessage" rows="3" placeholder="Write the diary note…" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-sm focus:ring-2 focus:ring-indigo-500 outline-none resize-none"></textarea>
+      <button id="diarySubmitBtn" onclick="_diarySubmit()" class="mt-3 w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Submit Diary Entry</button>
+    `;
+    _diaryLoadCommitteesForComposer();
+    lucide.createIcons();
+  }
+
+  // After a successful submit from inside the scan panel specifically,
+  // show a quick confirmation and flip back to History so the teacher sees
+  // the entry they just filed land in the list immediately.
+  function _diaryScanPanelAfterSubmit(entry) {
+    showToast('Entry filed for ' + (_diaryScanPanelStudent ? _diaryScanPanelStudent.student_name : 'student'), 'success');
+    _diaryCasePanelShowTab('history');
   }
 
   function _lpUpdateTabButtons() {
@@ -53387,10 +54478,38 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // names, instead of needing every type spelled out in a lookup table.
   function _notifRoute(n) {
     const d = (n && n.data) || {};
+    // Checked BEFORE d.committee_id below — a Diary committee-case
+    // notification's data also carries committee_id (which committee the
+    // case belongs to), but that's an unrelated id space from the generic
+    // HR committee_groups chat feature's own committee_id that branch
+    // routes to; diary_entry_id is the unambiguous signal for this feature.
+    if (d.diary_entry_id) return () => _diaryCaseOpenFromNotification(d.diary_entry_id);
     if (d.post_id) return () => _forumOpenPostFromNotification(d.post_id);
     if (d.committee_id) return () => openCommChat(d.committee_id, d.committee_name);
     if (n && n.type === 'class_adjusted') return () => loadRoutineView();
     return null;
+  }
+
+  // Opens the right surface for a diary/case notification: the Case Detail
+  // modal for a committee case (triage/referral/reply all land here), or
+  // just the Diary list with the matching card scroll-highlighted for a
+  // plain notify entry/reply — same highlight idiom ccpc-students already
+  // uses for its own notification deep-links.
+  function _diaryCaseOpenFromNotification(diaryEntryId) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    loadDiaryView();
+    setTimeout(() => {
+      google.script.run.withSuccessHandler(res => {
+        if (!res || res.result !== 'success') return;
+        if (res.entry.case_type === 'committee') { _diaryRenderCaseDetail(res.entry); return; }
+        const el = document.getElementById('diaryList');
+        if (!el) return;
+        setTimeout(() => {
+          const card = Array.from(el.children).find(c => c.querySelector && c.querySelector(`[onclick*="_diaryRepliesToggle(${diaryEntryId})"]`));
+          if (card) { card.scrollIntoView({ behavior: 'smooth', block: 'center' }); card.style.transition = 'box-shadow 0.3s'; card.style.boxShadow = '0 0 0 3px #6366f1'; setTimeout(() => { card.style.boxShadow = ''; }, 2000); }
+        }, 400);
+      }).withFailureHandler(() => {}).getCaseDetail(myId, diaryEntryId);
+    }, 300);
   }
   // Every notification is clickable (marks itself read), and additionally
   // navigates when _notifRoute finds somewhere relevant to go.

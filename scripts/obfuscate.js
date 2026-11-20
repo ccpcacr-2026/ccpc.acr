@@ -532,7 +532,16 @@ const RESERVED = [
   '_admCandFilterCircularList','_admCandShowCircularForm',
   '_admCandSaveVortibdCreds','_admCandLoadVortibdCirculars','_admCandSaveVortibdSyncConfig','_admCandSaveVortibdCircularLink',
   '_admCandPullVortibdFile','_admCandSyncVortibdNow',
-  '_admCandAddVortibdScheduleRow','_admCandRemoveVortibdScheduleRow','_admCandUpdateVortibdScheduleRow'
+  '_admCandAddVortibdScheduleRow','_admCandRemoveVortibdScheduleRow','_admCandUpdateVortibdScheduleRow',
+  // Diary "Cases" (committees, triage, referral, QR scan panel) -- Part 18
+  '_diarySelectCaseType','_diaryCommitteeFormOpen','_diaryCommitteeDelete','_diaryCommitteeOpenMembers',
+  '_diaryCommitteeOpenSubtypes','_diaryCommitteeOpenQueue','_diaryCommitteeOpenRules','_diaryRenderCommitteesOverview',
+  '_diaryCommitteeFormSave','_diaryCommitteeMemberAdd','_diaryCommitteeMemberToggleChairman','_diaryCommitteeMemberRemove',
+  '_diarySubtypeSave','_diarySubtypeDelete','_diaryCaseTriageOpen','_diaryRuleFormOpen','_diaryRuleDuplicate',
+  '_diaryRuleDelete','_diaryRuleScopeSetMode','_diaryRuleScopeUpdate','_diaryRuleSave','_diaryCaseOpenDetail',
+  '_diaryEntryEditOpen','_diaryEntryEditSave','_diaryCloseSimpleModal','_diaryCaseReferOpen','_diaryCaseClose',
+  '_diaryCaseTriageSubtypeChange','_diaryCaseTriageSave','_diaryCaseReferSave','_diaryRepliesToggle','_diaryReplySend',
+  '_diaryQrManualSubmit','_diaryQrCloseScanner','_diaryCasePanelShowTab'
 ];
 
 // Strip HTML comments and collapse whitespace

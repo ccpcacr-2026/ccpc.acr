@@ -572,6 +572,28 @@ async function _isCordOrAdmin(callerId) {
   return roles.some(r => ['Cord', 'Admin'].includes(r));
 }
 
+// ── DIARY COMMITTEE helpers ──────────────────────────────────────────────
+// 'chairman' | 'member' | null -- never trusts anything client-held, same
+// fresh-per-request discipline as every other permission check in this file.
+async function _diaryCommitteeRole(userId, committeeId) {
+  if (!userId || !committeeId) return null;
+  const rows = await supabaseRequest(`diary_committee_members?committee_id=eq.${encodeURIComponent(committeeId)}&user_id=eq.${encodeURIComponent(userId)}&select=is_chairman`);
+  const row = Array.isArray(rows) && rows[0];
+  return row ? (row.is_chairman ? 'chairman' : 'member') : null;
+}
+// Matches the SAME {mode, session, class, section, student_ids} shape
+// createDiaryEntry's own audience resolution uses, so an assignment rule's
+// `scope` and a diary entry's `audience` are always interpreted identically.
+function _diaryScopeMatchesStudent(student, scope) {
+  if (!scope) return false;
+  const mode = scope.mode || 'class';
+  if (mode === 'students') return (scope.student_ids || []).map(String).includes(String(student.student_id));
+  if (!scope.class || student.class !== scope.class) return false;
+  if (mode === 'class_section' && scope.section && student.section !== scope.section) return false;
+  if (scope.session && String(student.session || '') !== String(scope.session)) return false;
+  return true;
+}
+
 // ── FORUM helpers ────────────────────────────────────────────────────────
 // Shared by the human-post RPCs below and by the system-post hooks inside
 // saveLessonPlan/bulkImportLessonPlans further down this file.
@@ -2229,10 +2251,29 @@ const handlers = {
       student_ids: Array.isArray(a.student_ids) ? a.student_ids.map(String) : [],
     };
     if (audience.mode === 'students' && !audience.student_ids.length) return { result: 'error', message: 'Pick at least one student.' };
+    // Case type: 'notify' (today's existing behavior, default) vs
+    // 'committee' (routes into a committee's untriaged queue). A committee
+    // case must target exactly one student — every part of this feature
+    // (QR scan, triage, referral) is framed around a single student; a
+    // whole-class committee referral has no clear handler/triage meaning.
+    const caseType = p.case_type === 'committee' ? 'committee' : 'notify';
+    let committeeId = null;
+    if (caseType === 'committee') {
+      if (audience.mode !== 'students' || audience.student_ids.length !== 1) {
+        return { result: 'error', message: 'A Committee case must target exactly one student.' };
+      }
+      committeeId = parseInt(p.committee_id, 10) || null;
+      if (!committeeId) return { result: 'error', message: 'Pick a committee for this case.' };
+      const committeeRows = await supabaseRequest(`diary_committees?id=eq.${committeeId}&select=id`);
+      if (!Array.isArray(committeeRows) || !committeeRows.length) return { result: 'error', message: 'That committee no longer exists.' };
+    }
     const row = {
       teacher_id: callerId, entry_type: entryType, audience,
       subject: (p.subject || '').trim() || null, message,
       due_date: p.due_date || null, created_at: new Date().toISOString(),
+      case_type: caseType, committee_id: committeeId,
+      status: caseType === 'committee' ? 'untriaged' : null,
+      scanned_from_qr: !!p.scanned_from_qr,
     };
     const created = await supabaseRequest('student_diary_entries', 'post', row);
     if (created?.error) return { result: 'error', message: created.details || created.error };
@@ -2248,11 +2289,19 @@ const handlers = {
       const students = await _sbStudent(path);
       targetStudentIds = (Array.isArray(students) ? students : []).map(s => String(s.student_id));
     }
+    // Per-student expansion index — same resolution as above, never a
+    // second divergent one. Lets the QR-scan popup (and anything else)
+    // cheaply answer "every diary entry touching student X" regardless of
+    // whether it was filed class-wide, section-wide, or student-specific.
+    if (targetStudentIds.length) {
+      await supabaseRequest('diary_entry_students', 'post', targetStudentIds.map(sid => ({ diary_entry_id: entry.id, student_id: sid })));
+    }
     const label = DIARY_LABELS[entryType];
     const preview = message.length > 100 ? message.slice(0, 100) + '…' : message;
     if (targetStudentIds.length) {
       _forumNotify(targetStudentIds.map(id => 'student:' + id), {
-        type: 'diary_entry', title: `${label} — ${audience.class}${audience.section ? '/' + audience.section : ''}`,
+        type: caseType === 'committee' ? 'diary_case_committee' : 'diary_entry',
+        title: `${label} — ${audience.class}${audience.section ? '/' + audience.section : ''}`,
         message: preview, data: { diary_entry_id: entry.id, entry_type: entryType },
       });
     }
@@ -2275,7 +2324,51 @@ const handlers = {
         message: preview, data: { diary_entry_id: entry.id },
       });
     }
+    // Committee cases additionally alert every chairman of the targeted
+    // committee — the chairman's own queue/notification is how an
+    // "untriaged" case is ever discovered; no one is polling the queue
+    // blind.
+    if (caseType === 'committee') {
+      const chairmen = await supabaseRequest(`diary_committee_members?committee_id=eq.${committeeId}&is_chairman=eq.true&select=user_id`);
+      const chairmanIds = (Array.isArray(chairmen) ? chairmen : []).map(c => c.user_id).filter(id => id !== callerId);
+      if (chairmanIds.length) {
+        _forumNotify(chairmanIds, {
+          type: 'diary_case_untriaged', title: 'New Committee Case',
+          message: preview, data: { diary_entry_id: entry.id, committee_id: committeeId },
+        });
+      }
+    }
     return { result: 'success', entry };
+  },
+
+  // Content-only edit (subject/message/due_date) — never audience,
+  // case_type, or committee_id. Once a Type-2 case has entered a
+  // committee's workflow (possibly already triaged/referred), silently
+  // letting the author re-target who/what it's about would conflict with
+  // the triage trail's integrity; delete-and-refile covers a real re-target.
+  async updateDiaryEntry([callerId, payload]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const p = payload || {};
+    const id = p.id;
+    if (!id) return { result: 'error', message: 'Missing entry id.' };
+    const rows = await supabaseRequest(`student_diary_entries?id=eq.${encodeURIComponent(id)}&select=teacher_id`);
+    if (rows?.error) return { result: 'error', message: rows.details || rows.error };
+    const entry = Array.isArray(rows) && rows[0];
+    if (!entry) return { result: 'error', message: 'Entry not found.' };
+    if (entry.teacher_id !== callerId && !(await _isCordOrAdmin(callerId))) {
+      return { result: 'error', message: 'Only the author (or an Admin) can edit this entry.' };
+    }
+    const patch = {};
+    if (p.subject !== undefined) patch.subject = String(p.subject || '').trim() || null;
+    if (p.message !== undefined) {
+      const message = String(p.message || '').trim();
+      if (!message) return { result: 'error', message: 'Write a message first.' };
+      patch.message = message;
+    }
+    if (p.due_date !== undefined) patch.due_date = p.due_date || null;
+    const updated = await supabaseRequest(`student_diary_entries?id=eq.${encodeURIComponent(id)}`, 'patch', patch);
+    if (updated?.error) return { result: 'error', message: updated.details || updated.error };
+    return { result: 'success', entry: updated[0] };
   },
 
   // scope: 'mine' (entries this teacher authored) | 'oversight' (Admin/VP/
@@ -2324,6 +2417,447 @@ const handlers = {
     const deleted = await supabaseRequest(`student_diary_entries?id=eq.${encodeURIComponent(id)}`, 'delete');
     if (deleted?.error) return { result: 'error', message: deleted.details || deleted.error };
     return { result: 'success' };
+  },
+
+  // ── DIARY: QR-SCAN STUDENT LOOKUP ─────────────────────────────────────────
+  // Any signed-in teacher/staff can scan any student's card (confirmed
+  // access level — same bar the Diary composer itself already uses). The
+  // server, never the client, parses the scanned payload — the QR's own
+  // format is "comma-separated values, first = student_id", the rest
+  // ignored/unused for now.
+  async getStudentForScan([callerId, rawCode]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const studentId = String(rawCode || '').split(',')[0].trim();
+    if (!studentId) return { result: 'error', message: 'Could not read a student ID from that code.' };
+    const rows = await _sbStudent(`students_data?student_id=eq.${encodeURIComponent(studentId)}&select=*`);
+    const student = Array.isArray(rows) && rows[0];
+    if (!student) return { result: 'error', message: `No student found with ID ${studentId}.` };
+    delete student.pin;
+    delete student.nfc_uid;
+    const openCases = await supabaseRequest(`diary_entry_students?student_id=eq.${encodeURIComponent(studentId)}&select=diary_entry_id`);
+    let openCommitteeCases = 0;
+    if (Array.isArray(openCases) && openCases.length) {
+      const entryIds = openCases.map(c => c.diary_entry_id);
+      const cases = await supabaseRequest(`student_diary_entries?id=in.(${entryIds.join(',')})&case_type=eq.committee&status=neq.closed&select=id`);
+      openCommitteeCases = Array.isArray(cases) ? cases.length : 0;
+    }
+    return { result: 'success', student, open_committee_cases: openCommitteeCases };
+  },
+
+  // Full case/diary history for one student — any signed-in teacher/staff
+  // sees full message text (confirmed access level), not a restricted
+  // summary. committee_id/subtype_id/current_handler_id ride along here
+  // too (staff-only surface); the thinning for ccpc-students happens on
+  // ITS OWN read action (get_student_diary_entries), not here.
+  async getStudentDiaryHistory([callerId, studentId]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    if (!studentId) return { result: 'error', message: 'Missing student id.' };
+    const links = await supabaseRequest(`diary_entry_students?student_id=eq.${encodeURIComponent(studentId)}&select=diary_entry_id`);
+    const entryIds = (Array.isArray(links) ? links : []).map(l => l.diary_entry_id);
+    if (!entryIds.length) return { result: 'success', entries: [] };
+    const rows = await supabaseRequest(`student_diary_entries?id=in.(${entryIds.join(',')})&select=*&order=created_at.desc`);
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) return { result: 'success', entries: [] };
+    const teacherIds = [...new Set(list.map(r => r.teacher_id).filter(Boolean))];
+    const committeeIds = [...new Set(list.map(r => r.committee_id).filter(Boolean))];
+    const subtypeIds = [...new Set(list.map(r => r.subtype_id).filter(Boolean))];
+    const handlerIds = [...new Set(list.map(r => r.current_handler_id).filter(Boolean))];
+    const nameIds = [...new Set([...teacherIds, ...handlerIds])];
+    const [profiles, committees, subtypes] = await Promise.all([
+      nameIds.length ? supabaseRequest(`users_profile?teacher_id=in.(${nameIds.map(encodeURIComponent).join(',')})&select=teacher_id,full_name`) : [],
+      committeeIds.length ? supabaseRequest(`diary_committees?id=in.(${committeeIds.join(',')})&select=id,name`) : [],
+      subtypeIds.length ? supabaseRequest(`diary_committee_subtypes?id=in.(${subtypeIds.join(',')})&select=id,label`) : [],
+    ]);
+    const nameById = {};
+    (Array.isArray(profiles) ? profiles : []).forEach(p2 => { nameById[p2.teacher_id] = p2.full_name; });
+    const committeeNameById = {};
+    (Array.isArray(committees) ? committees : []).forEach(c => { committeeNameById[c.id] = c.name; });
+    const subtypeLabelById = {};
+    (Array.isArray(subtypes) ? subtypes : []).forEach(s => { subtypeLabelById[s.id] = s.label; });
+    list.forEach(r => {
+      r.teacher_name = nameById[r.teacher_id] || r.teacher_id;
+      if (r.committee_id) r.committee_name = committeeNameById[r.committee_id] || null;
+      if (r.subtype_id) r.subtype_label = subtypeLabelById[r.subtype_id] || null;
+      if (r.current_handler_id) r.current_handler_name = nameById[r.current_handler_id] || r.current_handler_id;
+    });
+    return { result: 'success', entries: list };
+  },
+
+  // ── DIARY COMMITTEES ───────────────────────────────────────────────────────
+  // Deliberately separate from teacher_staff.committee_groups (unrelated
+  // HR/evaluation-chat feature) — new, Diary-scoped tables, not reused ones.
+
+  async listDiaryCommittees([callerId]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const committees = await supabaseRequest('diary_committees?select=id,name&order=name.asc');
+    const list = Array.isArray(committees) ? committees : [];
+    if (!list.length) return { result: 'success', committees: [] };
+    const memberships = await supabaseRequest(`diary_committee_members?user_id=eq.${encodeURIComponent(callerId)}&select=committee_id,is_chairman`);
+    const roleByCommittee = {};
+    (Array.isArray(memberships) ? memberships : []).forEach(m => { roleByCommittee[m.committee_id] = m.is_chairman ? 'chairman' : 'member'; });
+    list.forEach(c => { c.my_role = roleByCommittee[c.id] || null; });
+    return { result: 'success', committees: list };
+  },
+
+  async createDiaryCommittee([callerId, payload]) {
+    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin/Cord can create a committee.' };
+    const name = String((payload || {}).name || '').trim();
+    if (!name) return { result: 'error', message: 'Name is required.' };
+    const created = await supabaseRequest('diary_committees', 'post', { name, created_by: callerId });
+    if (created?.error) return { result: 'error', message: created.details || created.error };
+    return { result: 'success', committee: created[0] };
+  },
+
+  async updateDiaryCommittee([callerId, payload]) {
+    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin/Cord can edit a committee.' };
+    const p = payload || {};
+    if (!p.id) return { result: 'error', message: 'Missing committee id.' };
+    const name = String(p.name || '').trim();
+    if (!name) return { result: 'error', message: 'Name is required.' };
+    const updated = await supabaseRequest(`diary_committees?id=eq.${encodeURIComponent(p.id)}`, 'patch', { name });
+    if (updated?.error) return { result: 'error', message: updated.details || updated.error };
+    return { result: 'success', committee: updated[0] };
+  },
+
+  async deleteDiaryCommittee([callerId, id]) {
+    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin/Cord can delete a committee.' };
+    if (!id) return { result: 'error', message: 'Missing committee id.' };
+    const deleted = await supabaseRequest(`diary_committees?id=eq.${encodeURIComponent(id)}`, 'delete');
+    if (deleted?.error) return { result: 'error', message: deleted.details || deleted.error };
+    return { result: 'success' };
+  },
+
+  async listDiaryCommitteeMembers([callerId, committeeId]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    if (!committeeId) return { result: 'error', message: 'Missing committee id.' };
+    const rows = await supabaseRequest(`diary_committee_members?committee_id=eq.${encodeURIComponent(committeeId)}&select=*&order=created_at.asc`);
+    const list = Array.isArray(rows) ? rows : [];
+    if (list.length) {
+      const ids = [...new Set(list.map(m => m.user_id))];
+      const profiles = await supabaseRequest(`users_profile?teacher_id=in.(${ids.map(encodeURIComponent).join(',')})&select=teacher_id,full_name`);
+      const nameById = {};
+      (Array.isArray(profiles) ? profiles : []).forEach(p2 => { nameById[p2.teacher_id] = p2.full_name; });
+      list.forEach(m => { m.full_name = nameById[m.user_id] || m.user_id; });
+    }
+    return { result: 'success', members: list };
+  },
+
+  // Upsert by (committee_id, user_id) — a committee member must never be
+  // able to add/promote themselves or anyone else, hence Admin/Cord only,
+  // same bar as the committee itself.
+  async saveDiaryCommitteeMember([callerId, payload]) {
+    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin/Cord can manage committee members.' };
+    const p = payload || {};
+    if (!p.committee_id || !p.user_id) return { result: 'error', message: 'Missing committee or user.' };
+    const existing = await supabaseRequest(`diary_committee_members?committee_id=eq.${encodeURIComponent(p.committee_id)}&user_id=eq.${encodeURIComponent(p.user_id)}`);
+    const data = { committee_id: p.committee_id, user_id: p.user_id, is_chairman: !!p.is_chairman };
+    if (Array.isArray(existing) && existing.length) {
+      const updated = await supabaseRequest(`diary_committee_members?id=eq.${existing[0].id}`, 'patch', { is_chairman: data.is_chairman });
+      if (updated?.error) return { result: 'error', message: updated.details || updated.error };
+      return { result: 'success', member: updated[0] };
+    }
+    const created = await supabaseRequest('diary_committee_members', 'post', data);
+    if (created?.error) return { result: 'error', message: created.details || created.error };
+    return { result: 'success', member: created[0] };
+  },
+
+  async removeDiaryCommitteeMember([callerId, id]) {
+    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin/Cord can manage committee members.' };
+    if (!id) return { result: 'error', message: 'Missing member id.' };
+    const deleted = await supabaseRequest(`diary_committee_members?id=eq.${encodeURIComponent(id)}`, 'delete');
+    if (deleted?.error) return { result: 'error', message: deleted.details || deleted.error };
+    return { result: 'success' };
+  },
+
+  async listDiaryCommitteeSubtypes([callerId, committeeId]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    if (!committeeId) return { result: 'error', message: 'Missing committee id.' };
+    const rows = await supabaseRequest(`diary_committee_subtypes?committee_id=eq.${encodeURIComponent(committeeId)}&select=*&order=created_at.asc`);
+    return { result: 'success', subtypes: Array.isArray(rows) ? rows : [] };
+  },
+
+  async saveDiaryCommitteeSubtype([callerId, payload]) {
+    const p = payload || {};
+    const role = await _diaryCommitteeRole(callerId, p.committee_id);
+    if (role !== 'chairman' && !(await _isCordOrAdmin(callerId))) {
+      return { result: 'error', message: 'Only the committee chairman (or an Admin) can manage subtypes.' };
+    }
+    const label = String(p.label || '').trim();
+    if (!label) return { result: 'error', message: 'Label is required.' };
+    const key = label.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'subtype';
+    if (p.id) {
+      const updated = await supabaseRequest(`diary_committee_subtypes?id=eq.${encodeURIComponent(p.id)}`, 'patch', { label });
+      if (updated?.error) return { result: 'error', message: updated.details || updated.error };
+      return { result: 'success', subtype: updated[0] };
+    }
+    const created = await supabaseRequest('diary_committee_subtypes', 'post', { committee_id: p.committee_id, key, label });
+    if (created?.error) return { result: 'error', message: created.details && String(created.details).includes('duplicate') ? 'A subtype with this name already exists.' : (created.details || created.error) };
+    return { result: 'success', subtype: created[0] };
+  },
+
+  async deleteDiaryCommitteeSubtype([callerId, payload]) {
+    const p = payload || {};
+    const role = await _diaryCommitteeRole(callerId, p.committee_id);
+    if (role !== 'chairman' && !(await _isCordOrAdmin(callerId))) {
+      return { result: 'error', message: 'Only the committee chairman (or an Admin) can manage subtypes.' };
+    }
+    if (!p.id) return { result: 'error', message: 'Missing subtype id.' };
+    const deleted = await supabaseRequest(`diary_committee_subtypes?id=eq.${encodeURIComponent(p.id)}`, 'delete');
+    if (deleted?.error) return { result: 'error', message: deleted.details || deleted.error };
+    return { result: 'success' };
+  },
+
+  // ── ASSIGNMENT RULES (subtype + member + scope) ────────────────────────────
+  // One row per (subtype, member, scope) — a subtype may have many rows
+  // (many members), a member may appear in many rows (different subtypes
+  // and/or different scopes), per the user's explicit confirmed shape.
+
+  async listAssignmentRules([callerId, committeeId]) {
+    const role = await _diaryCommitteeRole(callerId, committeeId);
+    if (!role && !(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Not a member of this committee.' };
+    const rows = await supabaseRequest(`diary_committee_assignment_rules?committee_id=eq.${encodeURIComponent(committeeId)}&select=*&order=created_at.asc`);
+    const list = Array.isArray(rows) ? rows : [];
+    if (list.length) {
+      const subtypeIds = [...new Set(list.map(r => r.subtype_id))];
+      const memberIds = [...new Set(list.map(r => r.member_user_id))];
+      const [subtypes, profiles] = await Promise.all([
+        supabaseRequest(`diary_committee_subtypes?id=in.(${subtypeIds.join(',')})&select=id,label`),
+        supabaseRequest(`users_profile?teacher_id=in.(${memberIds.map(encodeURIComponent).join(',')})&select=teacher_id,full_name`),
+      ]);
+      const labelById = {};
+      (Array.isArray(subtypes) ? subtypes : []).forEach(s => { labelById[s.id] = s.label; });
+      const nameById = {};
+      (Array.isArray(profiles) ? profiles : []).forEach(p2 => { nameById[p2.teacher_id] = p2.full_name; });
+      list.forEach(r => { r.subtype_label = labelById[r.subtype_id] || r.subtype_id; r.member_name = nameById[r.member_user_id] || r.member_user_id; });
+    }
+    return { result: 'success', rules: list };
+  },
+
+  // Also the "Duplicate" entry point — a duplicate is just this same
+  // action called with no `id`, so it always inserts a brand-new row and
+  // never mutates the row it was copied from.
+  async saveAssignmentRule([callerId, payload]) {
+    const p = payload || {};
+    const role = await _diaryCommitteeRole(callerId, p.committee_id);
+    if (role !== 'chairman' && !(await _isCordOrAdmin(callerId))) {
+      return { result: 'error', message: 'Only the committee chairman (or an Admin) can manage assignment rules.' };
+    }
+    if (!p.subtype_id || !p.member_user_id) return { result: 'error', message: 'Subtype and member are required.' };
+    const data = { committee_id: p.committee_id, subtype_id: p.subtype_id, member_user_id: p.member_user_id, scope: p.scope || {} };
+    if (p.id) {
+      const updated = await supabaseRequest(`diary_committee_assignment_rules?id=eq.${encodeURIComponent(p.id)}`, 'patch', { subtype_id: data.subtype_id, member_user_id: data.member_user_id, scope: data.scope });
+      if (updated?.error) return { result: 'error', message: updated.details || updated.error };
+      return { result: 'success', rule: updated[0] };
+    }
+    const created = await supabaseRequest('diary_committee_assignment_rules', 'post', data);
+    if (created?.error) return { result: 'error', message: created.details || created.error };
+    return { result: 'success', rule: created[0] };
+  },
+
+  async deleteAssignmentRule([callerId, payload]) {
+    const p = payload || {};
+    const role = await _diaryCommitteeRole(callerId, p.committee_id);
+    if (role !== 'chairman' && !(await _isCordOrAdmin(callerId))) {
+      return { result: 'error', message: 'Only the committee chairman (or an Admin) can manage assignment rules.' };
+    }
+    if (!p.id) return { result: 'error', message: 'Missing rule id.' };
+    const deleted = await supabaseRequest(`diary_committee_assignment_rules?id=eq.${encodeURIComponent(p.id)}`, 'delete');
+    if (deleted?.error) return { result: 'error', message: deleted.details || deleted.error };
+    return { result: 'success' };
+  },
+
+  // Resolves the case's single student against its committee's assignment
+  // rules, scope-matched via _diaryScopeMatchesStudent — the chairman can
+  // still override to literally anyone regardless of what this suggests.
+  async suggestHandlersForCase([callerId, diaryEntryId]) {
+    const entryRows = await supabaseRequest(`student_diary_entries?id=eq.${encodeURIComponent(diaryEntryId)}&select=committee_id,audience`);
+    const entry = Array.isArray(entryRows) && entryRows[0];
+    if (!entry || !entry.committee_id) return { result: 'error', message: 'Case not found.' };
+    const role = await _diaryCommitteeRole(callerId, entry.committee_id);
+    if (role !== 'chairman' && !(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only the committee chairman (or an Admin) can triage cases.' };
+    const studentId = (entry.audience && entry.audience.student_ids && entry.audience.student_ids[0]) || null;
+    if (!studentId) return { result: 'success', suggestions: [] };
+    const studentRows = await _sbStudent(`students_data?student_id=eq.${encodeURIComponent(studentId)}&select=student_id,class,section,session`);
+    const student = Array.isArray(studentRows) && studentRows[0];
+    if (!student) return { result: 'success', suggestions: [] };
+    const rules = await supabaseRequest(`diary_committee_assignment_rules?committee_id=eq.${entry.committee_id}&select=subtype_id,member_user_id,scope`);
+    const matches = (Array.isArray(rules) ? rules : []).filter(r => _diaryScopeMatchesStudent(student, r.scope));
+    return { result: 'success', suggestions: matches.map(r => ({ subtype_id: r.subtype_id, member_user_id: r.member_user_id })) };
+  },
+
+  // ── TRIAGE / REFERRAL ───────────────────────────────────────────────────────
+
+  async getIncomingCommitteeCases([callerId, committeeId]) {
+    const role = await _diaryCommitteeRole(callerId, committeeId);
+    if (!role && !(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Not a member of this committee.' };
+    const rows = await supabaseRequest(`student_diary_entries?committee_id=eq.${encodeURIComponent(committeeId)}&status=eq.untriaged&select=*&order=created_at.asc`);
+    return { result: 'success', cases: Array.isArray(rows) ? rows : [] };
+  },
+
+  async triageCase([callerId, payload]) {
+    const p = payload || {};
+    const entryRows = await supabaseRequest(`student_diary_entries?id=eq.${encodeURIComponent(p.diary_entry_id)}&select=committee_id`);
+    const entry = Array.isArray(entryRows) && entryRows[0];
+    if (!entry) return { result: 'error', message: 'Case not found.' };
+    const role = await _diaryCommitteeRole(callerId, entry.committee_id);
+    if (role !== 'chairman' && !(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only the committee chairman (or an Admin) can triage cases.' };
+    if (!p.subtype_id || !p.handler_user_id) return { result: 'error', message: 'Pick a subtype and a handler.' };
+    const updated = await supabaseRequest(`student_diary_entries?id=eq.${encodeURIComponent(p.diary_entry_id)}`, 'patch', {
+      subtype_id: p.subtype_id, status: 'in_progress', current_handler_id: p.handler_user_id,
+    });
+    if (updated?.error) return { result: 'error', message: updated.details || updated.error };
+    await supabaseRequest('diary_case_referrals', 'post', {
+      diary_entry_id: p.diary_entry_id, from_user_id: callerId, to_user_id: p.handler_user_id,
+      action: 'triaged', subtype_id: p.subtype_id,
+    });
+    if (p.handler_user_id !== callerId) {
+      _forumNotify([p.handler_user_id], {
+        type: 'diary_case_assigned', title: 'A case has been assigned to you',
+        message: 'A committee case needs your attention.', data: { diary_entry_id: p.diary_entry_id },
+      });
+    }
+    return { result: 'success', entry: updated[0] };
+  },
+
+  async referCase([callerId, payload]) {
+    const p = payload || {};
+    const entryRows = await supabaseRequest(`student_diary_entries?id=eq.${encodeURIComponent(p.diary_entry_id)}&select=committee_id,current_handler_id`);
+    const entry = Array.isArray(entryRows) && entryRows[0];
+    if (!entry) return { result: 'error', message: 'Case not found.' };
+    const role = await _diaryCommitteeRole(callerId, entry.committee_id);
+    const isHandler = entry.current_handler_id === callerId;
+    if (!isHandler && role !== 'chairman' && !(await _isCordOrAdmin(callerId))) {
+      return { result: 'error', message: 'Only the current handler (or the committee chairman/Admin) can refer this case.' };
+    }
+    if (!p.to_user_id) return { result: 'error', message: 'Pick who to refer this case to.' };
+    const updated = await supabaseRequest(`student_diary_entries?id=eq.${encodeURIComponent(p.diary_entry_id)}`, 'patch', { current_handler_id: p.to_user_id });
+    if (updated?.error) return { result: 'error', message: updated.details || updated.error };
+    await supabaseRequest('diary_case_referrals', 'post', {
+      diary_entry_id: p.diary_entry_id, from_user_id: callerId, to_user_id: p.to_user_id,
+      action: 'referred', note: (p.note || '').trim() || null,
+    });
+    if (p.to_user_id !== callerId) {
+      _forumNotify([p.to_user_id], {
+        type: 'diary_case_assigned', title: 'A case has been referred to you',
+        message: (p.note || '').trim() || 'A committee case has been referred to you.', data: { diary_entry_id: p.diary_entry_id },
+      });
+    }
+    return { result: 'success', entry: updated[0] };
+  },
+
+  async closeCase([callerId, diaryEntryId]) {
+    const entryRows = await supabaseRequest(`student_diary_entries?id=eq.${encodeURIComponent(diaryEntryId)}&select=committee_id,current_handler_id`);
+    const entry = Array.isArray(entryRows) && entryRows[0];
+    if (!entry) return { result: 'error', message: 'Case not found.' };
+    const role = await _diaryCommitteeRole(callerId, entry.committee_id);
+    if (entry.current_handler_id !== callerId && role !== 'chairman' && !(await _isCordOrAdmin(callerId))) {
+      return { result: 'error', message: 'Only the current handler (or the committee chairman/Admin) can close this case.' };
+    }
+    const updated = await supabaseRequest(`student_diary_entries?id=eq.${encodeURIComponent(diaryEntryId)}`, 'patch', { status: 'closed' });
+    if (updated?.error) return { result: 'error', message: updated.details || updated.error };
+    return { result: 'success', entry: updated[0] };
+  },
+
+  // Deliberately gated tighter than getCaseDetail below — the filer sees
+  // status/handler, never the internal deliberation trail.
+  async getCaseReferralTrail([callerId, diaryEntryId]) {
+    const entryRows = await supabaseRequest(`student_diary_entries?id=eq.${encodeURIComponent(diaryEntryId)}&select=committee_id`);
+    const entry = Array.isArray(entryRows) && entryRows[0];
+    if (!entry) return { result: 'error', message: 'Case not found.' };
+    const role = await _diaryCommitteeRole(callerId, entry.committee_id);
+    if (!role && !(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only committee members can view the referral trail.' };
+    const rows = await supabaseRequest(`diary_case_referrals?diary_entry_id=eq.${encodeURIComponent(diaryEntryId)}&select=*&order=created_at.desc`);
+    const list = Array.isArray(rows) ? rows : [];
+    if (list.length) {
+      const ids = [...new Set([...list.map(r => r.from_user_id), ...list.map(r => r.to_user_id)].filter(Boolean))];
+      const profiles = await supabaseRequest(`users_profile?teacher_id=in.(${ids.map(encodeURIComponent).join(',')})&select=teacher_id,full_name`);
+      const nameById = {};
+      (Array.isArray(profiles) ? profiles : []).forEach(p2 => { nameById[p2.teacher_id] = p2.full_name; });
+      list.forEach(r => { r.from_name = r.from_user_id ? (nameById[r.from_user_id] || r.from_user_id) : null; r.to_name = nameById[r.to_user_id] || r.to_user_id; });
+    }
+    return { result: 'success', trail: list };
+  },
+
+  // Any signed-in teacher/staff — matches getStudentDiaryHistory's same
+  // "full history to any scanner" bar (confirmed access level for this
+  // feature). Broader than Admission's per-circular committee gating on
+  // purpose: a diary_discipline notification already reaches Admin/VP/Cord
+  // AND relevant class teachers who are neither the author nor a committee
+  // member, and they need to be able to open what they were notified about.
+  async getCaseDetail([callerId, diaryEntryId]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const rows = await supabaseRequest(`student_diary_entries?id=eq.${encodeURIComponent(diaryEntryId)}&select=*`);
+    const entry = Array.isArray(rows) && rows[0];
+    if (!entry) return { result: 'error', message: 'Case not found.' };
+    if (entry.committee_id) {
+      const [committeeRows, subtypeRows] = await Promise.all([
+        supabaseRequest(`diary_committees?id=eq.${entry.committee_id}&select=name`),
+        entry.subtype_id ? supabaseRequest(`diary_committee_subtypes?id=eq.${entry.subtype_id}&select=label`) : null,
+      ]);
+      entry.committee_name = Array.isArray(committeeRows) && committeeRows[0] ? committeeRows[0].name : null;
+      entry.subtype_label = Array.isArray(subtypeRows) && subtypeRows[0] ? subtypeRows[0].label : null;
+    }
+    if (entry.current_handler_id) {
+      const handlerRows = await supabaseRequest(`users_profile?teacher_id=eq.${encodeURIComponent(entry.current_handler_id)}&select=full_name`);
+      entry.current_handler_name = Array.isArray(handlerRows) && handlerRows[0] ? handlerRows[0].full_name : entry.current_handler_id;
+    }
+    return { result: 'success', entry };
+  },
+
+  async getMyCommitteeCases([callerId]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const rows = await supabaseRequest(`student_diary_entries?current_handler_id=eq.${encodeURIComponent(callerId)}&status=neq.closed&select=*&order=created_at.desc`);
+    return { result: 'success', cases: Array.isArray(rows) ? rows : [] };
+  },
+
+  // ── DIARY REPLIES (two-way thread: guardian <-> filing teacher) ───────────
+  // A guardian replies via ccpc-students' own add_diary_reply (validated
+  // there against diary_entry_students); this is the staff-side half.
+  async addDiaryEntryReply([callerId, payload]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const p = payload || {};
+    const diaryEntryId = p.diary_entry_id;
+    if (!diaryEntryId) return { result: 'error', message: 'Missing entry id.' };
+    const message = String(p.message || '').trim();
+    if (!message) return { result: 'error', message: 'Write a message first.' };
+    const entryRows = await supabaseRequest(`student_diary_entries?id=eq.${encodeURIComponent(diaryEntryId)}&select=teacher_id,current_handler_id`);
+    const entry = Array.isArray(entryRows) && entryRows[0];
+    if (!entry) return { result: 'error', message: 'Entry not found.' };
+    const created = await supabaseRequest('diary_entry_replies', 'post', {
+      diary_entry_id: diaryEntryId, author_role: 'teacher', author_id: callerId, message,
+    });
+    if (created?.error) return { result: 'error', message: created.details || created.error };
+    const links = await supabaseRequest(`diary_entry_students?diary_entry_id=eq.${encodeURIComponent(diaryEntryId)}&select=student_id`);
+    const studentIds = (Array.isArray(links) ? links : []).map(l => l.student_id);
+    const preview = message.length > 100 ? message.slice(0, 100) + '…' : message;
+    if (studentIds.length) {
+      _forumNotify(studentIds.map(id => 'student:' + id), {
+        type: 'diary_reply', title: 'The school replied to a diary entry',
+        message: preview, data: { diary_entry_id: diaryEntryId },
+      });
+    }
+    if (entry.current_handler_id && entry.current_handler_id !== callerId) {
+      _forumNotify([entry.current_handler_id], {
+        type: 'diary_reply', title: 'New reply on a case you handle',
+        message: preview, data: { diary_entry_id: diaryEntryId },
+      });
+    }
+    return { result: 'success', reply: created[0] };
+  },
+
+  async getDiaryEntryReplies([callerId, diaryEntryId]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    if (!diaryEntryId) return { result: 'error', message: 'Missing entry id.' };
+    const rows = await supabaseRequest(`diary_entry_replies?diary_entry_id=eq.${encodeURIComponent(diaryEntryId)}&select=*&order=created_at.asc`);
+    const list = Array.isArray(rows) ? rows : [];
+    const teacherIds = [...new Set(list.filter(r => r.author_role === 'teacher').map(r => r.author_id))];
+    if (teacherIds.length) {
+      const profiles = await supabaseRequest(`users_profile?teacher_id=in.(${teacherIds.map(encodeURIComponent).join(',')})&select=teacher_id,full_name`);
+      const nameById = {};
+      (Array.isArray(profiles) ? profiles : []).forEach(p2 => { nameById[p2.teacher_id] = p2.full_name; });
+      list.forEach(r => { if (r.author_role === 'teacher') r.author_name = nameById[r.author_id] || r.author_id; });
+    }
+    return { result: 'success', replies: list };
   },
 
   // ── CONNECTION TEST ───────────────────────────────────────────────────────────
