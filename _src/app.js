@@ -32643,6 +32643,26 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     a.click();
     URL.revokeObjectURL(a.href);
   }
+  // Shared CSV cell formatter: phone/mobile/contact-number columns are
+  // normalized to the local 11-digit BD mobile format (stripping a leading
+  // country code like +880 by keeping only the last 11 digits; a bare
+  // 10-digit number missing its leading 0 gets one prepended) and given a
+  // leading apostrophe so Excel/Sheets treat the value as text instead of
+  // a number -- otherwise a leading 0 silently disappears (01712345678
+  // becomes 1712345678) or a long number flips to scientific notation.
+  const CCPC_PHONE_COL_RE = /phone|mobile|contact/i;
+  function _ccpcCsvCell(colName, value) {
+    if (value === null || value === undefined) return '';
+    let str = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    if (!str) return '';
+    if (CCPC_PHONE_COL_RE.test(colName)) {
+      const digits = str.replace(/\D/g, '');
+      if (digits.length >= 11) str = digits.slice(-11);
+      else if (digits.length === 10) str = '0' + digits;
+      return `'${str}`;
+    }
+    return str;
+  }
   function _gfOpenPrintWindow(title, bodyHtml, pageCss) {
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${_escHtml(title)}</title><style>
       * { box-sizing: border-box; }
@@ -45489,15 +45509,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         });
       }
     });
-    const fmt = v => {
-      if (v === null || v === undefined) return '';
-      if (typeof v === 'object') return JSON.stringify(v);
-      return v;
-    };
     const headers = [...cols, ...scanCols.map(c => c.header)];
     const rows = [headers];
     full.forEach(a => {
-      rows.push([...cols.map(c => fmt(a[c])), ...scanCols.map(c => c.get(a))]);
+      rows.push([...cols.map(c => _ccpcCsvCell(c, a[c])), ...scanCols.map(c => c.get(a))]);
     });
     const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
     _ccpcShareOrDownload('admission_applications.csv', 'text/csv;charset=utf-8', '﻿sep=,\n' + csv);
@@ -49260,13 +49275,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         });
       }
     });
-    const fmt = v => {
-      if (v === null || v === undefined) return '';
-      if (typeof v === 'object') return JSON.stringify(v);
-      return v;
-    };
     const headers = [...cols, ...scanCols.map(c => c.header)];
-    const csv = [headers].concat(rows.map(r => [...cols.map(c => fmt(r[c])), ...scanCols.map(c => c.get(r))]))
+    const csv = [headers].concat(rows.map(r => [...cols.map(c => _ccpcCsvCell(c, r[c])), ...scanCols.map(c => c.get(r))]))
       .map(row => row.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
     _ccpcShareOrDownload('candidates.csv', 'text/csv', csv);
   }
