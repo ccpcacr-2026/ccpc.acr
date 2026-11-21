@@ -223,7 +223,7 @@ const BUILTIN_FORM_FIELDS = [
   { key: 'religion', label: 'Religion', type: 'text', section: 'student', required: false, visible: true, built_in: true },
   { key: 'birth_reg_no', label: 'Birth registration no.', type: 'text', section: 'student', required: false, visible: true, built_in: true },
   { key: 'nationality', label: 'Nationality', type: 'text', default: 'Bangladeshi', section: 'student', required: false, visible: true, built_in: true },
-  { key: 'emergency_contact', label: 'Emergency contact no.', type: 'text', section: 'student', required: false, visible: true, built_in: true, placeholder: '+8801…' },
+  { key: 'emergency_contact', label: 'Emergency contact no.', type: 'phone', section: 'student', required: false, visible: true, built_in: true, placeholder: '+8801…' },
   { key: 'height', label: 'Height (inch)', type: 'text', section: 'student', required: false, visible: true, built_in: true },
   { key: 'last_class', label: 'Last class', type: 'text', section: 'student', required: false, visible: true, built_in: true },
   { key: 'last_version', label: 'Last version', type: 'text', section: 'student', required: false, visible: true, built_in: true },
@@ -237,7 +237,7 @@ const BUILTIN_FORM_FIELDS = [
   { key: 'father_profession', label: 'Profession / occupation', type: 'text', section: 'father', required: false, visible: true, built_in: true },
   { key: 'father_designation', label: 'Designation / rank', type: 'text', section: 'father', required: false, visible: true, built_in: true },
   { key: 'father_education', label: 'Education', type: 'text', section: 'father', required: false, visible: true, built_in: true },
-  { key: 'father_contact', label: 'Contact no.', type: 'text', section: 'father', required: false, visible: true, built_in: true },
+  { key: 'father_contact', label: 'Contact no.', type: 'phone', section: 'father', required: false, visible: true, built_in: true },
   { key: 'father_nid', label: 'NID', type: 'text', section: 'father', required: false, visible: true, built_in: true },
   { key: 'father_office_address', label: 'Office address / unit', type: 'text', section: 'father', required: false, visible: true, built_in: true, wide: true },
   { key: 'father_yearly_income', label: 'Yearly income', type: 'text', section: 'father', required: false, visible: true, built_in: true },
@@ -247,7 +247,7 @@ const BUILTIN_FORM_FIELDS = [
   { key: 'mother_profession', label: 'Profession / occupation', type: 'text', section: 'mother', required: false, visible: true, built_in: true },
   { key: 'mother_designation', label: 'Designation / rank', type: 'text', section: 'mother', required: false, visible: true, built_in: true },
   { key: 'mother_education', label: 'Education', type: 'text', section: 'mother', required: false, visible: true, built_in: true },
-  { key: 'mother_contact', label: 'Contact no.', type: 'text', section: 'mother', required: false, visible: true, built_in: true },
+  { key: 'mother_contact', label: 'Contact no.', type: 'phone', section: 'mother', required: false, visible: true, built_in: true },
   { key: 'mother_nid', label: 'NID', type: 'text', section: 'mother', required: false, visible: true, built_in: true },
   { key: 'mother_office_address', label: 'Office address / unit', type: 'text', section: 'mother', required: false, visible: true, built_in: true, wide: true },
   { key: 'mother_yearly_income', label: 'Yearly income', type: 'text', section: 'mother', required: false, visible: true, built_in: true },
@@ -258,13 +258,28 @@ const BUILTIN_FORM_FIELDS = [
   { key: 'guardian_profession', label: 'Profession / occupation', type: 'text', section: 'guardian', required: false, visible: true, built_in: true },
   { key: 'guardian_designation', label: 'Designation / rank', type: 'text', section: 'guardian', required: false, visible: true, built_in: true },
   { key: 'guardian_education', label: 'Education', type: 'text', section: 'guardian', required: false, visible: true, built_in: true },
-  { key: 'guardian_contact', label: 'Contact no.', type: 'text', section: 'guardian', required: false, visible: true, built_in: true },
+  { key: 'guardian_contact', label: 'Contact no.', type: 'phone', section: 'guardian', required: false, visible: true, built_in: true },
   { key: 'guardian_office_address', label: 'Office address / unit', type: 'text', section: 'guardian', required: false, visible: true, built_in: true, wide: true },
   { key: 'guardian_nid', label: 'Guardian NID', type: 'text', section: 'guardian', required: false, visible: false, built_in: true },
   { key: 'guardian_photo', label: "Guardian's photo", type: 'photo', section: 'guardian', required: false, visible: true, built_in: true, wide: true },
 ];
 function reconcileFormFields(stored) {
   const list = Array.isArray(stored) ? stored.slice() : [];
+  const byKey = {};
+  BUILTIN_FORM_FIELDS.forEach(def => { byKey[def.key] = def; });
+  // A built-in field's type/options/placeholder/wide/default are fixed by
+  // this file and never admin-editable (the Form Fields UI shows a
+  // built-in's type as a static label, not a <select>) -- so an
+  // already-saved entry for one of these keys always gets those canonical
+  // values re-applied here. This is what lets a change like marking
+  // mother_contact/father_contact/guardian_contact/emergency_contact as
+  // type:'phone' reach circulars that already saved their Form Fields list
+  // under the old type:'text' default, without touching the admin's own
+  // edits to that field's label/required/visible.
+  list.forEach(f => {
+    const def = f && byKey[f.key];
+    if (def) { f.type = def.type; f.options = def.options; f.placeholder = def.placeholder; f.wide = def.wide; f.default = def.default; }
+  });
   const seen = new Set(list.map(f => f && f.key));
   BUILTIN_FORM_FIELDS.forEach(def => { if (!seen.has(def.key)) list.push({ ...def }); });
   return list;

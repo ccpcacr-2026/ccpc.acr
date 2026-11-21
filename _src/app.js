@@ -32646,22 +32646,51 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Shared CSV cell formatter: phone/mobile/contact-number columns are
   // normalized to the local 11-digit BD mobile format (stripping a leading
   // country code like +880 by keeping only the last 11 digits; a bare
-  // 10-digit number missing its leading 0 gets one prepended) and given a
-  // leading apostrophe so Excel/Sheets treat the value as text instead of
-  // a number -- otherwise a leading 0 silently disappears (01712345678
-  // becomes 1712345678) or a long number flips to scientific notation.
+  // 10-digit number missing its leading 0 gets one prepended) and wrapped
+  // as an Excel formula (="017...") rather than just apostrophe-prefixed --
+  // a leading apostrophe inside a CSV cell is NOT reliably honored by every
+  // Excel version/locale when a file is opened directly (confirmed live:
+  // numbers still flipped to scientific notation), while the ="..." formula
+  // trick forces TEXT type unconditionally and displays only the digits.
   const CCPC_PHONE_COL_RE = /phone|mobile|contact/i;
-  function _ccpcCsvCell(colName, value) {
+  // Shared by both the CSV formatter below and import-time normalization
+  // (_admCandBuildMappedRows) so a phone/contact value is stored the same
+  // clean way it's exported, not just cosmetically reformatted on export.
+  function _ccpcNormalizePhoneDigits(str) {
+    const digits = String(str || '').replace(/\D/g, '');
+    if (digits.length >= 11) return digits.slice(-11);
+    if (digits.length === 10) return '0' + digits;
+    return String(str || '');
+  }
+  function _ccpcCsvCell(value, isPhone) {
     if (value === null || value === undefined) return '';
     let str = typeof value === 'object' ? JSON.stringify(value) : String(value);
     if (!str) return '';
-    if (CCPC_PHONE_COL_RE.test(colName)) {
-      const digits = str.replace(/\D/g, '');
-      if (digits.length >= 11) str = digits.slice(-11);
-      else if (digits.length === 10) str = '0' + digits;
-      return `'${str}`;
-    }
+    if (isPhone) return `="${_ccpcNormalizePhoneDigits(str)}"`;
     return str;
+  }
+  // Builds one column descriptor per real DB column PLUS one per key found
+  // inside extra_fields (flattened out of that jsonb blob, using the
+  // matching Form Field's label when one exists) -- a custom field marked
+  // "Phone number" in the mapping screen or Form Fields settings lives
+  // inside extra_fields, not as a named column, so without this flattening
+  // step its type:'phone' marking would never reach the CSV formatter.
+  function _ccpcCsvColumnsFromRows(rows, formFieldDefs) {
+    const defByKey = {};
+    (formFieldDefs || []).forEach(f => { defByKey[f.key] = f; });
+    const isPhoneKey = k => CCPC_PHONE_COL_RE.test(k) || (defByKey[k] && defByKey[k].type === 'phone');
+    const topKeys = new Set();
+    const extraKeys = new Set();
+    (rows || []).forEach(r => {
+      Object.keys(r).forEach(k => { if (k !== 'extra_fields') topKeys.add(k); });
+      if (r.extra_fields && typeof r.extra_fields === 'object') Object.keys(r.extra_fields).forEach(k => extraKeys.add(k));
+    });
+    const cols = Array.from(topKeys).map(k => ({ header: k, isPhone: isPhoneKey(k), get: r => r[k] }));
+    Array.from(extraKeys).forEach(k => {
+      const def = defByKey[k];
+      cols.push({ header: def ? def.label : k, isPhone: isPhoneKey(k), get: r => (r.extra_fields || {})[k] });
+    });
+    return cols;
   }
   function _gfOpenPrintWindow(title, bodyHtml, pageCss) {
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${_escHtml(title)}</title><style>
@@ -45487,9 +45516,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       full = res.applications || [];
     } catch (e) { showToast(e.message || 'Could not prepare export', 'error'); return; }
     if (!full.length) { showToast('No applications to export', 'error'); return; }
-    const colSet = new Set();
-    full.forEach(r => Object.keys(r).forEach(k => colSet.add(k)));
-    const cols = Array.from(colSet);
+    // extra_fields is flattened into one column per actual sub-key (with a
+    // Form Field's own label when one exists), and any column -- real or
+    // flattened -- whose Form Field definition is marked type:'phone' gets
+    // the digit-normalized, Excel-text-forced treatment too, not just
+    // columns whose NAME happens to contain phone/mobile/contact.
+    const dataCols = _ccpcCsvColumnsFromRows(full, _admCandFormFieldDefs);
     // Part 10: on top of every raw DB column above (scan_values/scan_dates
     // included as raw JSON), one extra human-readable column per Scan
     // Option so scanned/tagged/marks data is still easy to read at a
@@ -45509,10 +45541,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         });
       }
     });
-    const headers = [...cols, ...scanCols.map(c => c.header)];
+    const headers = [...dataCols.map(c => c.header), ...scanCols.map(c => c.header)];
     const rows = [headers];
     full.forEach(a => {
-      rows.push([...cols.map(c => _ccpcCsvCell(c, a[c])), ...scanCols.map(c => c.get(a))]);
+      rows.push([...dataCols.map(c => _ccpcCsvCell(c.get(a), c.isPhone)), ...scanCols.map(c => c.get(a))]);
     });
     const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
     _ccpcShareOrDownload('admission_applications.csv', 'text/csv;charset=utf-8', '﻿sep=,\n' + csv);
@@ -46666,7 +46698,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'mother',   label: 'Mother',   visible: true, built_in: true },
     { key: 'guardian', label: 'Guardian', visible: true, built_in: true },
   ];
-  const _admFF_CUSTOM_TYPES = ['text', 'textarea', 'date', 'number', 'select'];
+  // 'phone' marks a field as a phone/contact number: CSV export (see
+  // _ccpcCsvColumnsFromRows) normalizes its value to the local 11-digit
+  // format and force-texts it so spreadsheet apps never flip it to
+  // scientific notation, and import (_admCandBuildMappedRows) normalizes
+  // the stored value the same way -- regardless of what this field's own
+  // key/label happens to be.
+  const _admFF_CUSTOM_TYPES = ['text', 'textarea', 'date', 'number', 'select', 'phone'];
   async function _admFFLoad() {
     const host = document.getElementById('adm-fields-editor-body');
     if (host) host.innerHTML = '<p class="text-xs text-slate-400">Loading…</p>';
@@ -48720,8 +48758,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admCandRenderMapping();
       return;
     }
+    // Asked right at creation time (not a separate edit step afterward) so
+    // a phone/contact column mapped from an Excel sheet with an arbitrary
+    // header gets digit-normalized on import and Excel-text-forced on
+    // export from the very first upload, same as a built-in contact field.
+    const isPhone = confirm('Is this a phone / contact number field (digits only)?\n\nOK = yes, Cancel = no (plain text).');
     try {
-      const newField = { key, label, type: 'text', section: 'student', required: false, visible: true, built_in: false };
+      const newField = { key, label, type: isPhone ? 'phone' : 'text', section: 'student', required: false, visible: true, built_in: false };
       const fields = [..._admCandFormFieldDefs, newField];
       const res = await _admAdminFetch('saveFormFields', { fields });
       if (res.error) { showToast(res.error, 'error'); _admCandRenderMapping(); return; }
@@ -48774,10 +48817,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admCandBuildMappedRows() {
     const { mapping, primaryKeyRowId } = _admCandGetMapping();
     const builtIn = new Set(_admCandFormFieldDefs.filter(f => f.built_in).map(f => f.key));
+    // Any Form Field marked type:'phone' (built-in or a custom field
+    // defined via "+ Define new field…") gets its imported value
+    // digit-normalized at import time too, not just reformatted later at
+    // export -- so the stored value itself is already clean.
+    const phoneKeys = new Set(_admCandFormFieldDefs.filter(f => f.type === 'phone').map(f => f.key));
     return _admCandExcelRows.map(r => {
       const obj = { extra_fields: {} };
       Object.entries(mapping).forEach(([rowId, idx]) => {
-        const val = String(r[idx] ?? '').trim();
+        let val = String(r[idx] ?? '').trim();
+        if (phoneKeys.has(rowId)) val = _ccpcNormalizePhoneDigits(val);
         if (ADM_CAND_CORE_FIELDS.includes(rowId) || builtIn.has(rowId)) obj[rowId] = rowId === 'date_of_birth' ? _admCandNormalizeDateToISO(val) : val;
         else obj.extra_fields[rowId] = val;
       });
@@ -49257,9 +49306,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // (every real DB column -- phone/mobile, addresses, guardian info,
     // tracking/index/token ids, extra_fields, etc.), so the export just
     // needs to carry all of it through instead of a hand-picked subset.
-    const colSet = new Set();
-    rows.forEach(r => Object.keys(r).forEach(k => colSet.add(k)));
-    const cols = Array.from(colSet);
+    // extra_fields is flattened per-key (see _ccpcCsvColumnsFromRows) so a
+    // custom field marked type:'phone' gets the same digit-normalized,
+    // Excel-text-forced treatment as a real phone/mobile/contact column.
+    const dataCols = _ccpcCsvColumnsFromRows(rows, _admCandFormFieldDefs);
     const scanCols = [];
     (_admCandScanOptions || []).forEach(o => {
       if (o.behavior === 'form') {
@@ -49275,8 +49325,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         });
       }
     });
-    const headers = [...cols, ...scanCols.map(c => c.header)];
-    const csv = [headers].concat(rows.map(r => [...cols.map(c => _ccpcCsvCell(c, r[c])), ...scanCols.map(c => c.get(r))]))
+    const headers = [...dataCols.map(c => c.header), ...scanCols.map(c => c.header)];
+    const csv = [headers].concat(rows.map(r => [...dataCols.map(c => _ccpcCsvCell(c.get(r), c.isPhone)), ...scanCols.map(c => c.get(r))]))
       .map(row => row.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
     _ccpcShareOrDownload('candidates.csv', 'text/csv', csv);
   }
