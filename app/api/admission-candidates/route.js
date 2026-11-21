@@ -1043,7 +1043,11 @@ export async function POST(req) {
     const key = _slugifyTagKey(label);
     if (fields.some(f => f.key === key)) return NextResponse.json({ error: 'A field with this name already exists.' });
     const input_type = payload.input_type === 'text' ? 'text' : 'number';
-    fields.push({ key, label, input_type });
+    // max_marks only means anything for a number field -- a text field has
+    // no numeric ceiling to enforce, so it's silently dropped for those.
+    const maxMarksNum = parseFloat(payload.max_marks);
+    const max_marks = (input_type === 'number' && Number.isFinite(maxMarksNum)) ? maxMarksNum : null;
+    fields.push({ key, label, input_type, max_marks });
     const res = await sbAdmission(`scan_options?id=eq.${optionId}`, 'PATCH', { config: { ...opt.config, fields } });
     if (res?.error) return NextResponse.json({ error: res.error });
     return NextResponse.json({ success: true, fields });
@@ -1116,11 +1120,27 @@ export async function POST(req) {
     const candidateId = parseInt(payload.candidate_id, 10);
     const optionKey = String(payload.option_key || '').trim();
     if (!candidateId || !optionKey) return NextResponse.json({ error: 'Missing candidate or scan option.' });
+    const candRows = await sbAdmission(`admission_applications?id=eq.${candidateId}&select=circular_id`);
+    const circularId = (Array.isArray(candRows) && candRows[0]) ? candRows[0].circular_id : null;
     if (!isFullAdmin) {
-      const candRows = await sbAdmission(`admission_applications?id=eq.${candidateId}&select=circular_id`);
-      const circularId = (Array.isArray(candRows) && candRows[0]) ? candRows[0].circular_id : null;
       const perms = await _getCommitteePerms(user_id, circularId);
       if ((!_tabOk(false, perms, 'scan', 'view') || !_scanOk(false, perms, optionKey)) && !_tabOk(false, perms, 'candidates', 'edit')) return _forbidden();
+    }
+    // Authoritative max-marks check -- the client already blocks this, but
+    // only the server's own check is trustworthy (a direct API call could
+    // skip the UI entirely). Scoped to this candidate's own circular, since
+    // scan_options' key is only unique per-circular, not globally.
+    const optRows = await sbAdmission(`scan_options?circular_id=eq.${circularId}&key=eq.${encodeURIComponent(optionKey)}&select=config`);
+    const fields = (Array.isArray(optRows) && optRows[0] && optRows[0].config && optRows[0].config.fields) || [];
+    const value = (payload.value && typeof payload.value === 'object') ? payload.value : {};
+    for (const f of fields) {
+      if (f.input_type !== 'number' || !Number.isFinite(f.max_marks)) continue;
+      const raw = value[f.key];
+      if (raw === undefined || raw === null || raw === '') continue;
+      const num = parseFloat(raw);
+      if (!Number.isFinite(num) || num > f.max_marks || num < 0) {
+        return NextResponse.json({ error: `${f.label} must be between 0 and ${f.max_marks}.` });
+      }
     }
     const { scan_values, scan_dates } = await _applyScanValue(candidateId, optionKey, payload.value);
     return NextResponse.json({ success: true, scan_values, scan_dates });

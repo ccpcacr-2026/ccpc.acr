@@ -451,6 +451,7 @@ const RESERVED = [
   '_admSubmissionSummaryToggleClass','_admSubmissionSummaryToggleColumn','_admSubmissionSummaryAddCombine','_admSubmissionSummaryRemoveCombine',
   '_admAppColumnsToggleEditor','_admAppColumnsSetLabel','_admAppColumnsAddColumn','_admAppColumnsRemoveColumn',
   '_admAppColumnsAddField','_admAppColumnsRemoveField','_admAppColumnsReset','_admAppColumnsCancel','_admAppColumnsSave',
+  '_admDupesToggle','_admDupesToggleField','_admDupesFind','_admDupesClose','_admDupesToggleRow','_admDupesDeleteSelected',
   '_admAddAcademicRow','_admAddSiblingRow','_admSaveApplication','_admHandlePhoto',
 
   // Admission Admin Phase 2 (Settings: Index Pattern/Form Fields/Circular/
@@ -523,7 +524,7 @@ const RESERVED = [
   '_admCandTagDefTypeChange','_admCandTagDefSave','_admCandTagDefDelete','_admCandScanTagDefChange','_admCandScanLockTag',
   '_admCandMarksFieldSave','_admCandMarksFieldDelete','_admCandSubmitMarksForm','_admCandCancelMarksForm',
   '_admCandScanToggleOptionCreate','_admCandScanOptionBehaviorChange','_admCandScanOptionTagTypeChange',
-  '_admCandScanOptionCreate','_admCandScanOptionDelete','_admCandFormFieldAdd','_admCandFormFieldRemove','_admCandSaveQrValuePattern',
+  '_admCandScanOptionCreate','_admCandScanOptionDelete','_admCandFormFieldAdd','_admCandFormFieldRemove','_admCandFormFieldTypeChanged','_admCandSaveQrValuePattern',
   '_admCandRenderScanDataTable','_admCandScanDataToggleColsPanel','_admCandScanDataToggleCol','_admCandScanDataFieldFilterRender','_admCandScanDataMoveCol',
   '_admCandScanDataFilterChanged','_admCandScanDataGoPage','_admCandScanDataExportCsv','_admCandScanDataPrint',
   '_admCandTagFilterDefChange','_admCandShowTagHistory',

@@ -43132,9 +43132,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button id="adm-columns-btn" onclick="_admAppColumnsToggleEditor()" class="hidden flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="columns" class="h-3.5 w-3.5"></i> Configure Columns
           </button>
+          <button onclick="_admDupesToggle()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
+            <i data-lucide="copy" class="h-3.5 w-3.5"></i> Find Duplicates
+          </button>
         </div>
         <div id="admFilterPanel" class="hidden mb-3 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
         <div id="admAppColumnsEditor" class="hidden mb-3 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
+        <div id="admDupesPanel" class="hidden mb-3 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
         <div id="adm-bulk-action-bar" class="hidden flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 mb-3">
           <span id="adm-bulk-count" class="text-xs font-bold text-blue-700">0 selected</span>
           <select id="adm-bulk-status-select" class="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold" style="width:160px">
@@ -44763,6 +44767,134 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         showToast(`Deleted ${r.count || ids.length} application(s)`);
         _admAllApps = _admAllApps.filter(a => !_admSelectedIds.has(a.id));
         _admClearBulkSelection(); _admFilterApps(); _admLoadStats();
+      } catch (e) { showToast(e.message || 'Failed', 'error'); }
+    });
+  }
+
+  // ── Duplicate value finder ───────────────────────────────────────────────
+  // Admin picks one or more columns (reusing the exact same field catalog
+  // the Applicant-table column editor already draws from, so "column" means
+  // the same thing in both places); any applicants whose rendered value for
+  // EVERY picked column matches exactly are grouped together below, with the
+  // matched values shown front-and-center on each group so they're easy to
+  // tell apart at a glance, and a per-row checkbox to pick which of the
+  // duplicates to remove via the existing bulkDeleteApplications action.
+  // Computed entirely client-side off the already-loaded _admAllApps roster
+  // (same data every other Applications-tab feature already uses) -- no new
+  // backend action needed, matching/comparison reuses _admAppFieldSortValue
+  // (render -> strip tags -> trim -> lowercase) so "same value" here means
+  // exactly what the Sort By dropdown already means by it.
+  let _admDupesFields = [];
+  let _admDupesGroups = [];
+  let _admDupesSelectedIds = new Set();
+  function _admDupesToggle() {
+    const panel = document.getElementById('admDupesPanel');
+    if (!panel) return;
+    const show = panel.classList.contains('hidden');
+    if (show) _admDupesRenderPicker();
+    panel.classList.toggle('hidden', !show);
+  }
+  function _admDupesEscKey(k) { return String(k).replace(/\\/g, '\\\\').replace(/'/g, "\\'"); }
+  function _admDupesRenderPicker() {
+    const panel = document.getElementById('admDupesPanel');
+    if (!panel) return;
+    const catalog = _admAppFieldCatalog();
+    panel.innerHTML = `
+      <p class="text-[10px] uppercase text-slate-400 font-bold mb-1">Find Duplicate Applicants</p>
+      <p class="text-xs text-slate-400 mb-3">Pick one or more columns below — applicants that share the exact same value(s) in every picked column are grouped together underneath, so you can review and delete the extra entries. Rows left blank in every picked column are never grouped as a match.</p>
+      <div class="flex flex-wrap gap-2 mb-3">
+        ${catalog.map(f => `<label class="flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-slate-600 cursor-pointer"><input type="checkbox" ${_admDupesFields.includes(f.key) ? 'checked' : ''} onchange="_admDupesToggleField('${_admDupesEscKey(f.key)}', this.checked)">${_escHtml(f.label)}</label>`).join('')}
+      </div>
+      <div class="flex gap-2 mb-3">
+        <button type="button" onclick="_admDupesFind()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Find Duplicates</button>
+        <button type="button" onclick="_admDupesClose()" class="px-3 py-1.5 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black uppercase">Close</button>
+      </div>
+      <div id="admDupesResults"></div>`;
+    _admDupesRenderResults();
+  }
+  function _admDupesToggleField(key, checked) {
+    _admDupesFields = checked ? [..._admDupesFields, key] : _admDupesFields.filter(k => k !== key);
+  }
+  function _admDupesClose() {
+    document.getElementById('admDupesPanel')?.classList.add('hidden');
+  }
+  function _admDupesDisplayValue(fieldKey, a) {
+    return (_admAppFieldRender(fieldKey, a) || '').replace(/<[^>]+>/g, '').trim();
+  }
+  function _admDupesCompute() {
+    const fields = _admDupesFields;
+    const groups = new Map();
+    if (fields.length) {
+      (_admAllApps || []).forEach(a => {
+        const parts = fields.map(fk => _admAppFieldSortValue(fk, a));
+        if (parts.every(p => !p)) return; // every picked column blank for this row -- not a meaningful match
+        const key = parts.join('\u0001');
+        if (!groups.has(key)) groups.set(key, { key, apps: [] });
+        groups.get(key).apps.push(a);
+      });
+    }
+    _admDupesGroups = [...groups.values()].filter(g => g.apps.length > 1).sort((a, b) => b.apps.length - a.apps.length);
+  }
+  function _admDupesFind() {
+    _admDupesSelectedIds = new Set();
+    _admDupesCompute();
+    _admDupesRenderResults();
+  }
+  function _admDupesRenderResults() {
+    const mount = document.getElementById('admDupesResults');
+    if (!mount) return;
+    if (!_admDupesFields.length) { mount.innerHTML = '<p class="text-xs text-slate-400">Pick one or more columns above, then press "Find Duplicates".</p>'; return; }
+    if (!_admDupesGroups.length) { mount.innerHTML = '<p class="text-xs text-emerald-600 font-bold">No duplicate values found for the selected column(s).</p>'; return; }
+    const canEdit = _admModuleCan('applications', 'edit');
+    const totalMatched = _admDupesGroups.reduce((n, g) => n + g.apps.length, 0);
+    mount.innerHTML = `
+      <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+        <p class="text-xs font-bold text-slate-600">${_admDupesGroups.length} duplicate group(s) · ${totalMatched} applicant(s) involved</p>
+        ${canEdit ? `<button onclick="_admDupesDeleteSelected()" class="px-3 py-1.5 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase">Delete Selected (<span id="admDupesSelCount">0</span>)</button>` : ''}
+      </div>
+      <div class="space-y-3 max-h-[480px] overflow-y-auto">
+        ${_admDupesGroups.map(g => `
+          <div class="bg-white border border-amber-200 rounded-xl p-3">
+            <div class="flex flex-wrap gap-2 items-center mb-2">
+              ${_admDupesFields.map(fk => `<span class="px-2 py-1 bg-amber-50 text-amber-800 rounded-lg text-[10px] font-black">${_escHtml(_admAppFieldLabel(fk))}: ${_escHtml(_admDupesDisplayValue(fk, g.apps[0]) || '(blank)')}</span>`).join('')}
+              <span class="px-2 py-1 bg-slate-100 text-slate-500 rounded-lg text-[10px] font-bold ml-auto">${g.apps.length} matches</span>
+            </div>
+            <div class="divide-y divide-slate-50">
+              ${g.apps.map(a => `
+                <label class="flex items-center gap-2 py-1.5 text-xs cursor-pointer">
+                  ${canEdit ? `<input type="checkbox" class="adm-dupes-row" ${_admDupesSelectedIds.has(a.id) ? 'checked' : ''} onchange="_admDupesToggleRow(${a.id}, this.checked)">` : ''}
+                  <span class="font-bold text-slate-700 font-mono">${_escHtml(a.tracking_id || a.token || ('#' + a.id))}</span>
+                  <span class="text-slate-500">${_escHtml(a.name_english || a.name_bangla || '')}</span>
+                  <span class="text-slate-400">${_escHtml([a.class, a.category, a.version].filter(Boolean).join(' · '))}</span>
+                  <span class="ml-auto px-1.5 py-0.5 rounded text-[9px] font-bold ${ADM_STATUS_COLORS[a.status] || 'bg-slate-100 text-slate-500'}">${_escHtml(a.status || '')}</span>
+                  <button type="button" onclick="event.preventDefault();event.stopPropagation();_admDupesClose();_admLoadForm(${a.id})" class="text-blue-500 hover:underline text-[10px] font-bold uppercase">Open</button>
+                </label>`).join('')}
+            </div>
+          </div>`).join('')}
+      </div>`;
+    _admDupesUpdateSelCount();
+  }
+  function _admDupesToggleRow(id, checked) {
+    checked ? _admDupesSelectedIds.add(id) : _admDupesSelectedIds.delete(id);
+    _admDupesUpdateSelCount();
+  }
+  function _admDupesUpdateSelCount() {
+    const el = document.getElementById('admDupesSelCount');
+    if (el) el.textContent = String(_admDupesSelectedIds.size);
+  }
+  function _admDupesDeleteSelected() {
+    const ids = [..._admDupesSelectedIds];
+    if (!ids.length) { showToast('Select at least one applicant to delete', 'error'); return; }
+    showConfirm(`Delete ${ids.length} selected duplicate application(s)? This cannot be undone.`, async () => {
+      try {
+        const r = await _admAdminFetch('bulkDeleteApplications', { ids });
+        if (r.error) { showToast(r.error, 'error'); return; }
+        showToast(`Deleted ${r.count || ids.length} application(s)`);
+        _admAllApps = _admAllApps.filter(a => !_admDupesSelectedIds.has(a.id));
+        _admDupesSelectedIds = new Set();
+        _admDupesCompute();
+        _admDupesRenderResults();
+        _admFilterApps(); _admLoadStats();
       } catch (e) { showToast(e.message || 'Failed', 'error'); }
     });
   }
@@ -49911,14 +50043,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
       ${isAdmin ? `<div class="flex gap-2 items-center mb-2 flex-wrap">
         <input id="admCandFormFieldLabel" placeholder="Field name e.g. Written Marks" class="flex-1 min-w-[160px] px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-        <select id="admCandFormFieldType" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+        <select id="admCandFormFieldType" onchange="_admCandFormFieldTypeChanged()" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
           <option value="number">Number keypad</option>
           <option value="text">Text keypad</option>
         </select>
+        <input id="admCandFormFieldMax" type="number" min="0" step="any" placeholder="Max marks" class="w-24 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
         <button onclick="_admCandFormFieldAdd()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Add Field</button>
       </div>` : ''}
       <div class="flex flex-wrap gap-1.5">
-        ${fields.map(f => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 rounded-full text-[10px] font-bold text-slate-700">${_escHtml(f.label)} <span class="text-slate-400 uppercase">${f.input_type === 'text' ? 'Text' : 'Number'}</span> ${isAdmin ? `<button onclick='_admCandFormFieldRemove(${JSON.stringify(f.key)})' class="text-red-500 ml-1">×</button>` : ''}</span>`).join('') || `<span class="text-xs text-slate-400">${isAdmin ? 'No fields yet — add one above.' : 'No fields defined yet.'}</span>`}
+        ${fields.map(f => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 rounded-full text-[10px] font-bold text-slate-700">${_escHtml(f.label)} <span class="text-slate-400 uppercase">${f.input_type === 'text' ? 'Text' : 'Number'}${f.input_type === 'number' && Number.isFinite(f.max_marks) ? ' / ' + f.max_marks : ''}</span> ${isAdmin ? `<button onclick='_admCandFormFieldRemove(${JSON.stringify(f.key)})' class="text-red-500 ml-1">×</button>` : ''}</span>`).join('') || `<span class="text-xs text-slate-400">${isAdmin ? 'No fields yet — add one above.' : 'No fields defined yet.'}</span>`}
       </div>
       <p class="text-[10px] text-slate-400 mt-2">After each scan, the candidate's short info and these fields appear for entry — submitting saves them and automatically returns to scanning for the next candidate.</p>`;
   }
@@ -50213,14 +50346,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admCandScanDataRenderColsPanel();
     _admCandRenderScanDataTable();
   }
+  function _admCandFormFieldTypeChanged() {
+    const isNumber = document.getElementById('admCandFormFieldType')?.value === 'number';
+    const maxInput = document.getElementById('admCandFormFieldMax');
+    if (maxInput) maxInput.classList.toggle('hidden', !isNumber);
+  }
   async function _admCandFormFieldAdd() {
     const opt = _admCandScanSelectedOption;
     if (!opt || opt.behavior !== 'form') return;
     const label = document.getElementById('admCandFormFieldLabel').value.trim();
     if (!label) { showToast('Name the field first', 'error'); return; }
     const input_type = document.getElementById('admCandFormFieldType').value;
+    const max_marks = input_type === 'number' ? (document.getElementById('admCandFormFieldMax').value || null) : null;
     try {
-      const res = await _admCandFetch('addFormField', { option_id: opt.id, label, input_type });
+      const res = await _admCandFetch('addFormField', { option_id: opt.id, label, input_type, max_marks });
       if (res.error) { showToast(res.error, 'error'); return; }
       opt.config = { ...opt.config, fields: res.fields };
       showToast('Field added', 'success');
@@ -50258,8 +50397,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const fields = (opt.config && opt.config.fields) || [];
     const fieldsHtml = fields.map(f => `
       <div class="mb-2">
-        <label class="text-[10px] uppercase text-slate-400 font-bold">${_escHtml(f.label)}</label>
-        <input type="${f.input_type === 'text' ? 'text' : 'number'}" inputmode="${f.input_type === 'text' ? 'text' : 'numeric'}" data-marks-key="${_escHtml(f.key)}" value="${_escHtml(existing[f.key] ?? '')}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold mt-1">
+        <label class="text-[10px] uppercase text-slate-400 font-bold">${_escHtml(f.label)}${f.input_type === 'number' && Number.isFinite(f.max_marks) ? ` <span class="text-slate-300">(out of ${f.max_marks})</span>` : ''}</label>
+        <input type="${f.input_type === 'text' ? 'text' : 'number'}" inputmode="${f.input_type === 'text' ? 'text' : 'numeric'}" ${f.input_type === 'number' && Number.isFinite(f.max_marks) ? `max="${f.max_marks}"` : ''} min="0" data-marks-key="${_escHtml(f.key)}" data-max-marks="${f.input_type === 'number' && Number.isFinite(f.max_marks) ? f.max_marks : ''}" value="${_escHtml(existing[f.key] ?? '')}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold mt-1">
       </div>`).join('');
     host.innerHTML = `<div class="bg-white border border-slate-200 rounded-xl p-4">
       <div class="flex items-center gap-3 mb-3">
@@ -50286,7 +50425,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_admCandMarksCurrentCandidate || !opt) return;
     const host = document.getElementById('admCandScanResult');
     const value = {};
-    host?.querySelectorAll('[data-marks-key]').forEach(el => { value[el.getAttribute('data-marks-key')] = el.value.trim(); });
+    let overMax = null;
+    host?.querySelectorAll('[data-marks-key]').forEach(el => {
+      const v = el.value.trim();
+      value[el.getAttribute('data-marks-key')] = v;
+      const max = parseFloat(el.getAttribute('data-max-marks'));
+      if (!overMax && v !== '' && Number.isFinite(max) && (parseFloat(v) > max || parseFloat(v) < 0)) overMax = { label: el.closest('div')?.querySelector('label')?.textContent || 'Field', max };
+    });
+    if (overMax) { showToast(`${overMax.label.replace(/\s*\(out of.*$/, '')} can't exceed ${overMax.max}`, 'error'); return; }
     try {
       const r = await _admCandFetch('saveScanOptionValue', { candidate_id: _admCandMarksCurrentCandidate.id, option_key: opt.key, value });
       if (r.error) { showToast(r.error, 'error'); return; }
