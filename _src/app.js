@@ -32623,13 +32623,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // this fallback at all since window.open() works there already.
   function _ccpcShareOrDownload(filename, mimeType, content) {
     const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType });
-    try {
-      const file = new File([blob], filename, { type: mimeType });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        navigator.share({ files: [file] }).catch(() => {}); // user cancelling the share sheet is not an error
-        return;
-      }
-    } catch (e) {}
+    // Gated on actually being inside the Capacitor app shell's iframe, not
+    // merely on navigator.canShare's feature support -- several desktop
+    // browsers (confirmed live: it broke CSV export on a plain desktop
+    // browser) also report canShare({files}) === true, which hijacked a
+    // perfectly normal download into the share sheet there instead.
+    if (_diaryQrIsInShell()) {
+      try {
+        const file = new File([blob], filename, { type: mimeType });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          navigator.share({ files: [file] }).catch(() => {}); // user cancelling the share sheet is not an error
+          return;
+        }
+      } catch (e) {}
+    }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = filename;
