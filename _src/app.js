@@ -49238,8 +49238,36 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admCandExportCsv() {
     const rows = _admCandAllCandidates;
     if (!rows.length) { showToast('Nothing to export', 'error'); return; }
-    const cols = ['token', 'name_english', 'class', 'version', 'category', 'room_id', 'seat_no', 'submission_scan_status', 'attendance_scan_status'];
-    const csv = [cols.join(',')].concat(rows.map(r => cols.map(c => `"${String(r[c] ?? '').replace(/"/g, '""')}"`).join(','))).join('\r\n');
+    // _admCandAllCandidates already comes from listCandidates' select=*
+    // (every real DB column -- phone/mobile, addresses, guardian info,
+    // tracking/index/token ids, extra_fields, etc.), so the export just
+    // needs to carry all of it through instead of a hand-picked subset.
+    const colSet = new Set();
+    rows.forEach(r => Object.keys(r).forEach(k => colSet.add(k)));
+    const cols = Array.from(colSet);
+    const scanCols = [];
+    (_admCandScanOptions || []).forEach(o => {
+      if (o.behavior === 'form') {
+        (o.config?.fields || []).forEach(f => scanCols.push({ header: `${o.label} - ${f.label}`, get: a => ((a.scan_values || {})[o.key] || {})[f.key] ?? '' }));
+      } else {
+        scanCols.push({
+          header: o.label,
+          get: a => {
+            const v = (a.scan_values || {})[o.key];
+            if (o.behavior === 'status') return v && v.done ? 'Done' : '';
+            return v === true ? 'Yes' : (v ?? '');
+          },
+        });
+      }
+    });
+    const fmt = v => {
+      if (v === null || v === undefined) return '';
+      if (typeof v === 'object') return JSON.stringify(v);
+      return v;
+    };
+    const headers = [...cols, ...scanCols.map(c => c.header)];
+    const csv = [headers].concat(rows.map(r => [...cols.map(c => fmt(r[c])), ...scanCols.map(c => c.get(r))]))
+      .map(row => row.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
     _ccpcShareOrDownload('candidates.csv', 'text/csv', csv);
   }
   async function _admCandDeleteCandidate(id) {
