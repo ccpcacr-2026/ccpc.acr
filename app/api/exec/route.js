@@ -2963,7 +2963,36 @@ const handlers = {
         if (m.recipient_id === userId && !m.is_read) { c.unread++; totalUnread++; }
       }
     }
+    // A student partner's id carries the 'student:<id>' prefix (same
+    // convention as every other student-aimed recipient in this file) and
+    // has no row in users_profile (that table is staff/teacher-only) -- the
+    // old code fell through to `full_name: c.partner_id`, which is exactly
+    // why a student's own messages showed only their raw "student:12345"
+    // id instead of a name. Resolve those separately against students_data,
+    // bounded to just this conversation list's own student partners.
+    const studentIds = Array.from(convMap.keys())
+      .filter(id => String(id).startsWith('student:'))
+      .map(id => String(id).slice('student:'.length));
+    const studentMap = {};
+    if (studentIds.length) {
+      const rows = await _sbStudent(`students_data?student_id=in.(${studentIds.map(encodeURIComponent).join(',')})&select=student_id,student_name,class,section,roll`);
+      if (Array.isArray(rows)) rows.forEach(s => { studentMap[s.student_id] = s; });
+    }
     const conversations = Array.from(convMap.values()).map(c => {
+      const isStudent = String(c.partner_id).startsWith('student:');
+      if (isStudent) {
+        const s = studentMap[String(c.partner_id).slice('student:'.length)] || {};
+        const csr = [s.class, s.section].filter(Boolean).join('-') + (s.roll ? `, Roll ${s.roll}` : '');
+        return {
+          ...c,
+          full_name:   s.student_name ? `${s.student_name}${csr ? ` (${csr})` : ''}` : c.partner_id,
+          designation: 'Student',
+          photo_url:   null,
+          whatsapp:    null,
+          phone:       null,
+          last_active: activeMap[c.partner_id] || null
+        };
+      }
       const p = profileMap[c.partner_id] || {};
       return {
         ...c,

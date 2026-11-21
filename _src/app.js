@@ -1667,7 +1667,10 @@
     const url = URL.createObjectURL(blob);
     const win = window.open(url, '_blank', 'width=1100,height=750');
     if (!win) {
-      if (typeof showToast === 'function') showToast('Popup blocked — please allow popups for this site and try again', 'error');
+      // window.open() returns null inside the Capacitor app shell (no
+      // multi-window support there) -- share the printable HTML via the
+      // native share sheet instead of just failing with a toast.
+      _ccpcShareOrDownload('Print.html', 'text/html;charset=utf-8', blob);
       URL.revokeObjectURL(url);
       return;
     }
@@ -4064,7 +4067,7 @@
       const label = staffLabel(userId);
       const modLabel = (MODULE_REGISTRY.find(m => m.key === moduleKey) || {}).label || moduleKey;
       return `<tr>
-        <td class="px-4 py-3 text-xs font-black text-slate-800">${label !== userId ? label : userId}</td>
+        <td class="px-4 py-3 text-xs"><p class="font-black text-slate-800">${label !== userId ? label : userId}</p>${label !== userId ? `<p class="text-[10px] text-slate-400 font-bold">${userId}</p>` : ''}</td>
         <td class="px-4 py-3 text-xs font-bold text-slate-600">${modLabel}</td>
         <td class="px-4 py-3 text-center">${badge(g.view, '#2563eb')}</td>
         <td class="px-4 py-3 text-center">${badge(g.edit, '#d97706')}</td>
@@ -9672,7 +9675,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const url = URL.createObjectURL(blob);
     const win = window.open(url, '_blank', 'width=900,height=700');
     if (!win) {
-      showToast('Popup blocked - please allow popups for this site and try again', 'error');
+      _ccpcShareOrDownload(`${payload.topic || payload.subject || 'Lesson Plan'}.html`, 'text/html;charset=utf-8', blob);
       URL.revokeObjectURL(url);
       return;
     }
@@ -12196,10 +12199,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return [a.class, a.section, s.full_name || '', s.designation || '', s.shortname || '', a.user_id];
     })];
     const csv = lines.map(r => r.map(c => `"${String(c || '').replace(/"/g, '""')}"`).join(',')).join('\n');
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    a.download = 'class_teacher_list.csv';
-    a.click();
+    _ccpcShareOrDownload('class_teacher_list.csv', 'text/csv', csv);
   }
 
   function loadAdminTabVisibility() {
@@ -17539,15 +17539,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function rbPrint() {
     if (!_rbLast) { showToast('Prepare a result first', 'error'); return; }
     const d = _rbLast;
-    const win = window.open('', '_blank');
-    win.document.write(`<!doctype html><html><head><title>Result — ${_escHtml(d.className)}</title><style>
+    const html = `<!doctype html><html><head><title>Result — ${_escHtml(d.className)}</title><style>
       body{font-family:-apple-system,'Segoe UI',sans-serif;padding:16px;color:#0f172a}
       h1{font-size:15px;margin:0 0 4px} p{font-size:11px;margin:0 0 10px;color:#475569}
       table{border-collapse:collapse;font-size:10px;width:100%}
       th,td{border:1px solid #cbd5e1;padding:3px 5px;text-align:center}
       th{background:#f1f5f9}
       @page{size:landscape;margin:10mm}
-    </style></head><body><h1>${_escHtml(MPO_INSTITUTION_NAME)} — ${_escHtml(d.className)}</h1><p>${d.sources.map(s => _escHtml(s.label) + (d.config.method === 'weighted' && d.sources.length > 1 ? ` (${s.share}%)` : '')).join(' + ')}</p>${_rbTableHtml(true)}</body></html>`);
+    </style></head><body><h1>${_escHtml(MPO_INSTITUTION_NAME)} — ${_escHtml(d.className)}</h1><p>${d.sources.map(s => _escHtml(s.label) + (d.config.method === 'weighted' && d.sources.length > 1 ? ` (${s.share}%)` : '')).join(' + ')}</p>${_rbTableHtml(true)}</body></html>`;
+    const win = window.open('', '_blank');
+    if (!win) { _ccpcShareOrDownload(`Result — ${d.className}.html`, 'text/html', html); return; }
+    win.document.write(html);
     win.document.close();
     win.focus();
     win.print();
@@ -18120,14 +18122,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // ── Printing with the design ────────────────────────────────────────────
   function _rsPrintPages(pagesHtml, pg, title) {
     const [w, h] = _rsPageMm(pg);
-    const win = window.open('', '_blank');
-    win.document.write(`<!doctype html><html><head><title>${_escHtml(title)}</title><style>
+    const html = `<!doctype html><html><head><title>${_escHtml(title)}</title><style>
       @page { size: ${w}mm ${h}mm; margin: 0; }
       html, body { margin: 0; padding: 0; }
       .rs-page { page-break-after: always; break-after: page; }
       .rs-page:last-child { page-break-after: auto; break-after: auto; }
       @media screen { body { background: #e2e8f0; } .rs-page { margin: 10mm auto; box-shadow: 0 2px 10px rgba(0,0,0,.15); } }
-    </style></head><body>${pagesHtml}</body></html>`);
+    </style></head><body>${pagesHtml}</body></html>`;
+    const win = window.open('', '_blank');
+    if (!win) { _ccpcShareOrDownload(`${title || 'Print'}.html`, 'text/html', html); return; }
+    win.document.write(html);
     win.document.close();
     win.focus();
     setTimeout(() => win.print(), 700); // give photos a moment to load
@@ -32608,11 +32612,32 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // Each opens its own standalone print window instead of fighting the
   // on-screen roster markup (admin buttons, member chips, answer dumps)
   // with @media print rules for three very different physical layouts.
+  // Native Android WebView can't do anchor-click blob downloads or
+  // window.open()-based printing reliably -- the Capacitor shell's
+  // cross-origin iframe has no window.open() multi-window support (so
+  // window.open() returns null there), and an in-WebView blob download has
+  // nowhere to land. The Web Share API -- delegated into this iframe via
+  // the shell's own iframe allow="web-share" -- opens Android's native
+  // share sheet instead, from which the user can save, forward, or print
+  // the file; a real desktop/mobile browser (no app shell) never reaches
+  // this fallback at all since window.open() works there already.
+  function _ccpcShareOrDownload(filename, mimeType, content) {
+    const blob = content instanceof Blob ? content : new Blob([content], { type: mimeType });
+    try {
+      const file = new File([blob], filename, { type: mimeType });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({ files: [file] }).catch(() => {}); // user cancelling the share sheet is not an error
+        return;
+      }
+    } catch (e) {}
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
   function _gfOpenPrintWindow(title, bodyHtml, pageCss) {
-    const win = window.open('', '_blank');
-    if (!win) { showToast('Please allow popups to print', 'error'); return; }
-    win.document.open();
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${_escHtml(title)}</title><style>
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${_escHtml(title)}</title><style>
       * { box-sizing: border-box; }
       body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; color: #111827; }
       /* @page's own margin only ever applies to the actual print/PDF
@@ -32633,7 +32658,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       .sigbox .sigline { border-top: 1px solid #1e293b; height: 10mm; }
       .sigbox .signame { font-size: 10px; font-weight: 700; color: #374151; padding-top: 2px; }
       ${pageCss}
-    </style></head><body>${bodyHtml}</body></html>`);
+    </style></head><body>${bodyHtml}</body></html>`;
+    const win = window.open('', '_blank');
+    if (!win) { _ccpcShareOrDownload(`${title || 'Print'}.html`, 'text/html', html); return; }
+    win.document.open();
+    win.document.write(html);
     win.document.close();
     setTimeout(() => { try { win.focus(); win.print(); } catch (e) {} }, 300);
   }
@@ -36445,7 +36474,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const win = window.open(url, '_blank', 'width=1100,height=750');
-    if (!win) { showToast('Popup blocked — please allow popups for this site and try again', 'error'); URL.revokeObjectURL(url); return; }
+    if (!win) { _ccpcShareOrDownload(`${_summaryData.tab || 'Print'}.html`, 'text/html;charset=utf-8', blob); URL.revokeObjectURL(url); return; }
     win.focus();
     setTimeout(() => { win.print(); setTimeout(() => URL.revokeObjectURL(url), 1000); }, 800);
   }
@@ -37289,11 +37318,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const headerRow = cols.map(c => IMPORT_LABELS[c] || c.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase()));
       const sampleRow = cols.map(c => IMPORT_DEMO_SAMPLES[c] ?? '');
       const csv = [headerRow, sampleRow].map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-      a.download = 'student_import_template.csv';
-      a.click();
-      URL.revokeObjectURL(a.href);
+      _ccpcShareOrDownload('student_import_template.csv', 'text/csv', csv);
     };
     if (IMPORT_DB_COLUMNS.length) { build(); return; }
     _adminFetch('get_student_data_headers', {}).then(cols => {
@@ -38590,14 +38615,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!table) { showToast('Nothing on this screen to print — open a report or Day Book first', 'error'); return; }
     const top = _acStack[_acStack.length - 1];
     const title = (_AC_SCREENS[top.id] && _AC_SCREENS[top.id].title) || 'Print';
-    const win = window.open('', '_blank');
-    win.document.write(`<!doctype html><html><head><title>${title}</title><style>
+    const html = `<!doctype html><html><head><title>${title}</title><style>
       body{font-family:-apple-system,'Segoe UI',sans-serif;padding:24px;color:#1c2b2e}
       h1{font-size:16px;margin:0 0 12px}
       table{width:100%;border-collapse:collapse;font-size:12px}
       th,td{border:1px solid #c3d7ea;padding:4px 8px;text-align:left}
       th{background:#1f3a5f;color:#fff}
-    </style></head><body><h1>${title}</h1>${table.outerHTML}</body></html>`);
+    </style></head><body><h1>${title}</h1>${table.outerHTML}</body></html>`;
+    const win = window.open('', '_blank');
+    if (!win) { _ccpcShareOrDownload(`${title}.html`, 'text/html', html); return; }
+    win.document.write(html);
     win.document.close();
     win.focus();
     win.print();
@@ -45447,10 +45474,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       rows.push([idx + 1, a.tracking_id || '', a.index_id || '', a.name_english || '', a.class || '', a.version || '', a.category || '', a.session || '', a.status || '', a.payment_status || '', a.room_name || a.room_no || '', a.seat_no || '', a.created_at ? new Date(a.created_at).toLocaleString() : '', ...scanCols.map(c => c.get(a))]);
     });
     const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob(['﻿sep=,\n' + csv], { type: 'text/csv;charset=utf-8' }));
-    a.download = 'admission_applications.csv';
-    a.click();
+    _ccpcShareOrDownload('admission_applications.csv', 'text/csv;charset=utf-8', '﻿sep=,\n' + csv);
   }
   // Prints exactly the rows the Applications tab's current search/filter is
   // showing (_admLastFiltered, set by _admRenderTable on every re-filter),
@@ -48161,7 +48185,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const r = await _admCandFetch('listStaffForCommittee', {});
         _admCandCommitteeStaff = r.staff || [];
         const sel = document.getElementById('admCandCommitteeStaffSelect');
-        if (sel) sel.innerHTML = '<option value="">Pick a staff member…</option>' + _admCandCommitteeStaff.map(s => `<option value="${_escHtml(s.user_id)}">${_escHtml(s.name)} (${_escHtml(s.role || '')})</option>`).join('');
+        if (sel) sel.innerHTML = '<option value="">Pick a staff member…</option>' + _admCandCommitteeStaff.map(s => `<option value="${_escHtml(s.user_id)}">${_escHtml(s.name)} (${_escHtml(s.role || '')}) — ${_escHtml(s.user_id)}</option>`).join('');
       }
       if (!_admCandOrgCommittees.length) {
         const r = await _admCandFetch('listOrgCommittees', {});
@@ -48243,7 +48267,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         .map(([key, label]) => `<label class="flex items-center gap-1 text-[10px] font-bold text-slate-600"><input type="checkbox" class="admCandCommitteeScanChk" value="${_escHtml(key)}" ${scanOpts.includes(key) ? 'checked' : ''}> ${_escHtml(label)}</label>`).join('');
       return `<div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-4" data-member-id="${m.id}" data-user-id="${_escHtml(m.user_id)}">
         <div class="flex items-center justify-between mb-2">
-          <div><span class="font-black text-slate-800 text-sm">${_escHtml(m.staff ? m.staff.name : m.user_id)}</span> <span class="text-[10px] text-slate-400 font-bold uppercase">${_escHtml((m.staff && m.staff.role) || '')}</span></div>
+          <div><span class="font-black text-slate-800 text-sm">${_escHtml(m.staff ? m.staff.name : m.user_id)}</span> <span class="text-[10px] text-slate-400 font-bold uppercase">${_escHtml((m.staff && m.staff.role) || '')}</span> <span class="text-[10px] text-slate-400 font-bold">(${_escHtml(m.user_id)})</span></div>
           <button onclick="_admCandCommitteeRemove(${m.id})" class="text-red-500 text-xs font-bold">Remove</button>
         </div>
         <div class="flex gap-2 flex-wrap mb-2">${tabSelects}</div>
@@ -49173,11 +49197,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!rows.length) { showToast('Nothing to export', 'error'); return; }
     const cols = ['token', 'name_english', 'class', 'version', 'category', 'room_id', 'seat_no', 'submission_scan_status', 'attendance_scan_status'];
     const csv = [cols.join(',')].concat(rows.map(r => cols.map(c => `"${String(r[c] ?? '').replace(/"/g, '""')}"`).join(','))).join('\r\n');
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    a.download = 'candidates.csv';
-    a.click();
-    URL.revokeObjectURL(a.href);
+    _ccpcShareOrDownload('candidates.csv', 'text/csv', csv);
   }
   async function _admCandDeleteCandidate(id) {
     if (!confirm('Delete this candidate?')) return;
@@ -54636,7 +54656,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const url = URL.createObjectURL(blob);
     const win = window.open(url, '_blank', 'width=900,height=700');
     if (!win) {
-      showToast('Popup blocked - please allow popups for this site and try again', 'error');
+      _ccpcShareOrDownload(`Personnel Record — ${v('full_name') || v('teacher_id') || 'CCPC'}.html`, 'text/html;charset=utf-8', blob);
       URL.revokeObjectURL(url);
       return;
     }
