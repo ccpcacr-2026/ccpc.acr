@@ -8038,6 +8038,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function _qrFabInit() {
     if (document.getElementById('qrFabBtn')) return; // once per session
+    // Desktop computer browsers don't need a floating camera-scan button --
+    // same 768px mobile/desktop split already used everywhere else in this
+    // app (e.g. .inv-desktop-block's own breakpoint) -- a pure CSS media
+    // query so it also reacts live if the window is resized across it,
+    // rather than a one-time JS check at init.
+    if (!document.getElementById('qrFabMediaStyle')) {
+      const style = document.createElement('style');
+      style.id = 'qrFabMediaStyle';
+      style.textContent = '@media (min-width:768px){#qrFabBtn,#qrFabMenu{display:none !important;}}';
+      document.head.appendChild(style);
+    }
     const saved = parseFloat(localStorage.getItem('ccpc_qr_fab_y') || '');
     const btn = document.createElement('button');
     btn.id = 'qrFabBtn';
