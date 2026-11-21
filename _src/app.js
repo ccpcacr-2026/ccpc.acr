@@ -43646,6 +43646,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       else v = (raw === undefined || raw === null || raw === '') ? '__none__' : (raw === true ? 'yes' : String(raw));
       if (!st[dimKey].has(v)) return false;
     }
+    // Per-Scan-Option date range -- e.g. "Marks Entry -- Scanned Between" or
+    // "Remarks -- Scanned Between", distinct from each other (and from the
+    // single global scanFrom/scanTo above, which is last_scanned_at and so
+    // reflects whichever option was scanned most recently, regardless of
+    // which one). Matches if ANY timestamp in that option's own scan_dates
+    // array (the full per-option scan timeline, not just the current value)
+    // falls inside the picked range.
+    for (const opt of (_admCandScanOptions || [])) {
+      const from = st[`scanOpt:${opt.key}:from`], to = st[`scanOpt:${opt.key}:to`];
+      if (!from && !to) continue;
+      const dates = ((a.scan_dates || {})[opt.key]) || [];
+      const hit = dates.some(d => {
+        const day = String(d).slice(0, 10);
+        if (from && day < from) return false;
+        if (to && day > to) return false;
+        return true;
+      });
+      if (!hit) return false;
+    }
     for (const { optKey, field } of (activeFormFieldDims || [])) {
       const raw = (a.scan_values || {})[optKey];
       const fieldVal = raw ? raw[field.key] : undefined;
@@ -43669,13 +43688,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const st = _admFilterPanelState(panelKey);
     const dims = _admFilterDims().filter(d => d.values.length);
     const scanRangeHtml = `<div class="mb-3 last:mb-0">
-        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Scanned Between</p>
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Scanned Between (any option)</p>
         <div class="flex items-center gap-2">
           <input type="date" value="${_escHtml(st.scanFrom || '')}" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, 'scanFrom', this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
           <span class="text-slate-300 text-xs">to</span>
           <input type="date" value="${_escHtml(st.scanTo || '')}" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, 'scanTo', this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
         </div>
       </div>`;
+    // One date-range row PER Scan Option (e.g. "Marks Entry -- Scanned
+    // Between", "Remarks -- Scanned Between") -- distinct from the single
+    // global row above, since that one reflects whichever option was
+    // scanned most recently regardless of which option, so it can't isolate
+    // "scanned under Marks Entry between these dates" on its own.
+    const scanOptionRangeHtml = (_admCandScanOptions || []).map(opt => {
+      const fromKey = `scanOpt:${opt.key}:from`, toKey = `scanOpt:${opt.key}:to`;
+      return `<div class="mb-3 last:mb-0">
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">${_escHtml(opt.label)} — Scanned Between</p>
+        <div class="flex items-center gap-2">
+          <input type="date" value="${_escHtml(st[fromKey] || '')}" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(fromKey)}, this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          <span class="text-slate-300 text-xs">to</span>
+          <input type="date" value="${_escHtml(st[toKey] || '')}" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(toKey)}, this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+        </div>
+      </div>`;
+    }).join('');
     const formFieldsHtml = _admFormFieldFilterDims().map(({ optKey, optLabel, field }) => {
       const base = `formf:${optKey}:${field.key}`;
       const control = field.input_type === 'number'
@@ -43698,7 +43733,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${d.values.map(v => `<button type="button" onclick='toggleAdmFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(d.key)}, ${JSON.stringify(v)})' class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase ${sel.has(v) ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(_admFilterValueLabel(v))}</button>`).join('')}
         </div>
       </div>`;
-    }).join('') + scanRangeHtml + formFieldsHtml + (_admFilterActiveCount(panelKey) ? `
+    }).join('') + scanRangeHtml + scanOptionRangeHtml + formFieldsHtml + (_admFilterActiveCount(panelKey) ? `
       <div class="flex items-center gap-3 flex-wrap">
         <button type="button" onclick="clearAdmFilters(${JSON.stringify(panelKey)})" class="text-[10px] font-black text-red-600 uppercase hover:underline">Clear all filters</button>
         ${panelKey === 'app' ? `<button type="button" onclick="_admCreateCustomCountFromFilters()" class="text-[10px] font-black text-blue-600 uppercase hover:underline">Use as Custom Count</button>` : ''}
