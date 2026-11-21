@@ -48120,7 +48120,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-3">
           <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">Add one committee member</p>
           <div class="flex gap-2 items-center">
-            <select id="admCandCommitteeStaffSelect" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold"><option value="">Pick a staff member…</option></select>
+            <div class="flex-1 relative">
+              <input type="text" id="admCandCommitteeStaffSearch" placeholder="Search staff by name, role or ID…" autocomplete="off"
+                class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold outline-none focus:ring-2 focus:ring-blue-600" autocorrect="off" autocapitalize="off" spellcheck="false">
+              <input type="hidden" id="admCandCommitteeStaffSelect">
+              <div id="admCandCommitteeStaffDropdown" style="z-index:9999" class="hidden absolute z-40 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-56 overflow-y-auto"></div>
+            </div>
             <button onclick="_admCandCommitteeAdd()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Add to Committee</button>
           </div>
         </div>
@@ -48184,8 +48189,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (!_admCandCommitteeStaff.length) {
         const r = await _admCandFetch('listStaffForCommittee', {});
         _admCandCommitteeStaff = r.staff || [];
-        const sel = document.getElementById('admCandCommitteeStaffSelect');
-        if (sel) sel.innerHTML = '<option value="">Pick a staff member…</option>' + _admCandCommitteeStaff.map(s => `<option value="${_escHtml(s.user_id)}">${_escHtml(s.name)} (${_escHtml(s.role || '')}) — ${_escHtml(s.user_id)}</option>`).join('');
+        // Searchable combo (type to filter by name/role/ID), same
+        // _wireSearchCombo idiom already used for the per-person module
+        // permission panel's own Person search -- a plain long <select>
+        // gave no way to type/search at all.
+        _wireSearchCombo('admCandCommitteeStaffSearch', 'admCandCommitteeStaffSelect', 'admCandCommitteeStaffDropdown',
+          _admCandCommitteeStaff.map(s => ({ value: s.user_id, label: s.name, sub: [s.role, s.user_id].filter(Boolean).join(' · ') })));
+        // _wireSearchCombo auto-preselects its first option so the field is
+        // never blank -- wrong here, since picking a member must be an
+        // explicit choice, not whoever happened to sort first.
+        document.getElementById('admCandCommitteeStaffSelect').value = '';
+        document.getElementById('admCandCommitteeStaffSearch').value = '';
       }
       if (!_admCandOrgCommittees.length) {
         const r = await _admCandFetch('listOrgCommittees', {});
@@ -48205,6 +48219,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       await _admCandFetch('saveCommitteeMember', { circular_id: _admCandActiveCircularId, user_id: userId, permissions: { tabs: {}, scan_options: [] } });
       _admCandGrantModuleSidebarAccess(userId);
       showToast('Added — set their permissions below', 'success');
+      if (sel) sel.value = '';
+      const searchBox = document.getElementById('admCandCommitteeStaffSearch');
+      if (searchBox) searchBox.value = '';
       _admCandLoadCommitteeTab();
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
