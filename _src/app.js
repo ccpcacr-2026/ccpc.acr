@@ -43570,6 +43570,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admFilterPanelHostId(panelKey) { return panelKey === 'scanData' ? 'admCandScanDataFilterPanel' : 'admFilterPanel'; }
   function _admFilterPanelBadgeId(panelKey) { return panelKey === 'scanData' ? 'admCandScanDataFilterCount' : 'admFilterCount'; }
   function _admFilterPanelOnChange(panelKey) { if (panelKey === 'scanData') _admCandScanDataFilterChanged(); else _admFilterApps(); }
+  // Explicit manual trigger for the date-range rows' "Apply" button -- a
+  // fallback alongside the oninput/onchange auto-filter below, since a date
+  // input's change event has been reported unreliable in some Android
+  // WebView builds (same class of quirk already hit with keydown/Enter
+  // earlier this session).
+  function _admApplyFilters(panelKey) { _admFilterPanelOnChange(panelKey); }
   function _admToggleFilterPanel(panelKey) {
     panelKey = panelKey || 'app';
     const panel = document.getElementById(_admFilterPanelHostId(panelKey));
@@ -43701,9 +43707,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const scanRangeHtml = `<div class="mb-3 last:mb-0">
         <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Scanned Between (any option)</p>
         <div class="flex items-center gap-2">
-          <input type="date" value="${_escHtml(st.scanFrom || '')}" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, 'scanFrom', this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          <input type="date" value="${_escHtml(st.scanFrom || '')}" oninput="_admSetScanDateFilter(${JSON.stringify(panelKey)}, 'scanFrom', this.value)" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, 'scanFrom', this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
           <span class="text-slate-300 text-xs">to</span>
-          <input type="date" value="${_escHtml(st.scanTo || '')}" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, 'scanTo', this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          <input type="date" value="${_escHtml(st.scanTo || '')}" oninput="_admSetScanDateFilter(${JSON.stringify(panelKey)}, 'scanTo', this.value)" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, 'scanTo', this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          <button type="button" onclick="_admApplyFilters(${JSON.stringify(panelKey)})" class="px-2.5 py-1.5 bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase tracking-wide hover:bg-indigo-700">Apply</button>
         </div>
       </div>`;
     // One date-range row PER Scan Option (e.g. "Marks Entry -- Scanned
@@ -43716,9 +43723,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return `<div class="mb-3 last:mb-0">
         <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">${_escHtml(opt.label)} — Scanned Between</p>
         <div class="flex items-center gap-2">
-          <input type="date" value="${_escHtml(st[fromKey] || '')}" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(fromKey)}, this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          <input type="date" value="${_escHtml(st[fromKey] || '')}" oninput="_admSetScanDateFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(fromKey)}, this.value)" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(fromKey)}, this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
           <span class="text-slate-300 text-xs">to</span>
-          <input type="date" value="${_escHtml(st[toKey] || '')}" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(toKey)}, this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          <input type="date" value="${_escHtml(st[toKey] || '')}" oninput="_admSetScanDateFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(toKey)}, this.value)" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(toKey)}, this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          <button type="button" onclick="_admApplyFilters(${JSON.stringify(panelKey)})" class="px-2.5 py-1.5 bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase tracking-wide hover:bg-indigo-700">Apply</button>
         </div>
       </div>`;
     }).join('');
