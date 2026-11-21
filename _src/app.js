@@ -50020,7 +50020,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (opt.behavior === 'tag') {
       const cfg = opt.config || {};
       let valueInput = '';
-      if (cfg.type === 'text') valueInput = `<input id="admCandScanTagValueInput" placeholder="Value to assign" onkeydown="if(event.key==='Enter'){event.preventDefault();_admCandScanLockTag();}" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">`;
+      if (cfg.type === 'text') valueInput = `<input id="admCandScanTagValueInput" placeholder="Value to assign" enterkeyhint="done" onkeydown="if(event.key==='Enter'||event.keyCode===13){event.preventDefault();_admCandScanLockTag();}" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">`;
       else if (cfg.type === 'dropdown') valueInput = `<select id="admCandScanTagValueInput" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">${(cfg.options || []).map(o => `<option value="${_escHtml(o)}">${_escHtml(o)}</option>`).join('')}</select>`;
       panel.innerHTML = `
         <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
@@ -50398,7 +50398,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const fieldsHtml = fields.map(f => `
       <div class="mb-2">
         <label class="text-[10px] uppercase text-slate-400 font-bold">${_escHtml(f.label)}${f.input_type === 'number' && Number.isFinite(f.max_marks) ? ` <span class="text-slate-300">(out of ${f.max_marks})</span>` : ''}</label>
-        <input type="${f.input_type === 'text' ? 'text' : 'number'}" inputmode="${f.input_type === 'text' ? 'text' : 'numeric'}" ${f.input_type === 'number' && Number.isFinite(f.max_marks) ? `max="${f.max_marks}"` : ''} min="0" data-marks-key="${_escHtml(f.key)}" data-max-marks="${f.input_type === 'number' && Number.isFinite(f.max_marks) ? f.max_marks : ''}" value="${_escHtml(existing[f.key] ?? '')}" onkeydown="if(event.key==='Enter'){event.preventDefault();_admCandSubmitMarksForm();}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold mt-1">
+        <input type="${f.input_type === 'text' ? 'text' : 'number'}" inputmode="${f.input_type === 'text' ? 'text' : 'decimal'}" enterkeyhint="done" ${f.input_type === 'number' && Number.isFinite(f.max_marks) ? `max="${f.max_marks}"` : ''} min="0" data-marks-key="${_escHtml(f.key)}" data-max-marks="${f.input_type === 'number' && Number.isFinite(f.max_marks) ? f.max_marks : ''}" value="${_escHtml(existing[f.key] ?? '')}" onkeydown="if(event.key==='Enter'||event.keyCode===13){event.preventDefault();_admCandSubmitMarksForm();}" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold mt-1">
       </div>`).join('');
     host.innerHTML = `<div class="bg-white border border-slate-200 rounded-xl p-4">
       <div class="flex items-center gap-3 mb-3">
