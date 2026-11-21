@@ -374,7 +374,7 @@ export async function POST(req) {
     // breakdowns can't be computed without it. The two tabs' own UI/edit
     // controls still gate separately (see _admModuleCan('applications', …)
     // client-side and EDIT_ACTIONS above for the real write boundary).
-    const listAppsOk = (action === 'listApplications' || action === 'getApplicantColumns' || action === 'getApplicationsFingerprint') && (_tabOk(false, perms, 'dashboard', 'view') || _tabOk(false, perms, 'applications', 'view'));
+    const listAppsOk = (action === 'listApplications' || action === 'getApplicantColumns' || action === 'getApplicationsFingerprint' || action === 'getApplicationsFullById') && (_tabOk(false, perms, 'dashboard', 'view') || _tabOk(false, perms, 'applications', 'view'));
     if (!_tabOk(false, perms, tab, level) && !formFieldsReadOk && !listAppsOk) return _forbidden();
   }
 
@@ -444,6 +444,41 @@ export async function POST(req) {
       (rows || []).forEach(r => { if (r.room_id) r.room_name = nameById[r.room_id] || null; });
     }
     return NextResponse.json({ applications: rows || [] });
+  }
+
+  // ── Full-column export fetch (Export CSV button only) ───────────────────
+  // Export CSV needs literally every database column for whatever rows are
+  // CURRENTLY on screen after the admin's search/filter panel narrowed the
+  // roster down -- that filtering is entirely client-side against the
+  // already-loaded roster (see _admLastFiltered), so rather than
+  // reimplement the filter panel's logic here, the client sends the exact
+  // ids it's already showing and this returns select=* for just those rows.
+  // Deliberately kept separate from listApplications' lean, hand-picked
+  // select (used by the Dashboard's 20s poll and the normal table load) so
+  // this one-off, user-initiated fetch never adds photo-column weight to
+  // that hot path -- same egress-consciousness already documented there.
+  if (action === 'getApplicationsFullById') {
+    const circularId = parseInt(payload.circular_id, 10);
+    const ids = Array.isArray(payload.ids) ? payload.ids.map(i => parseInt(i, 10)).filter(Boolean) : [];
+    if (!circularId || !ids.length) return NextResponse.json({ applications: [] });
+    const CHUNK = 300;
+    const chunks = [];
+    for (let i = 0; i < ids.length; i += CHUNK) chunks.push(ids.slice(i, i + CHUNK));
+    const pages = await Promise.all(chunks.map(chunk =>
+      sbAdmission(`admission_applications?select=*&circular_id=eq.${circularId}&id=in.(${chunk.join(',')})`)
+    ));
+    if (pages.some(p => p?.error)) return NextResponse.json({ error: 'Failed to load export data' });
+    const byId = {};
+    pages.forEach(p => (Array.isArray(p) ? p : []).forEach(r => { byId[r.id] = r; }));
+    const ordered = ids.map(id => byId[id]).filter(Boolean);
+    const roomIds = [...new Set(ordered.map(r => r.room_id).filter(Boolean))];
+    if (roomIds.length) {
+      const roomRows = await sbInventory(`rooms?id=in.(${roomIds.join(',')})&select=id,name`);
+      const nameById = {};
+      (Array.isArray(roomRows) ? roomRows : []).forEach(r => { nameById[r.id] = r.name; });
+      ordered.forEach(r => { if (r.room_id) r.room_name = nameById[r.room_id] || null; });
+    }
+    return NextResponse.json({ applications: ordered });
   }
 
   // Cheap "has anything changed" check for the Dashboard's background poll

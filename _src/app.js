@@ -45451,15 +45451,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admChk(id) { const e = document.getElementById(id); return !!(e && e.checked); }
   function _admSetChk(id, val) { const e = document.getElementById(id); if (e) e.checked = !!val; }
 
-  // ── Applicant list CSV export (current filtered rows) ───────────────────
-  function _admExportCsv() {
+  // ── Applicant list CSV export (current filtered rows, every DB column) ──
+  // Export must contain every column's actual value from the database for
+  // each exported applicant, not just the hand-picked fields the on-screen
+  // table shows -- so this fetches a fresh select=* for exactly the ids
+  // _admLastFiltered already narrowed down to (see getApplicationsFullById
+  // above), rather than exporting from the lean listApplications payload.
+  async function _admExportCsv() {
     const apps = _admLastFiltered;
     if (!apps.length) { showToast('No applications to export', 'error'); return; }
-    const headers = ['SL', 'Tracking ID', 'Index ID', 'Name', 'Class', 'Version', 'Category', 'Session', 'Status', 'Payment Status', 'Room No', 'Seat No', 'Submitted At'];
-    // Part 10: one column per Scan Option (status/tag), and one column per
-    // field for 'form'-behavior options, so scanned/tagged/marks data
-    // exports alongside the base fields -- apps is already _admLastFiltered,
-    // so this respects whatever filter/search is currently applied.
+    let full;
+    try {
+      const res = await _admAdminFetch('getApplicationsFullById', { circular_id: _admCandActiveCircularId, ids: apps.map(a => a.id) });
+      if (res.error) throw new Error(res.error);
+      full = res.applications || [];
+    } catch (e) { showToast(e.message || 'Could not prepare export', 'error'); return; }
+    if (!full.length) { showToast('No applications to export', 'error'); return; }
+    const colSet = new Set();
+    full.forEach(r => Object.keys(r).forEach(k => colSet.add(k)));
+    const cols = Array.from(colSet);
+    // Part 10: on top of every raw DB column above (scan_values/scan_dates
+    // included as raw JSON), one extra human-readable column per Scan
+    // Option so scanned/tagged/marks data is still easy to read at a
+    // glance, not just buried inside that JSON.
     const scanCols = [];
     (_admCandScanOptions || []).forEach(o => {
       if (o.behavior === 'form') {
@@ -45475,10 +45489,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         });
       }
     });
-    headers.push(...scanCols.map(c => c.header));
+    const fmt = v => {
+      if (v === null || v === undefined) return '';
+      if (typeof v === 'object') return JSON.stringify(v);
+      return v;
+    };
+    const headers = [...cols, ...scanCols.map(c => c.header)];
     const rows = [headers];
-    apps.forEach((a, idx) => {
-      rows.push([idx + 1, a.tracking_id || '', a.index_id || '', a.name_english || '', a.class || '', a.version || '', a.category || '', a.session || '', a.status || '', a.payment_status || '', a.room_name || a.room_no || '', a.seat_no || '', a.created_at ? new Date(a.created_at).toLocaleString() : '', ...scanCols.map(c => c.get(a))]);
+    full.forEach(a => {
+      rows.push([...cols.map(c => fmt(a[c])), ...scanCols.map(c => c.get(a))]);
     });
     const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
     _ccpcShareOrDownload('admission_applications.csv', 'text/csv;charset=utf-8', '﻿sep=,\n' + csv);
