@@ -611,6 +611,7 @@
     payroll:       () => loadAdminPayrollView(),
     accounts_admin:() => loadAccountsAdminView(),
     admission_admin:() => loadAdmissionAdminView(),
+    clubs:         () => loadClubsView(),
     profile:       () => openMyProfile(),
     ssc_result_analysis: () => loadSscResultAnalysisView(),
     home:          () => renderMobileHomeGrid(),
@@ -4292,6 +4293,7 @@
     }
     const cmp = (MY_CLASS_ROSTER_SORTS[_myClassRosterSort] || MY_CLASS_ROSTER_SORTS.roll).cmp;
     const avatarAccents = ['#6366f1', '#ec4899', '#059669', '#f59e0b', '#0ea5e9', '#8b5cf6'];
+    const clubOptions = (_myClassRosterData && _myClassRosterData.clubs) || [];
     body.innerHTML = classes.map(c => {
       const sorted = [...c.students].sort(cmp);
       return `
@@ -4313,6 +4315,11 @@
                   <span class="px-1.5 py-0.5 rounded-md font-black" style="background:${_hexToRgba(accent, 0.12)};color:${accent}">Roll ${s.roll || '—'}</span>
                   ${fatherTel ? ` · Father ${fatherTel}` : ''}${!fatherTel && motherTel ? ` · Mother ${motherTel}` : ''}
                 </p>
+                ${clubOptions.length ? `
+                <select onclick="event.stopPropagation()" onchange="_myClassAssignClub(${JSON.stringify(s.student_id)}, this.value)" class="mt-1 w-full px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-md text-[9px] font-bold text-slate-600">
+                  <option value="">No club</option>
+                  ${clubOptions.map(cl => `<option value="${cl.id}" ${String(s.club_id) === String(cl.id) ? 'selected' : ''}>${_escHtml(cl.name)}</option>`).join('')}
+                </select>` : ''}
               </div>
               ${tel ? `<a href="tel:${tel}" title="Call" onclick="event.stopPropagation()" class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white" style="background:linear-gradient(135deg,#059669,#22c55e)"><i data-lucide="phone" class="h-3.5 w-3.5"></i></a>` : ''}
             </div>`;
@@ -4321,6 +4328,29 @@
       </div>`;
     }).join('');
     lucide.createIcons();
+  }
+
+  // Part 19 (Clubs) — inline from the My Class roster card's club <select>.
+  function _myClassAssignClub(studentId, clubId) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    if (!myId) return;
+    const action = clubId ? 'assignStudentToClub' : 'removeStudentFromClub';
+    const args = clubId ? [myId, { student_id: studentId, club_id: clubId }] : [myId, { student_id: studentId }];
+    google.script.run
+      .withSuccessHandler(res => {
+        if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not update club.', 'error'); _renderMyClassRoster(); return; }
+        if (_myClassRosterData) {
+          _myClassRosterData.classes.forEach(c => c.students.forEach(s => {
+            if (s.student_id === studentId) {
+              s.club_id = clubId || null;
+              const club = (_myClassRosterData.clubs || []).find(cl => String(cl.id) === String(clubId));
+              s.club_name = club ? club.name : null;
+            }
+          }));
+        }
+      })
+      .withFailureHandler(() => { showToast('Could not update club.', 'error'); _renderMyClassRoster(); })
+      [action](...args);
   }
 
   // ── My Class → Attendance Report ─────────────────────────────────────────
@@ -51093,6 +51123,259 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (window.lucide) lucide.createIcons();
   }
 
+  // ── CLUBS (Part 19) ───────────────────────────────────────────────────────
+  let _clubsMyTeacherClubs = [];
+  let _clubsActiveTab = 'my_club';
+  let _clubsSelectedClubId = null;
+  let _clubsRosterData = [];
+  let _clubsAllClubs = []; // Manage Clubs tab's full list (admin only)
+
+  function loadClubsView() {
+    _setViewHash('clubs');
+    setActiveNavLink('nav-clubs');
+    setContentHeader('Clubs', 'users');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    if (!myId) return;
+    const isAdmin = _forumIsAdmin();
+    container.innerHTML = `<div class="pt-4 max-w-5xl mx-auto pb-10">
+      <div id="clubsTabs" class="flex gap-2 mb-4"></div>
+      <div id="clubsBody"><div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
+    </div>`;
+    google.script.run
+      .withSuccessHandler(res => {
+        _clubsMyTeacherClubs = (res && res.result === 'success' && res.clubs) || [];
+        _clubsActiveTab = _clubsMyTeacherClubs.length ? 'my_club' : 'manage';
+        _renderClubsTabs(isAdmin);
+        _renderClubsBody(isAdmin);
+      })
+      .withFailureHandler(() => { _renderClubsTabs(isAdmin); _renderClubsBody(isAdmin); })
+      .getMyClubTeacherClubs(myId);
+  }
+
+  function _renderClubsTabs(isAdmin) {
+    const tabs = document.getElementById('clubsTabs');
+    if (!tabs) return;
+    const items = [];
+    if (_clubsMyTeacherClubs.length) items.push(['my_club', 'My Club']);
+    if (isAdmin) items.push(['manage', 'Manage Clubs']);
+    tabs.innerHTML = items.map(([key, label]) => `
+      <button onclick="_clubsShowTab('${key}')" class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${_clubsActiveTab === key ? 'bg-blue-600 text-white' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}">${label}</button>`).join('');
+  }
+
+  function _clubsShowTab(key) {
+    _clubsActiveTab = key;
+    const isAdmin = _forumIsAdmin();
+    _renderClubsTabs(isAdmin);
+    _renderClubsBody(isAdmin);
+  }
+
+  function _renderClubsBody(isAdmin) {
+    const body = document.getElementById('clubsBody');
+    if (!body) return;
+    if (_clubsActiveTab === 'manage' && isAdmin) { _clubsRenderManage(); return; }
+    if (_clubsActiveTab === 'my_club' && _clubsMyTeacherClubs.length) { _clubsRenderMyClub(); return; }
+    body.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Nothing to show here — you're not a club teacher for any club.</div>`;
+  }
+
+  // ── My Club (club teacher's filterable roster) ───────────────────────────
+  function _clubsRenderMyClub() {
+    const body = document.getElementById('clubsBody');
+    if (!body) return;
+    if (!_clubsSelectedClubId || !_clubsMyTeacherClubs.some(c => String(c.id) === String(_clubsSelectedClubId))) {
+      _clubsSelectedClubId = _clubsMyTeacherClubs[0].id;
+    }
+    const picker = _clubsMyTeacherClubs.length > 1 ? `
+      <select onchange="_clubsSelectClub(this.value)" class="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+        ${_clubsMyTeacherClubs.map(c => `<option value="${c.id}" ${String(c.id) === String(_clubsSelectedClubId) ? 'selected' : ''}>${_escHtml(c.name)}</option>`).join('')}
+      </select>` : `<p class="font-black text-slate-800 text-sm">${_escHtml(_clubsMyTeacherClubs[0].name)}</p>`;
+    body.innerHTML = `
+      <div class="mb-3">${picker}</div>
+      <div class="flex flex-wrap gap-2 mb-3">
+        <input id="clubsFilterClass" placeholder="Class" oninput="_clubsApplyFilter()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] w-24">
+        <input id="clubsFilterSection" placeholder="Section" oninput="_clubsApplyFilter()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] w-24">
+        <input id="clubsFilterSession" placeholder="Session" oninput="_clubsApplyFilter()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] w-24">
+      </div>
+      <div id="clubsRosterWrap"><div class="text-center py-10 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>`;
+    _clubsLoadRoster(_clubsSelectedClubId);
+  }
+
+  function _clubsSelectClub(clubId) {
+    _clubsSelectedClubId = clubId;
+    _clubsRenderMyClub();
+  }
+
+  function _clubsLoadRoster(clubId) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run
+      .withSuccessHandler(res => {
+        _clubsRosterData = (res && res.result === 'success' && res.students) || [];
+        if (res && res.result !== 'success') showToast(res.message || 'Could not load roster.', 'error');
+        _clubsApplyFilter();
+      })
+      .withFailureHandler(() => showToast('Could not load roster.', 'error'))
+      .getClubRoster(myId, clubId);
+  }
+
+  function _clubsApplyFilter() {
+    const wrap = document.getElementById('clubsRosterWrap');
+    if (!wrap) return;
+    const clsEl = document.getElementById('clubsFilterClass');
+    const secEl = document.getElementById('clubsFilterSection');
+    const sesEl = document.getElementById('clubsFilterSession');
+    const cls = String((clsEl && clsEl.value) || '').trim().toLowerCase();
+    const sec = String((secEl && secEl.value) || '').trim().toLowerCase();
+    const ses = String((sesEl && sesEl.value) || '').trim().toLowerCase();
+    const rows = _clubsRosterData.filter(s =>
+      (!cls || String(s.class || '').toLowerCase().includes(cls)) &&
+      (!sec || String(s.section || '').toLowerCase().includes(sec)) &&
+      (!ses || String(s.session || '').toLowerCase().includes(ses)));
+    if (!rows.length) { wrap.innerHTML = `<div class="text-center py-10 text-slate-400 text-xs font-black uppercase tracking-widest">No members found</div>`; return; }
+    wrap.innerHTML = `
+      <div class="inv-desktop-block overflow-x-auto">
+        <table class="w-full text-xs">
+          <thead><tr class="text-left text-slate-400 uppercase text-[10px] font-black"><th class="py-2">Student</th><th>Roll</th><th>Class</th><th>Section</th><th>Session</th></tr></thead>
+          <tbody>
+            ${rows.map(s => `<tr class="border-t border-slate-100">
+              <td class="py-2"><div class="flex items-center gap-2">${_avatar(s.student_name, s.photo, 'w-7 h-7')}<span class="font-bold">${_escHtml(s.student_name || '')}</span></div></td>
+              <td>${_escHtml(s.roll || '')}</td><td>${_escHtml(s.class || '')}</td><td>${_escHtml(s.section || '')}</td><td>${_escHtml(s.session || '')}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="md:hidden flex flex-col gap-2">
+        ${rows.map(s => `<div class="flex items-center gap-2 bg-white border border-slate-100 rounded-xl px-3 py-2">
+          ${_avatar(s.student_name, s.photo, 'w-8 h-8')}
+          <div class="flex-1 min-w-0"><p class="text-xs font-black truncate">${_escHtml(s.student_name || '')}</p>
+          <p class="text-[10px] text-slate-400">Roll ${_escHtml(s.roll || '')} · ${_escHtml(s.class || '')} ${_escHtml(s.section || '')} · ${_escHtml(s.session || '')}</p></div>
+        </div>`).join('')}
+      </div>`;
+  }
+
+  // ── Manage Clubs (Admin/Cord) ─────────────────────────────────────────────
+  function _clubsRenderManage() {
+    const body = document.getElementById('clubsBody');
+    if (!body) return;
+    body.innerHTML = `<div class="text-center py-10 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run
+      .withSuccessHandler(res => {
+        _clubsAllClubs = (res && res.result === 'success' && res.clubs) || [];
+        if (res && res.result !== 'success') showToast(res.message || 'Could not load clubs.', 'error');
+        _clubsRenderManageBody();
+      })
+      .withFailureHandler(() => showToast('Could not load clubs.', 'error'))
+      .listClubs(myId);
+  }
+
+  function _clubsRenderManageBody() {
+    const body = document.getElementById('clubsBody');
+    if (!body) return;
+    body.innerHTML = `
+      <div class="flex gap-2 mb-4">
+        <input id="clubsNewName" placeholder="New club name" class="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs">
+        <button onclick="_clubsManageAddClub()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">+ Add Club</button>
+      </div>
+      <div class="flex flex-col gap-3">
+        ${_clubsAllClubs.length ? _clubsAllClubs.map(c => `
+          <div class="bg-white border border-slate-100 rounded-2xl p-3">
+            <div class="flex items-center justify-between gap-2 mb-2">
+              <input value="${_escHtml(c.name)}" onchange="_clubsManageRenameClub(${c.id}, this.value)" class="flex-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs font-bold">
+              <span class="text-[10px] text-slate-400 font-bold whitespace-nowrap">${c.member_count} member${c.member_count === 1 ? '' : 's'}</span>
+              <button onclick="_clubsManageDeleteClub(${c.id})" class="text-red-400 hover:text-red-600 text-sm px-1">&times;</button>
+            </div>
+            <div class="flex flex-wrap gap-1.5 mb-2">
+              ${(c.teachers || []).map(t => `<span class="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-full text-[10px] font-bold">${_escHtml(t.full_name)}<button onclick="_clubsManageRemoveTeacher(${c.id}, '${t.user_id}')" class="text-blue-400 hover:text-red-500">&times;</button></span>`).join('') || '<span class="text-[10px] text-slate-300">No club teacher assigned</span>'}
+            </div>
+            <div class="relative">
+              <input placeholder="Search a teacher to assign…" oninput="_clubsTeacherSearch(${c.id}, this.value)" onfocus="_clubsTeacherSearch(${c.id}, this.value)" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px]">
+              <div id="clubsTeacherDrop_${c.id}" class="hidden absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto"></div>
+            </div>
+          </div>`).join('') : '<p class="text-xs text-slate-400 text-center py-8">No clubs yet — add one above.</p>'}
+      </div>`;
+  }
+
+  function _clubsTeacherSearch(clubId, q) {
+    const proceed = () => {
+      const drop = document.getElementById('clubsTeacherDrop_' + clubId);
+      if (!drop) return;
+      const assignedIds = ((_clubsAllClubs.find(c => c.id === clubId) || {}).teachers || []).map(t => t.user_id);
+      drop.innerHTML = _userComboHtml(String(q || '').trim().toLowerCase(), assignedIds);
+      drop.classList.remove('hidden');
+      drop.onclick = e => {
+        const item = e.target.closest('[data-uid]');
+        if (!item) return;
+        _clubsManageAssignTeacher(clubId, item.dataset.uid);
+        drop.classList.add('hidden');
+      };
+    };
+    _ensureStaffCache(() => {
+      if (allUsersCache.length) { proceed(); return; }
+      google.script.run.withSuccessHandler(data => { allUsersCache = Array.isArray(data) ? data : []; proceed(); }).withFailureHandler(proceed).getAppUsers();
+    });
+  }
+
+  function _clubsManageAddClub() {
+    const input = document.getElementById('clubsNewName');
+    const name = String((input && input.value) || '').trim();
+    if (!name) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run
+      .withSuccessHandler(res => {
+        if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not add club.', 'error'); return; }
+        if (input) input.value = '';
+        _clubsRenderManage();
+      })
+      .withFailureHandler(() => showToast('Could not add club.', 'error'))
+      .createClub(myId, { name });
+  }
+
+  function _clubsManageRenameClub(id, name) {
+    name = String(name || '').trim();
+    if (!name) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run
+      .withSuccessHandler(res => { if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not rename club.', 'error'); _clubsRenderManage(); } })
+      .withFailureHandler(() => { showToast('Could not rename club.', 'error'); _clubsRenderManage(); })
+      .updateClub(myId, { id, name });
+  }
+
+  function _clubsManageDeleteClub(id) {
+    showConfirm('Delete this club?', () => {
+      const myId = window.APP_USER && window.APP_USER.user_id;
+      google.script.run
+        .withSuccessHandler(res => {
+          if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not delete club.', 'error'); return; }
+          _clubsRenderManage();
+        })
+        .withFailureHandler(() => showToast('Could not delete club.', 'error'))
+        .deleteClub(myId, id);
+    });
+  }
+
+  function _clubsManageAssignTeacher(clubId, userId) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run
+      .withSuccessHandler(res => {
+        if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not assign teacher.', 'error'); return; }
+        _clubsRenderManage();
+      })
+      .withFailureHandler(() => showToast('Could not assign teacher.', 'error'))
+      .assignClubTeacher(myId, { club_id: clubId, user_id: userId });
+  }
+
+  function _clubsManageRemoveTeacher(clubId, userId) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run
+      .withSuccessHandler(res => {
+        if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not remove teacher.', 'error'); return; }
+        _clubsRenderManage();
+      })
+      .withFailureHandler(() => showToast('Could not remove teacher.', 'error'))
+      .removeClubTeacher(myId, { club_id: clubId, user_id: userId });
+  }
+
   // ── PERMISSION CONTROL PANEL (Admin only) ────────────────────────────────────
   // 'Student Portal Admin' / 'Canteen Admin' / 'Inventory Admin' are add-on
   // roles: each grants delegated control of one separate app/module (the
@@ -51155,6 +51438,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'registration_admin', label: 'Registration Admin', navId: 'nav-registration-admin' },
     { key: 'admission_admin',  label: 'Admission Admin',    navId: 'nav-admission-admin' },
     { key: 'omr_results',      label: 'OMR Results',        navId: 'nav-omr-results' },
+    { key: 'clubs',            label: 'Clubs',              navId: 'nav-clubs' },
   ];
 
   // Mirrors the hardcoded behavior this feature replaces — used until an
@@ -51200,6 +51484,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // adjust from System > Module Access if other roles need it too.
     registration_admin: ['Registration Admin'],
     omr_results: ['Admin', 'Student Portal Admin'],
+    // Visible to everyone, same reasoning as bus_tracker/routine -- real
+    // capability (Manage Clubs vs. My Club roster) is self-gated inside the
+    // view itself (Admin/Cord check, or an actual club_teachers row),
+    // Class Teacher assignment already lives inline in My Class instead.
+    clubs: ALL_ROLES,
   };
 
   let _moduleVisibility = null; // { moduleKey: [roles...] } once loaded from system_settings

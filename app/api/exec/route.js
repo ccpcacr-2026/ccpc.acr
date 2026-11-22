@@ -572,6 +572,13 @@ async function _isCordOrAdmin(callerId) {
   return roles.some(r => ['Cord', 'Admin'].includes(r));
 }
 
+// Part 19 (Clubs) — is this user an assigned club teacher for this exact club?
+async function _isClubTeacherOf(userId, clubId) {
+  if (!userId || !clubId) return false;
+  const rows = await supabaseRequest(`club_teachers?club_id=eq.${encodeURIComponent(clubId)}&user_id=eq.${encodeURIComponent(userId)}&select=id`);
+  return Array.isArray(rows) && rows.length > 0;
+}
+
 // ── DIARY COMMITTEE helpers ──────────────────────────────────────────────
 // 'chairman' | 'member' | null -- never trusts anything client-held, same
 // fresh-per-request discipline as every other permission check in this file.
@@ -3516,7 +3523,198 @@ const handlers = {
       );
       return { classKey, className, section, students: _sortByRoll(Array.isArray(students) ? students : []) };
     }));
-    return { classes };
+
+    // Part 19 (Clubs) — additive: load the club list + each rostered
+    // student's current membership so the "My Class" cards can show/assign
+    // a club inline, with no extra round-trip from the client.
+    const clubs = await supabaseRequest('clubs?select=id,name&order=name.asc');
+    const clubList = Array.isArray(clubs) ? clubs : [];
+    const clubNameById = {};
+    clubList.forEach(c => { clubNameById[c.id] = c.name; });
+    const allStudentIds = classes.flatMap(c => c.students.map(s => s.student_id));
+    if (allStudentIds.length) {
+      const membershipsByStudent = {};
+      for (let i = 0; i < allStudentIds.length; i += 150) {
+        const part = allStudentIds.slice(i, i + 150);
+        const rows = await _sbStudent(`club_memberships?student_id=in.(${part.map(encodeURIComponent).join(',')})&select=student_id,club_id`);
+        (Array.isArray(rows) ? rows : []).forEach(r => { membershipsByStudent[r.student_id] = r.club_id; });
+      }
+      classes.forEach(c => c.students.forEach(s => {
+        const clubId = membershipsByStudent[s.student_id];
+        s.club_id = clubId || null;
+        s.club_name = clubId ? (clubNameById[clubId] || null) : null;
+      }));
+    }
+    return { classes, clubs: clubList };
+  },
+
+  // ── CLUBS (Part 19) ───────────────────────────────────────────────────────
+  // Admin creates clubs + assigns teachers as "club teacher"; a class
+  // teacher assigns their own students (one club each, _getClassTeacherAssignments
+  // scopes this exactly like getMyClassRoster above); a club teacher sees a
+  // filterable roster of their club's members. clubs/club_teachers live in
+  // this file's default teacher_staff profile (supabaseRequest); club
+  // membership lives in the student profile (_sbStudent/_sbStudentWrite/
+  // _sbStudentUpsert), same split class_teacher_assignments already uses.
+
+  async listClubs([callerId]) {
+    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin/Cord can manage clubs.' };
+    const clubs = await supabaseRequest('clubs?select=id,name&order=name.asc');
+    const list = Array.isArray(clubs) ? clubs : [];
+    if (!list.length) return { result: 'success', clubs: [] };
+    const [memberRows, teacherRows] = await Promise.all([
+      _sbStudent('club_memberships?select=club_id'),
+      supabaseRequest('club_teachers?select=club_id,user_id'),
+    ]);
+    const countByClub = {};
+    (Array.isArray(memberRows) ? memberRows : []).forEach(r => { countByClub[r.club_id] = (countByClub[r.club_id] || 0) + 1; });
+    const teacherIdsByClub = {};
+    (Array.isArray(teacherRows) ? teacherRows : []).forEach(r => { (teacherIdsByClub[r.club_id] = teacherIdsByClub[r.club_id] || []).push(r.user_id); });
+    const allTeacherIds = [...new Set((Array.isArray(teacherRows) ? teacherRows : []).map(r => r.user_id))];
+    let nameById = {};
+    if (allTeacherIds.length) {
+      const profiles = await supabaseRequest(`users_profile?teacher_id=in.(${allTeacherIds.map(encodeURIComponent).join(',')})&select=teacher_id,full_name`);
+      (Array.isArray(profiles) ? profiles : []).forEach(p => { nameById[p.teacher_id] = p.full_name; });
+    }
+    list.forEach(c => {
+      c.member_count = countByClub[c.id] || 0;
+      c.teachers = (teacherIdsByClub[c.id] || []).map(uid => ({ user_id: uid, full_name: nameById[uid] || uid }));
+    });
+    return { result: 'success', clubs: list };
+  },
+
+  async createClub([callerId, payload]) {
+    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin/Cord can create a club.' };
+    const name = String((payload || {}).name || '').trim();
+    if (!name) return { result: 'error', message: 'Name is required.' };
+    const created = await supabaseRequest('clubs', 'post', { name, created_by: callerId });
+    if (created?.error) return { result: 'error', message: created.details || created.error };
+    return { result: 'success', club: created[0] };
+  },
+
+  async updateClub([callerId, payload]) {
+    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin/Cord can edit a club.' };
+    const p = payload || {};
+    if (!p.id) return { result: 'error', message: 'Missing club id.' };
+    const name = String(p.name || '').trim();
+    if (!name) return { result: 'error', message: 'Name is required.' };
+    const updated = await supabaseRequest(`clubs?id=eq.${encodeURIComponent(p.id)}`, 'patch', { name });
+    if (updated?.error) return { result: 'error', message: updated.details || updated.error };
+    return { result: 'success', club: updated[0] };
+  },
+
+  async deleteClub([callerId, id]) {
+    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin/Cord can delete a club.' };
+    if (!id) return { result: 'error', message: 'Missing club id.' };
+    const members = await _sbStudent(`club_memberships?club_id=eq.${encodeURIComponent(id)}&select=student_id`);
+    if (Array.isArray(members) && members.length) {
+      return { result: 'error', message: `Remove all ${members.length} member(s) from this club first.` };
+    }
+    const deleted = await supabaseRequest(`clubs?id=eq.${encodeURIComponent(id)}`, 'delete');
+    if (deleted?.error) return { result: 'error', message: deleted.details || deleted.error };
+    return { result: 'success' };
+  },
+
+  async assignClubTeacher([callerId, payload]) {
+    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin/Cord can assign a club teacher.' };
+    const p = payload || {};
+    if (!p.club_id || !p.user_id) return { result: 'error', message: 'Missing club or user.' };
+    const created = await supabaseRequest('club_teachers?on_conflict=club_id,user_id', 'post', { club_id: p.club_id, user_id: p.user_id });
+    if (created?.error) return { result: 'error', message: created.details || created.error };
+    return { result: 'success' };
+  },
+
+  async removeClubTeacher([callerId, payload]) {
+    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin/Cord can remove a club teacher.' };
+    const p = payload || {};
+    if (!p.club_id || !p.user_id) return { result: 'error', message: 'Missing club or user.' };
+    const deleted = await supabaseRequest(`club_teachers?club_id=eq.${encodeURIComponent(p.club_id)}&user_id=eq.${encodeURIComponent(p.user_id)}`, 'delete');
+    if (deleted?.error) return { result: 'error', message: deleted.details || deleted.error };
+    return { result: 'success' };
+  },
+
+  async getMyClubTeacherClubs([callerId]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const rows = await supabaseRequest(`club_teachers?user_id=eq.${encodeURIComponent(callerId)}&select=club_id`);
+    const clubIds = (Array.isArray(rows) ? rows : []).map(r => r.club_id);
+    if (!clubIds.length) return { result: 'success', clubs: [] };
+    const clubs = await supabaseRequest(`clubs?id=in.(${clubIds.join(',')})&select=id,name&order=name.asc`);
+    return { result: 'success', clubs: Array.isArray(clubs) ? clubs : [] };
+  },
+
+  // Any signed-in user may call this, but it only ever returns data for a
+  // club they're actually assigned to (or an Admin/Cord) — checked fresh
+  // server-side every time, never trusted from the client.
+  async getClubRoster([callerId, clubId]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    if (!clubId) return { result: 'error', message: 'Missing club id.' };
+    const isAdmin = await _isCordOrAdmin(callerId);
+    if (!isAdmin && !(await _isClubTeacherOf(callerId, clubId))) {
+      return { result: 'error', message: 'You are not a teacher for this club.' };
+    }
+    const memberships = await _sbStudent(`club_memberships?club_id=eq.${encodeURIComponent(clubId)}&select=student_id,assigned_at`);
+    const rows = Array.isArray(memberships) ? memberships : [];
+    if (!rows.length) return { result: 'success', students: [] };
+    const assignedAtById = {};
+    rows.forEach(r => { assignedAtById[r.student_id] = r.assigned_at; });
+    const ids = rows.map(r => r.student_id);
+    let students = [];
+    for (let i = 0; i < ids.length; i += 150) {
+      const part = ids.slice(i, i + 150);
+      const chunkRows = await _sbStudent(
+        `students_data?student_id=in.(${part.map(encodeURIComponent).join(',')})` +
+        `&select=student_id,student_name,roll,class,section,session,group,photo`
+      );
+      if (Array.isArray(chunkRows)) students = students.concat(chunkRows);
+    }
+    students.forEach(s => { s.assigned_at = assignedAtById[s.student_id] || null; });
+    return { result: 'success', students: _sortByRoll(students) };
+  },
+
+  // Caller must be the verified class teacher of this exact student's
+  // class/section (re-derived server-side via _getClassTeacherAssignments,
+  // same posture as getMyClassRoster/getMyClassTodayAttendance — never
+  // trusts a client-sent class), or an Admin/Cord.
+  async assignStudentToClub([userId, payload]) {
+    if (!userId) return { result: 'error', message: 'Not signed in.' };
+    const p = payload || {};
+    if (!p.student_id || !p.club_id) return { result: 'error', message: 'Missing student or club.' };
+    const isAdmin = await _isCordOrAdmin(userId);
+    if (!isAdmin) {
+      const studentRows = await _sbStudent(`students_data?student_id=eq.${encodeURIComponent(p.student_id)}&select=class,section`);
+      const student = Array.isArray(studentRows) && studentRows[0];
+      if (!student) return { result: 'error', message: 'Student not found.' };
+      const assignments = await _getClassTeacherAssignments();
+      const owns = assignments.some(a => a.resolvedUserId === userId
+        && (CLASS_TEACHER_NAME_TO_STUDENT_CLASS[a.className] || a.className) === student.class
+        && (CLASS_TEACHER_SECTION_ALIASES[a.section] || a.section) === student.section);
+      if (!owns) return { result: 'error', message: 'You are not the class teacher for this student.' };
+    }
+    const upserted = await _sbStudentUpsert('club_memberships?on_conflict=student_id', {
+      student_id: p.student_id, club_id: p.club_id, assigned_by: userId, assigned_at: new Date().toISOString(),
+    });
+    if (upserted?.error) return { result: 'error', message: upserted.details || upserted.error };
+    return { result: 'success' };
+  },
+
+  async removeStudentFromClub([userId, payload]) {
+    if (!userId) return { result: 'error', message: 'Not signed in.' };
+    const p = payload || {};
+    if (!p.student_id) return { result: 'error', message: 'Missing student.' };
+    const isAdmin = await _isCordOrAdmin(userId);
+    if (!isAdmin) {
+      const studentRows = await _sbStudent(`students_data?student_id=eq.${encodeURIComponent(p.student_id)}&select=class,section`);
+      const student = Array.isArray(studentRows) && studentRows[0];
+      if (!student) return { result: 'error', message: 'Student not found.' };
+      const assignments = await _getClassTeacherAssignments();
+      const owns = assignments.some(a => a.resolvedUserId === userId
+        && (CLASS_TEACHER_NAME_TO_STUDENT_CLASS[a.className] || a.className) === student.class
+        && (CLASS_TEACHER_SECTION_ALIASES[a.section] || a.section) === student.section);
+      if (!owns) return { result: 'error', message: 'You are not the class teacher for this student.' };
+    }
+    const deleted = await _sbStudentWrite(`club_memberships?student_id=eq.${encodeURIComponent(p.student_id)}`, 'DELETE');
+    if (deleted && deleted.error) return { result: 'error', message: deleted.error };
+    return { result: 'success' };
   },
 
   // ── CLASS TEACHER → TODAY'S ATTENDANCE (mark/revert) ─────────────────────

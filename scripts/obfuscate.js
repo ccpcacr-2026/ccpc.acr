@@ -542,7 +542,10 @@ const RESERVED = [
   '_diaryRuleDelete','_diaryRuleScopeSetMode','_diaryRuleScopeUpdate','_diaryRuleSave','_diaryCaseOpenDetail',
   '_diaryEntryEditOpen','_diaryEntryEditSave','_diaryCloseSimpleModal','_diaryCaseReferOpen','_diaryCaseClose',
   '_diaryCaseTriageSubtypeChange','_diaryCaseTriageSave','_diaryCaseReferSave','_diaryRepliesToggle','_diaryReplySend',
-  '_diaryQrManualSubmit','_diaryQrCloseScanner','_diaryCasePanelShowTab'
+  '_diaryQrManualSubmit','_diaryQrCloseScanner','_diaryCasePanelShowTab',
+  // Clubs (admin club CRUD, class-teacher assignment, club-teacher roster) -- Part 19
+  'loadClubsView','_myClassAssignClub','_clubsShowTab','_clubsSelectClub','_clubsApplyFilter',
+  '_clubsManageAddClub','_clubsManageRenameClub','_clubsManageDeleteClub','_clubsManageRemoveTeacher','_clubsTeacherSearch'
 ];
 
 // Strip HTML comments and collapse whitespace
