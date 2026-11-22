@@ -18,11 +18,18 @@ const SITE_ORIGIN=(typeof window!=='undefined'&&window.location&&window.location
 // Arial has no real Bangla glyph shaping -- conjuncts/matras render wrong or as
 // tofu boxes when a Bangla field (name_bangla, labels like নাম) hits the printed
 // page. Kalpurush/SutonnyMJ are the fonts Bangladeshi offices commonly already
-// have installed locally (picked first, free if present); Tiro Bangla/Noto Sans
-// Bengali are loaded from Google Fonts below as a guaranteed-available fallback
-// so Bangla text still shapes correctly even on a machine without those installed.
-const BANGLA_FONT_STACK="'Kalpurush','SutonnyMJ','Tiro Bangla','Noto Sans Bengali',Arial,sans-serif";
-const BANGLA_FONT_LINK='<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tiro+Bangla&family=Noto+Sans+Bengali:wght@400;700&display=swap">';
+// have installed locally (picked first, free if present); Noto Sans Bengali is
+// listed next (ahead of Tiro Bangla) because it's loaded as a full variable font
+// below -- its wght (100-900) and wdth (62.5-100) axes are what the Bangla Font
+// Weight/Width designer settings actually control; Tiro Bangla/Arial are static
+// fallbacks if Noto Sans Bengali itself can't load.
+const BANGLA_FONT_STACK="'Kalpurush','SutonnyMJ','Noto Sans Bengali','Tiro Bangla',Arial,sans-serif";
+const BANGLA_FONT_LINK='<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tiro+Bangla&family=Noto+Sans+Bengali:wdth,wght@62.5..100,100..900&display=swap">';
+// font-stretch/font-weight only actually move the glyph if the active font is a
+// variable font exposing that axis -- true for Noto Sans Bengali here, a no-op
+// (or synthetic bold) if Kalpurush/SutonnyMJ win the stack instead because the
+// machine has them installed locally.
+function banglaFontCss(bf){const w=(bf&&bf.weight)||400,s=(bf&&bf.width)||100;return`font-weight:${w};font-stretch:${s}%;`;}
 
 function prQrBlock(data, caption, size){
   if(!data) return '';
@@ -123,6 +130,7 @@ const DEFAULT_FORM = {
   },
   footer: 'Chattogram Cantonment Public College — Official Admission Form — Page 1 of 1',
   signatureLabel: "Guardian's Signature & Date",
+  banglaFont: { weight: 400, width: 100 },
 };
 
 const DEFAULT_ADMIT = {
@@ -152,6 +160,7 @@ const DEFAULT_ADMIT = {
   sig1: { visible: true, label: "Invigilator's Signature" },
   sig2: { visible: true, label: "Controller of Examination" },
   footer: 'Chattogram Cantonment Public College — Computer Generated Admit Card',
+  banglaFont: { weight: 400, width: 100 },
 };
 
 function openPrintTab(html){
@@ -242,6 +251,7 @@ function generateFormHtml(a,fs,isPreview=false){
   const gf=fs.guardianFields||DEFAULT_FORM.guardianFields;
   const tr=fs.terms||DEFAULT_FORM.terms;
   const lw=fs.labelWidths||{};
+  const bf=fs.banglaFont||DEFAULT_FORM.banglaFont;
 
   const indexFields=[];
   if(ib.fields?.tracking_id&&a.tracking_id)indexFields.push({l:'Tracking ID',v:a.tracking_id});
@@ -317,7 +327,7 @@ function generateFormHtml(a,fs,isPreview=false){
 ${BANGLA_FONT_LINK}
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:${BANGLA_FONT_STACK};font-size:10pt;color:#111;background:#fff}
+body{font-family:${BANGLA_FONT_STACK};font-size:10pt;color:#111;background:#fff;${banglaFontCss(bf)}}
 @page{size:A4 portrait;margin:12mm}
 .pr-header{display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid ${ib.bgColor};padding-bottom:8px;margin-bottom:6px}
 .pr-logo{width:60px;height:60px;object-fit:contain}
@@ -404,13 +414,14 @@ function generateAdmitHtml(a,as,isPreview=false){
 
   const sig1=as.sig1||DEFAULT_ADMIT.sig1;
   const sig2=as.sig2||DEFAULT_ADMIT.sig2;
+  const bf=as.banglaFont||DEFAULT_ADMIT.banglaFont;
 
   return`<!DOCTYPE html><html><head><meta charset="UTF-8">
 <title>Admit Card — ${a.tracking_id||''}</title>
 ${BANGLA_FONT_LINK}
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:${BANGLA_FONT_STACK};font-size:10pt;color:#111;background:#fff}
+body{font-family:${BANGLA_FONT_STACK};font-size:10pt;color:#111;background:#fff;${banglaFontCss(bf)}}
 @page{size:A4 portrait;margin:15mm}
 .ac-header{display:flex;align-items:center;justify-content:space-between;padding-bottom:8px;border-bottom:3px solid ${as.bannerBg||'#1a2b5c'};margin-bottom:0}
 .ac-logo{width:60px;height:60px;object-fit:contain}

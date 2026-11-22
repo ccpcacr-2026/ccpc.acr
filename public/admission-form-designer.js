@@ -1021,11 +1021,14 @@ function generateFormFromLayout(app, layout) {
   // Arial has no real Bangla glyph shaping -- a canvas element bound to a Bangla
   // field (name_bangla etc.) would render wrong conjuncts/matras or tofu boxes.
   // Kalpurush/SutonnyMJ are picked first (free if already installed locally);
-  // Tiro Bangla/Noto Sans Bengali load from Google Fonts as a guaranteed fallback.
+  // Noto Sans Bengali is loaded as a full variable font (wdth 62.5-100, wght
+  // 100-900) -- same stack/link as public/admission-print-templates.js, kept
+  // in sync so this canvas renderer and the standardized templates behave the
+  // same; Tiro Bangla/Arial are static fallbacks if it can't load.
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Form</title>' +
-    '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tiro+Bangla&family=Noto+Sans+Bengali:wght@400;700&display=swap">' +
+    '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tiro+Bangla&family=Noto+Sans+Bengali:wdth,wght@62.5..100,100..900&display=swap">' +
     '<style>' +
-    '*{margin:0;padding:0;box-sizing:border-box;}body{font-family:\'Kalpurush\',\'SutonnyMJ\',\'Tiro Bangla\',\'Noto Sans Bengali\',Arial,sans-serif;}' +
+    '*{margin:0;padding:0;box-sizing:border-box;}body{font-family:\'Kalpurush\',\'SutonnyMJ\',\'Noto Sans Bengali\',\'Tiro Bangla\',Arial,sans-serif;}' +
     '@page{size:A4 portrait;margin:0;}.page{position:relative;width:210mm;height:297mm;overflow:hidden;}' +
     '@media screen{body{background:#888;}.page{margin:10mm auto;background:#fff;box-shadow:0 4px 20px rgba(0,0,0,.3);}}' +
     '</style></head><body><div class="page">' + divs.join('') + '</div>' +
