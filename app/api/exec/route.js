@@ -618,6 +618,25 @@ async function _diaryCommitteeRole(userId, committeeId) {
   const row = Array.isArray(rows) && rows[0];
   return row ? (row.is_chairman ? 'chairman' : 'member') : null;
 }
+
+// Is this user the verified class teacher of ANY student this diary
+// entry actually targets (via the diary_entry_students expansion index) —
+// the broadened viewer bar for a case's referral trail, confirmed via
+// explicit request that a student's class teacher should see "all
+// activity ... with conversations" for anything filed about their student.
+async function _isDiaryEntryClassTeacherOf(userId, diaryEntryId) {
+  if (!userId || !diaryEntryId) return false;
+  const links = await supabaseRequest(`diary_entry_students?diary_entry_id=eq.${encodeURIComponent(diaryEntryId)}&select=student_id`);
+  const studentIds = (Array.isArray(links) ? links : []).map(l => l.student_id);
+  if (!studentIds.length) return false;
+  const students = await _sbStudent(`students_data?student_id=in.(${studentIds.map(encodeURIComponent).join(',')})&select=class,section`);
+  const rows = Array.isArray(students) ? students : [];
+  if (!rows.length) return false;
+  const assignments = await _getClassTeacherAssignments();
+  return rows.some(s => assignments.some(a => a.resolvedUserId === userId
+    && (CLASS_TEACHER_NAME_TO_STUDENT_CLASS[a.className] || a.className) === s.class
+    && (CLASS_TEACHER_SECTION_ALIASES[a.section] || a.section) === s.section));
+}
 // Matches the SAME {mode, session, class, section, student_ids} shape
 // createDiaryEntry's own audience resolution uses, so an assignment rule's
 // `scope` and a diary entry's `audience` are always interpreted identically.
@@ -2342,24 +2361,47 @@ const handlers = {
         message: preview, data: { diary_entry_id: entry.id, entry_type: entryType },
       });
     }
-    // Discipline reports also alert Admin/VP/Cord and the class's own
-    // teacher(s) — the one diary type where oversight matters at the
-    // moment it's filed, not just whenever someone next opens the
-    // oversight list. Compliments/wishes/homework don't need this — they'd
-    // just be inbox noise for every discipline case's worth of routine
-    // homework.
-    if (entryType === 'discipline') {
-      const [moderatorIds, classTeacherRows] = await Promise.all([
-        supabaseRequest(`app_users?select=user_id,role`).then(rows => (Array.isArray(rows) ? rows : []).filter(u => String(u.role || '').split(',').map(r => r.trim()).some(r => ['Admin', 'VP', 'Cord'].includes(r))).map(u => u.user_id)),
-        supabaseRequest(`class_teacher_assignments?class=eq.${encodeURIComponent(audience.class)}&select=user_id,section`),
-      ]);
-      const relevantTeacherIds = (Array.isArray(classTeacherRows) ? classTeacherRows : [])
-        .filter(a2 => !audience.section || !a2.section || a2.section === audience.section).map(a2 => a2.user_id);
-      const recipients = [...new Set([...moderatorIds, ...relevantTeacherIds])].filter(id => id !== callerId);
-      _forumNotify(recipients, {
-        type: 'diary_discipline', title: `Discipline Report Filed — ${audience.class}${audience.section ? '/' + audience.section : ''}`,
-        message: preview, data: { diary_entry_id: entry.id },
+    // The class's own teacher(s) are notified for EVERY diary entry — any
+    // entry_type, any case_type (notify or committee) — not just discipline
+    // reports. Confirmed via explicit request: "when any diary/report/
+    // councilling is enlisted for a student, the class teacher should also
+    // [be] notified." Uses the full merged resolver (Google Sheet + DB
+    // fallback), not the class_teacher_assignments table alone, so a
+    // sheet-only-resolved class teacher is never silently missed the way
+    // the old discipline-only version here did.
+    const classTeacherAssignments = await _getClassTeacherAssignments();
+    const classTeacherIds = [...new Set(classTeacherAssignments
+      .filter(a2 => {
+        if (!a2.resolvedUserId) return false;
+        const cls = CLASS_TEACHER_NAME_TO_STUDENT_CLASS[a2.className] || a2.className;
+        const sec = CLASS_TEACHER_SECTION_ALIASES[a2.section] || a2.section;
+        if (cls !== audience.class) return false;
+        if (audience.section && sec !== audience.section) return false;
+        return true;
+      })
+      .map(a2 => a2.resolvedUserId))].filter(id => id !== callerId);
+    if (classTeacherIds.length) {
+      _forumNotify(classTeacherIds, {
+        type: caseType === 'committee' ? 'diary_case_committee' : (entryType === 'discipline' ? 'diary_discipline' : 'diary_entry'),
+        title: `${label} Filed — ${audience.class}${audience.section ? '/' + audience.section : ''}`,
+        message: preview, data: { diary_entry_id: entry.id, entry_type: entryType },
       });
+    }
+    // Discipline reports ALSO alert Admin/VP/Cord specifically — the one
+    // diary type where broader oversight matters at the moment it's filed,
+    // not just whenever someone next opens the oversight list. Compliments/
+    // wishes/homework don't need this — they'd just be inbox noise.
+    if (entryType === 'discipline') {
+      const allUsers = await supabaseRequest(`app_users?select=user_id,role`);
+      const moderatorIds = (Array.isArray(allUsers) ? allUsers : [])
+        .filter(u => String(u.role || '').split(',').map(r => r.trim()).some(r => ['Admin', 'VP', 'Cord'].includes(r)))
+        .map(u => u.user_id).filter(id => id !== callerId);
+      if (moderatorIds.length) {
+        _forumNotify(moderatorIds, {
+          type: 'diary_discipline', title: `Discipline Report Filed — ${audience.class}${audience.section ? '/' + audience.section : ''}`,
+          message: preview, data: { diary_entry_id: entry.id },
+        });
+      }
     }
     // Committee cases additionally alert every chairman of the targeted
     // committee — the chairman's own queue/notification is how an
@@ -2802,7 +2844,9 @@ const handlers = {
     const entry = Array.isArray(entryRows) && entryRows[0];
     if (!entry) return { result: 'error', message: 'Case not found.' };
     const role = await _diaryCommitteeRole(callerId, entry.committee_id);
-    if (!role && !(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only committee members can view the referral trail.' };
+    if (!role && !(await _isCordOrAdmin(callerId)) && !(await _isDiaryEntryClassTeacherOf(callerId, diaryEntryId))) {
+      return { result: 'error', message: 'Only committee members, the student\'s class teacher, or an Admin can view the referral trail.' };
+    }
     const rows = await supabaseRequest(`diary_case_referrals?diary_entry_id=eq.${encodeURIComponent(diaryEntryId)}&select=*&order=created_at.desc`);
     const list = Array.isArray(rows) ? rows : [];
     if (list.length) {
