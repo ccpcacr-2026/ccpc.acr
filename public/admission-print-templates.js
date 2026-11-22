@@ -15,6 +15,14 @@ function deepMerge(def,ovr){const r={...def};for(const k in(ovr||{})){if(ovr[k]&
 // resolve there, so the logo needs an absolute URL (same pattern already used elsewhere
 // in this app, e.g. _src/app.js's letterhead/share-QR code: location.origin + '/logo.jpg').
 const SITE_ORIGIN=(typeof window!=='undefined'&&window.location&&window.location.origin)||'';
+// Arial has no real Bangla glyph shaping -- conjuncts/matras render wrong or as
+// tofu boxes when a Bangla field (name_bangla, labels like নাম) hits the printed
+// page. Kalpurush/SutonnyMJ are the fonts Bangladeshi offices commonly already
+// have installed locally (picked first, free if present); Tiro Bangla/Noto Sans
+// Bengali are loaded from Google Fonts below as a guaranteed-available fallback
+// so Bangla text still shapes correctly even on a machine without those installed.
+const BANGLA_FONT_STACK="'Kalpurush','SutonnyMJ','Tiro Bangla','Noto Sans Bengali',Arial,sans-serif";
+const BANGLA_FONT_LINK='<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tiro+Bangla&family=Noto+Sans+Bengali:wght@400;700&display=swap">';
 
 function prQrBlock(data, caption, size){
   if(!data) return '';
@@ -306,9 +314,10 @@ function generateFormHtml(a,fs,isPreview=false){
 
   return`<!DOCTYPE html><html><head><meta charset="UTF-8">
 <title>Application — ${a.tracking_id||''}</title>
+${BANGLA_FONT_LINK}
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:Arial,sans-serif;font-size:10pt;color:#111;background:#fff}
+body{font-family:${BANGLA_FONT_STACK};font-size:10pt;color:#111;background:#fff}
 @page{size:A4 portrait;margin:12mm}
 .pr-header{display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid ${ib.bgColor};padding-bottom:8px;margin-bottom:6px}
 .pr-logo{width:60px;height:60px;object-fit:contain}
@@ -398,9 +407,10 @@ function generateAdmitHtml(a,as,isPreview=false){
 
   return`<!DOCTYPE html><html><head><meta charset="UTF-8">
 <title>Admit Card — ${a.tracking_id||''}</title>
+${BANGLA_FONT_LINK}
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:Arial,sans-serif;font-size:10pt;color:#111;background:#fff}
+body{font-family:${BANGLA_FONT_STACK};font-size:10pt;color:#111;background:#fff}
 @page{size:A4 portrait;margin:15mm}
 .ac-header{display:flex;align-items:center;justify-content:space-between;padding-bottom:8px;border-bottom:3px solid ${as.bannerBg||'#1a2b5c'};margin-bottom:0}
 .ac-logo{width:60px;height:60px;object-fit:contain}
