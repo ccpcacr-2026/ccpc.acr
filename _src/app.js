@@ -6979,7 +6979,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (!res || res.result !== 'success') { list.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">${_escHtml((res && res.message) || 'Failed to load')}</div>`; return; }
       _studentMsgThreads = res.threads || [];
       if (!_studentMsgThreads.length) { list.innerHTML = `<div class="bg-white rounded-3xl border border-slate-200 shadow-sm text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No student message threads yet</div>`; return; }
-      list.innerHTML = _studentMsgThreads.map(t => `
+      list.innerHTML = _studentMsgThreads.map((t, i) => `
         <div onclick="_studentMsgOpenThread('${t.student_id}')" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex items-center gap-3 cursor-pointer hover:shadow-md transition-all">
           <div class="h-10 w-10 rounded-full bg-gradient-to-br from-sky-500 to-blue-600 flex items-center justify-center text-white font-black text-sm shrink-0">${_escHtml((t.student_name || '?').charAt(0))}</div>
           <div class="flex-1 min-w-0">
@@ -6989,6 +6989,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
             <p class="text-xs text-slate-500 font-bold truncate">${_escHtml(t.last_message || '')}</p>
           </div>
+          <button onclick="event.stopPropagation(); _diaryCaseOpenStudentPanel(_studentMsgThreads[${i}])" title="View full details, case & diary history" class="shrink-0 p-2 hover:bg-indigo-50 rounded-lg text-indigo-400 hover:text-indigo-600"><i data-lucide="user-round" class="h-4 w-4"></i></button>
           <div class="flex flex-col items-end gap-1 shrink-0">
             <span class="text-[10px] text-slate-400 font-bold">${_forumTimeAgo(t.last_at)}</span>
             ${t.unread ? `<span class="min-w-[18px] h-[18px] px-1 bg-blue-500 text-white text-[9px] font-black rounded-full flex items-center justify-center">${t.unread}</span>` : ''}
