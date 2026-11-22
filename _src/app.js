@@ -44624,7 +44624,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // candidate has nothing for that field; a column stacks its chosen
   // fields' non-empty lines top to bottom.
   const ADM_APP_FIELD_CATALOG_BUILTIN = [
-    { key: 'tracking_id', label: 'Tracking/Index ID', render: a => `<span class="font-black text-blue-600 text-xs font-mono">${_escHtml(a.tracking_id || a.token || '—')}</span>${a.index_id ? ` <span class="text-[9px] text-slate-400">${_escHtml(a.index_id)}</span>` : ''}` },
+    { key: 'tracking_id', label: 'Tracking ID', render: a => `<span class="font-black text-blue-600 text-xs font-mono">${_escHtml(a.tracking_id || a.token || '—')}</span>` },
     { key: 'name', label: 'Student Name', render: a => `<p class="font-bold text-sm text-slate-800">${_escHtml(a.name_english || '—')}</p>${a.name_bangla ? `<p class="text-[10px] text-slate-400">${_escHtml(a.name_bangla)}</p>` : ''}` },
     { key: 'class_cat_version', label: 'Class / Category / Version', render: a => { const v = [a.class, a.category, a.version].filter(Boolean).join(' · '); return v ? `<p class="text-[10px] text-slate-500 font-bold">${_escHtml(v)}</p>` : ''; } },
     { key: 'session', label: 'Session', render: a => a.session ? `<p class="text-xs text-slate-600">${_escHtml(a.session)}</p>` : '' },
@@ -44765,8 +44765,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
             <select onchange="_admAppColumnsAddField(${ci}, this.value)" class="w-full px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[10px]">
               <option value="">+ Add field…</option>
-              <optgroup label="Built-in">${ADM_APP_FIELD_CATALOG_BUILTIN.map(f => `<option value="${f.key}">${_escHtml(f.label)}</option>`).join('')}</optgroup>
-              ${(() => { const autos = _admAppFieldAutoCatalog(); return autos.length ? `<optgroup label="More Fields">${autos.map(f => `<option value="${f.key}">${_escHtml(f.label)}</option>`).join('')}</optgroup>` : ''; })()}
+              <!-- Whether a field is a hand-curated composite (ADM_APP_FIELD_CATALOG_BUILTIN) or
+                   an auto-detected raw column (_admAppFieldAutoCatalog) is internal plumbing the
+                   admin picking a column shouldn't have to think about -- same reasoning as the
+                   Candidates mapping screen's merged Student group earlier this session. Listed
+                   together, unlabeled. Custom (mapped) fields stay their own group since those
+                   are genuinely something the admin themselves created, not an internal distinction. -->
+              ${ADM_APP_FIELD_CATALOG_BUILTIN.concat(_admAppFieldAutoCatalog()).map(f => `<option value="${f.key}">${_escHtml(f.label)}</option>`).join('')}
               ${_admCandFormFieldDefs.some(f => !f.built_in) ? `<optgroup label="Custom (mapped)">${_admCandFormFieldDefs.filter(f => !f.built_in).map(f => `<option value="extra:${_escHtml(f.key)}">${_escHtml(f.label)}</option>`).join('')}</optgroup>` : ''}
             </select>
           </div>`).join('')}
