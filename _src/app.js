@@ -51262,6 +51262,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const branchOptions = (selectedClub && selectedClub.branches) || [];
     body.innerHTML = `
       <div class="mb-3">${picker}</div>
+      ${selectedClub && (selectedClub.badge_url || selectedClub.description) ? `
+      <div class="flex items-center gap-3 bg-white border border-slate-100 rounded-2xl px-3 py-2.5 mb-3">
+        ${selectedClub.badge_url ? `<img src="${_escHtml(selectedClub.badge_url)}" class="w-12 h-12 rounded-xl object-cover shrink-0">` : ''}
+        <p class="text-xs text-slate-500">${_escHtml(selectedClub.description || '')}</p>
+      </div>` : ''}
       <div class="flex flex-wrap gap-2 mb-3">
         ${branchOptions.length ? `
         <select id="clubsFilterBranch" onchange="_clubsApplyFilter()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px]">
@@ -51359,10 +51364,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         ${_clubsAllClubs.length ? _clubsAllClubs.map(c => `
           <div class="bg-white border border-slate-100 rounded-2xl p-3">
             <div class="flex items-center justify-between gap-2 mb-2">
+              ${c.badge_url ? `<img src="${_escHtml(c.badge_url)}" class="w-9 h-9 rounded-lg object-cover shrink-0">` : ''}
               <input value="${_escHtml(c.name)}" onchange="_clubsManageRenameClub(${c.id}, this.value)" class="flex-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs font-bold">
               <span class="text-[10px] text-slate-400 font-bold whitespace-nowrap">${c.member_count} member${c.member_count === 1 ? '' : 's'}</span>
               <button onclick="_clubsManageDeleteClub(${c.id})" class="text-red-400 hover:text-red-600 text-sm px-1">&times;</button>
             </div>
+            <div class="flex gap-1.5 mb-2">
+              <input value="${_escHtml(c.badge_url || '')}" placeholder="Badge image URL" onchange="_clubsManageUpdateField(${c.id}, 'badge_url', this.value)" class="flex-1 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[10px]">
+            </div>
+            <textarea placeholder="Description…" onchange="_clubsManageUpdateField(${c.id}, 'description', this.value)" class="w-full px-2 py-1.5 mb-2 bg-slate-50 border border-slate-200 rounded text-[10px] text-slate-600" rows="2">${_escHtml(c.description || '')}</textarea>
             <div class="flex flex-wrap gap-1.5 mb-2">
               ${(c.teachers || []).map(t => `<span class="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-full text-[10px] font-bold">${_escHtml(t.full_name)}<button onclick="_clubsManageRemoveTeacher(${c.id}, '${t.user_id}')" class="text-blue-400 hover:text-red-500">&times;</button></span>`).join('') || '<span class="text-[10px] text-slate-300">No club teacher assigned</span>'}
             </div>
@@ -51452,6 +51462,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       .withSuccessHandler(res => { if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not rename club.', 'error'); _clubsRenderManage(); } })
       .withFailureHandler(() => { showToast('Could not rename club.', 'error'); _clubsRenderManage(); })
       .updateClub(myId, { id, name });
+  }
+
+  function _clubsManageUpdateField(id, field, value) {
+    const club = _clubsAllClubs.find(c => c.id === id);
+    if (!club) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run
+      .withSuccessHandler(res => { if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not update club.', 'error'); _clubsRenderManage(); } })
+      .withFailureHandler(() => { showToast('Could not update club.', 'error'); _clubsRenderManage(); })
+      .updateClub(myId, { id, name: club.name, [field]: value });
   }
 
   function _clubsManageDeleteClub(id) {

@@ -3541,7 +3541,7 @@ const handlers = {
     // Students are mainly assigned to a BRANCH (club is implied by it); a
     // club with no branches defined falls back to a club-only assignment.
     const [clubs, branchRows] = await Promise.all([
-      supabaseRequest('clubs?select=id,name&order=name.asc'),
+      supabaseRequest('clubs?select=id,name,description,badge_url&order=name.asc'),
       supabaseRequest('club_branches?select=id,club_id,name&order=name.asc'),
     ]);
     const clubList = Array.isArray(clubs) ? clubs : [];
@@ -3584,7 +3584,7 @@ const handlers = {
 
   async listClubs([callerId]) {
     if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin/Cord can manage clubs.' };
-    const clubs = await supabaseRequest('clubs?select=id,name&order=name.asc');
+    const clubs = await supabaseRequest('clubs?select=id,name,description,badge_url&order=name.asc');
     const list = Array.isArray(clubs) ? clubs : [];
     if (!list.length) return { result: 'success', clubs: [] };
     const [memberRows, teacherRows] = await Promise.all([
@@ -3660,9 +3660,14 @@ const handlers = {
 
   async createClub([callerId, payload]) {
     if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin/Cord can create a club.' };
-    const name = String((payload || {}).name || '').trim();
+    const p = payload || {};
+    const name = String(p.name || '').trim();
     if (!name) return { result: 'error', message: 'Name is required.' };
-    const created = await supabaseRequest('clubs', 'post', { name, created_by: callerId });
+    const created = await supabaseRequest('clubs', 'post', {
+      name, created_by: callerId,
+      description: p.description != null ? String(p.description).trim() || null : null,
+      badge_url: p.badge_url != null ? String(p.badge_url).trim() || null : null,
+    });
     if (created?.error) return { result: 'error', message: created.details || created.error };
     return { result: 'success', club: created[0] };
   },
@@ -3673,7 +3678,10 @@ const handlers = {
     if (!p.id) return { result: 'error', message: 'Missing club id.' };
     const name = String(p.name || '').trim();
     if (!name) return { result: 'error', message: 'Name is required.' };
-    const updated = await supabaseRequest(`clubs?id=eq.${encodeURIComponent(p.id)}`, 'patch', { name });
+    const patch = { name };
+    if (p.description !== undefined) patch.description = String(p.description).trim() || null;
+    if (p.badge_url !== undefined) patch.badge_url = String(p.badge_url).trim() || null;
+    const updated = await supabaseRequest(`clubs?id=eq.${encodeURIComponent(p.id)}`, 'patch', patch);
     if (updated?.error) return { result: 'error', message: updated.details || updated.error };
     return { result: 'success', club: updated[0] };
   },
@@ -3713,7 +3721,7 @@ const handlers = {
     const rows = await supabaseRequest(`club_teachers?user_id=eq.${encodeURIComponent(callerId)}&select=club_id`);
     const clubIds = (Array.isArray(rows) ? rows : []).map(r => r.club_id);
     if (!clubIds.length) return { result: 'success', clubs: [] };
-    const clubs = await supabaseRequest(`clubs?id=in.(${clubIds.join(',')})&select=id,name&order=name.asc`);
+    const clubs = await supabaseRequest(`clubs?id=in.(${clubIds.join(',')})&select=id,name,description,badge_url&order=name.asc`);
     const list = Array.isArray(clubs) ? clubs : [];
     if (list.length) {
       const branchRows = await supabaseRequest(`club_branches?club_id=in.(${clubIds.join(',')})&select=id,club_id,name&order=name.asc`);
