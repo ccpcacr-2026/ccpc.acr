@@ -1985,6 +1985,22 @@ const handlers = {
     return supabaseRequest('committee_groups?select=*&order=create_date.desc');
   },
 
+  // committee_groups' own members_list stores {user_id, name} snapshots
+  // taken at add-time, but that name is only ever resolved from the STAFF
+  // directory client-side -- a committee whose members are students (e.g.
+  // a "Student Councilling Committee") has no way to resolve those names,
+  // showing/saving the raw student_id instead. Any signed-in user may call
+  // this (names aren't sensitive) to look up real student names for a
+  // given id list.
+  async getStudentNamesByIds([ids]) {
+    const list = [...new Set((Array.isArray(ids) ? ids : []).filter(Boolean).map(String))];
+    if (!list.length) return {};
+    const rows = await _sbStudent(`students_data?student_id=in.(${list.map(encodeURIComponent).join(',')})&select=student_id,student_name,class,section`);
+    const map = {};
+    (Array.isArray(rows) ? rows : []).forEach(s => { map[s.student_id] = s; });
+    return map;
+  },
+
   async getCommitteeChat([committeeId]) {
     const res = await supabaseRequest(`committee_groups?id=eq.${committeeId}&select=chat_messages,member_aliases,members_list,status`);
     if (!Array.isArray(res) || !res.length) return { chat_messages: [], member_aliases: {}, members_list: [], status: 'active' };

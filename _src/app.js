@@ -53716,15 +53716,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   let _editMemberIds = [];
+  // committee_groups' members_list isn't staff-only (e.g. a "Student
+  // Councilling Committee" has student members) -- a member id not found in
+  // allUsersCache is looked up here against students_data instead of just
+  // falling back to showing the raw id.
+  let _committeeStudentCache = {};
+  function _committeeMemberLabel(id) {
+    const u = (allUsersCache || []).find(x => x.user_id === id);
+    if (u) return u.full_name || u.user_id;
+    const s = _committeeStudentCache[id];
+    if (s) return s.student_name + (s.class ? ` (${s.class}${s.section ? '/' + s.section : ''})` : '');
+    return id;
+  }
   function _renderEditMembers() {
     const div = document.getElementById('commEditMembers');
     if (!div) return;
     if (!_editMemberIds.length) { div.innerHTML = `<p class="text-slate-400 text-[10px] font-bold italic self-center">No additional members</p>`; return; }
     div.innerHTML = _editMemberIds.map(id => {
-      const u = (allUsersCache || []).find(x => x.user_id === id);
-      const label = u ? (u.full_name || u.user_id) : id;
       return `<span class="flex items-center gap-1.5 px-3 py-1.5 bg-blue-100 text-blue-700 rounded-full text-[10px] font-black" data-mid="${id}">
-        ${label}
+        ${_escHtml(_committeeMemberLabel(id))}
         <button type="button" class="hover:text-red-500 font-black leading-none" data-remove="${id}">×</button>
       </span>`;
     }).join('');
@@ -53735,6 +53745,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         _renderEditMembers();
       };
     });
+    const unresolved = _editMemberIds.filter(id => !(allUsersCache || []).some(x => x.user_id === id) && !_committeeStudentCache[id]);
+    if (unresolved.length) {
+      google.script.run
+        .withSuccessHandler(map => { Object.assign(_committeeStudentCache, map || {}); _renderEditMembers(); })
+        .withFailureHandler(() => {})
+        .getStudentNamesByIds(unresolved);
+    }
   }
 
   function closeCommitteeEdit() {
@@ -53749,14 +53766,31 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const chairmanId  = document.getElementById('commEditChairman').value;
     if (!name)       { showToast('Committee name is required', 'error'); return; }
     if (!chairmanId) { showToast('Please select a Chairman', 'error'); return; }
-    const chairUser   = (allUsersCache || []).find(u => u.user_id === chairmanId);
-    const membersList = [
-      { user_id: chairmanId, role: 'chairman', name: chairUser ? (chairUser.full_name || chairmanId) : chairmanId },
-      ..._editMemberIds.filter(mid => mid !== chairmanId).map(mid => {
-        const u = (allUsersCache || []).find(x => x.user_id === mid);
-        return { user_id: mid, role: 'member', name: u ? (u.full_name || mid) : mid };
-      })
-    ];
+    // Resolve every name (staff OR student, via the same _committeeMemberLabel
+    // used for display) BEFORE saving -- previously this only ever checked
+    // allUsersCache, so saving a committee with student members silently
+    // overwrote their real names with their raw student_id every time.
+    const allIds = [chairmanId, ..._editMemberIds.filter(mid => mid !== chairmanId)];
+    const unresolved = allIds.filter(mid => !(allUsersCache || []).some(x => x.user_id === mid) && !_committeeStudentCache[mid]);
+    const finishSave = () => {
+      const membersList = [
+        { user_id: chairmanId, role: 'chairman', name: _committeeMemberLabel(chairmanId) },
+        ..._editMemberIds.filter(mid => mid !== chairmanId).map(mid => ({ user_id: mid, role: 'member', name: _committeeMemberLabel(mid) })),
+      ];
+      _saveCommitteeEditWithMembers(id, name, sub, membersList);
+    };
+    if (unresolved.length) {
+      showLoading(true);
+      google.script.run
+        .withSuccessHandler(map => { Object.assign(_committeeStudentCache, map || {}); showLoading(false); finishSave(); })
+        .withFailureHandler(() => { showLoading(false); finishSave(); })
+        .getStudentNamesByIds(unresolved);
+      return;
+    }
+    finishSave();
+  }
+
+  function _saveCommitteeEditWithMembers(id, name, sub, membersList) {
     showLoading(true);
     google.script.run
       .withSuccessHandler(() => {
@@ -55614,6 +55648,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex-1 min-w-0">
             <p class="font-black text-slate-800 text-sm truncate">${u.full_name || u.user_id || '—'}</p>
             ${u.designation ? `<p class="text-[10px] text-blue-600 font-black uppercase tracking-wide truncate">${u.designation}</p>` : ''}
+            ${u.user_id ? `<p class="text-[9px] text-slate-400 font-bold font-mono select-all truncate">ID: ${u.user_id}</p>` : ''}
             ${rawNum ? `<div class="flex items-center gap-1.5 mt-0.5">
               <span class="text-[9px] text-slate-400 font-bold select-all">${rawNum}</span>
               <a href="tel:${telNum}" onclick="event.stopPropagation()" title="Call" class="text-slate-300 hover:text-blue-600 transition-colors"><i data-lucide="phone" class="h-3 w-3"></i></a>
