@@ -547,7 +547,7 @@ const RESERVED = [
   'loadClubsView','_myClassAssignClub','_clubsShowTab','_clubsSelectClub','_clubsApplyFilter',
   '_clubsManageAddClub','_clubsManageRenameClub','_clubsManageDeleteClub','_clubsManageRemoveTeacher','_clubsTeacherSearch',
   '_clubsManageAddBranch','_clubsManageDeleteBranch','_clubsToggleSelfAssignLock','_clubsManageUpdateField',
-  '_clubsNoticesSelectClub','_clubsPostNotice','_clubsDeleteNotice'
+  '_clubsNoticesSelectClub','_clubsPostNotice','_clubsDeleteNotice','_diaryCommitteeOpenActivityLog'
 ];
 
 // Strip HTML comments and collapse whitespace

@@ -7448,7 +7448,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               </div>` : ''}
             </div>
             <div class="flex gap-2 flex-wrap mt-3">
-              ${isAdmin ? `<button onclick="_diaryCommitteeOpenMembers(${c.id})" class="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase bg-slate-100 text-slate-600 hover:bg-slate-200">Members</button>` : ''}
+              ${(c.my_role === 'chairman' || isAdmin) ? `<button onclick="_diaryCommitteeOpenMembers(${c.id})" class="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase bg-slate-100 text-slate-600 hover:bg-slate-200">Members</button>` : ''}
               ${(c.my_role || isAdmin) ? `<button onclick="_diaryCommitteeOpenSubtypes(${c.id})" class="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase bg-slate-100 text-slate-600 hover:bg-slate-200">Subtypes</button>` : ''}
               ${(c.my_role || isAdmin) ? `<button onclick="_diaryCommitteeOpenQueue(${c.id})" class="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase bg-slate-100 text-slate-600 hover:bg-slate-200">Incoming Queue</button>` : ''}
               ${(c.my_role === 'chairman' || isAdmin) ? `<button onclick="_diaryCommitteeOpenRules(${c.id})" class="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase bg-slate-100 text-slate-600 hover:bg-slate-200">Assignment Rules</button>` : ''}
@@ -7516,6 +7516,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       google.script.run.withSuccessHandler(res => {
         const members = (res && res.result === 'success') ? (res.members || []) : [];
         list.innerHTML = _diaryCommitteesBackButton() + `
+          <button onclick="_diaryCommitteeOpenActivityLog(${committeeId})" class="mb-3 text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-slate-600 flex items-center gap-1"><i data-lucide="history" class="h-3.5 w-3.5"></i> View Activity Log</button>
           <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mb-3">
             <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Add Member</p>
             <select id="diaryMemberAddSelect" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mb-2">
@@ -7573,6 +7574,30 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       showToast('Member removed', 'success');
       _diaryCommitteeOpenMembers(committeeId);
     }).withFailureHandler(() => showToast('Network error', 'error')).removeDiaryCommitteeMember(myId, memberRowId);
+  }
+
+  const DIARY_COMMITTEE_ACTION_LABELS = {
+    added_member: 'added as a member', removed_member: 'removed from the committee',
+    promoted_to_chairman: 'promoted to chairman', demoted_from_chairman: 'demoted from chairman',
+  };
+  function _diaryCommitteeOpenActivityLog(committeeId) {
+    const list = document.getElementById('diaryList');
+    if (!list) return;
+    list.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      const log = (res && res.result === 'success') ? (res.log || []) : [];
+      list.innerHTML = `
+        <button onclick="_diaryCommitteeOpenMembers(${committeeId})" class="mb-3 text-[10px] font-black uppercase tracking-widest text-indigo-500 hover:text-indigo-700 flex items-center gap-1"><i data-lucide="arrow-left" class="h-3.5 w-3.5"></i> Back to Members</button>
+        <div class="flex flex-col gap-2">
+          ${log.map(r => `
+            <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-3">
+              <p class="text-xs text-slate-700"><span class="font-black">${_escHtml(r.actor_name || 'Someone')}</span> ${_escHtml(DIARY_COMMITTEE_ACTION_LABELS[r.action] || r.action)}: <span class="font-black">${_escHtml(r.target_name)}</span></p>
+              <p class="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-1">${_escHtml(new Date(r.created_at).toLocaleString())}</p>
+            </div>`).join('') || `<p class="text-xs text-slate-400 font-bold text-center py-6">No activity yet</p>`}
+        </div>`;
+      lucide.createIcons();
+    }).withFailureHandler(() => { list.innerHTML = `<div class="text-center py-16 text-red-400 text-xs font-black uppercase tracking-widest">Network error</div>`; }).listCommitteeActivityLog(myId, committeeId);
   }
 
   // ── Subtypes panel ──────────────────────────────────────────────────────────
@@ -8412,6 +8437,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <button id="diarySubmitBtn" onclick="_diarySubmit()" class="mt-3 w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-blue-600 text-white hover:bg-black transition-all">Submit Diary Entry</button>
     `;
     _diaryLoadCommitteesForComposer();
+    // _diaryCaseType was just set to 'notify' above, but setting the JS
+    // variable alone never highlighted either button -- neither looked
+    // selected, making this row easy to miss entirely. Apply the same
+    // default-selected styling the main composer's own flow already does.
+    _diarySelectCaseType('notify');
     lucide.createIcons();
   }
 

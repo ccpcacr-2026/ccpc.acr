@@ -2621,31 +2621,70 @@ const handlers = {
     return { result: 'success', members: list };
   },
 
-  // Upsert by (committee_id, user_id) — a committee member must never be
-  // able to add/promote themselves or anyone else, hence Admin/Cord only,
-  // same bar as the committee itself.
+  // Upsert by (committee_id, user_id) — an Admin/Cord, OR that same
+  // committee's own chairman, can add/promote/demote a member (confirmed
+  // via explicit request: "admin or chairman can make any member in
+  // charge/chairman"). A plain member still can't touch this. Every
+  // add/promote/demote is logged (diary_committee_activity_log) — "all
+  // activity should be noted".
   async saveDiaryCommitteeMember([callerId, payload]) {
-    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin/Cord can manage committee members.' };
     const p = payload || {};
     if (!p.committee_id || !p.user_id) return { result: 'error', message: 'Missing committee or user.' };
+    const isChairman = (await _diaryCommitteeRole(callerId, p.committee_id)) === 'chairman';
+    if (!isChairman && !(await _isCordOrAdmin(callerId))) {
+      return { result: 'error', message: 'Only an Admin/Cord or this committee\'s own chairman can manage members.' };
+    }
     const existing = await supabaseRequest(`diary_committee_members?committee_id=eq.${encodeURIComponent(p.committee_id)}&user_id=eq.${encodeURIComponent(p.user_id)}`);
+    const wasChairman = Array.isArray(existing) && existing.length ? !!existing[0].is_chairman : null;
     const data = { committee_id: p.committee_id, user_id: p.user_id, is_chairman: !!p.is_chairman };
+    let result;
     if (Array.isArray(existing) && existing.length) {
       const updated = await supabaseRequest(`diary_committee_members?id=eq.${existing[0].id}`, 'patch', { is_chairman: data.is_chairman });
       if (updated?.error) return { result: 'error', message: updated.details || updated.error };
-      return { result: 'success', member: updated[0] };
+      result = { result: 'success', member: updated[0] };
+    } else {
+      const created = await supabaseRequest('diary_committee_members', 'post', data);
+      if (created?.error) return { result: 'error', message: created.details || created.error };
+      result = { result: 'success', member: created[0] };
     }
-    const created = await supabaseRequest('diary_committee_members', 'post', data);
-    if (created?.error) return { result: 'error', message: created.details || created.error };
-    return { result: 'success', member: created[0] };
+    const action = wasChairman === null ? 'added_member' : (data.is_chairman && !wasChairman ? 'promoted_to_chairman' : (!data.is_chairman && wasChairman ? 'demoted_from_chairman' : null));
+    if (action) {
+      supabaseRequest('diary_committee_activity_log', 'post', { committee_id: p.committee_id, actor_id: callerId, target_user_id: p.user_id, action }).catch(() => {});
+    }
+    return result;
   },
 
   async removeDiaryCommitteeMember([callerId, id]) {
-    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin/Cord can manage committee members.' };
     if (!id) return { result: 'error', message: 'Missing member id.' };
+    const rows = await supabaseRequest(`diary_committee_members?id=eq.${encodeURIComponent(id)}&select=committee_id,user_id`);
+    const member = Array.isArray(rows) && rows[0];
+    if (!member) return { result: 'error', message: 'Member not found.' };
+    const isChairman = (await _diaryCommitteeRole(callerId, member.committee_id)) === 'chairman';
+    if (!isChairman && !(await _isCordOrAdmin(callerId))) {
+      return { result: 'error', message: 'Only an Admin/Cord or this committee\'s own chairman can manage members.' };
+    }
     const deleted = await supabaseRequest(`diary_committee_members?id=eq.${encodeURIComponent(id)}`, 'delete');
     if (deleted?.error) return { result: 'error', message: deleted.details || deleted.error };
+    supabaseRequest('diary_committee_activity_log', 'post', { committee_id: member.committee_id, actor_id: callerId, target_user_id: member.user_id, action: 'removed_member' }).catch(() => {});
     return { result: 'success' };
+  },
+
+  // Committee member/chairman/Admin only — same bar as the referral trail.
+  async listCommitteeActivityLog([callerId, committeeId]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    if (!committeeId) return { result: 'error', message: 'Missing committee id.' };
+    const role = await _diaryCommitteeRole(callerId, committeeId);
+    if (!role && !(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only committee members or an Admin can view this log.' };
+    const rows = await supabaseRequest(`diary_committee_activity_log?committee_id=eq.${encodeURIComponent(committeeId)}&select=*&order=created_at.desc`);
+    const list = Array.isArray(rows) ? rows : [];
+    if (list.length) {
+      const ids = [...new Set([...list.map(r => r.actor_id), ...list.map(r => r.target_user_id)].filter(Boolean))];
+      const profiles = await supabaseRequest(`users_profile?teacher_id=in.(${ids.map(encodeURIComponent).join(',')})&select=teacher_id,full_name`);
+      const nameById = {};
+      (Array.isArray(profiles) ? profiles : []).forEach(p2 => { nameById[p2.teacher_id] = p2.full_name; });
+      list.forEach(r => { r.actor_name = r.actor_id ? (nameById[r.actor_id] || r.actor_id) : null; r.target_name = nameById[r.target_user_id] || r.target_user_id; });
+    }
+    return { result: 'success', log: list };
   },
 
   async listDiaryCommitteeSubtypes([callerId, committeeId]) {
