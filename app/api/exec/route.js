@@ -573,10 +573,16 @@ async function _isCordOrAdmin(callerId) {
 }
 
 // Part 19 (Clubs) — is this user an assigned club teacher for this exact club?
-async function _isClubTeacherOf(userId, clubId) {
+// branchId omitted: "is this user a teacher of this club at all" (any
+// branch, or whole-club). branchId given: also matches a whole-club
+// (branch_id null) assignment, since that covers every branch.
+async function _isClubTeacherOf(userId, clubId, branchId) {
   if (!userId || !clubId) return false;
-  const rows = await supabaseRequest(`club_teachers?club_id=eq.${encodeURIComponent(clubId)}&user_id=eq.${encodeURIComponent(userId)}&select=id`);
-  return Array.isArray(rows) && rows.length > 0;
+  const rows = await supabaseRequest(`club_teachers?club_id=eq.${encodeURIComponent(clubId)}&user_id=eq.${encodeURIComponent(userId)}&select=branch_id`);
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return false;
+  if (branchId === undefined) return true;
+  return list.some(r => r.branch_id == null || String(r.branch_id) === String(branchId));
 }
 
 // Part 19 (Clubs) — who may lock/unlock student self-assignment. Narrower
@@ -3689,14 +3695,18 @@ const handlers = {
     const clubs = await supabaseRequest('clubs?select=id,name,description,badge_url&order=name.asc');
     const list = Array.isArray(clubs) ? clubs : [];
     if (!list.length) return { result: 'success', clubs: [] };
-    const [memberRows, teacherRows] = await Promise.all([
+    const [memberRows, teacherRows, branchRows] = await Promise.all([
       _sbStudent('club_memberships?select=club_id'),
-      supabaseRequest('club_teachers?select=club_id,user_id'),
+      supabaseRequest('club_teachers?select=id,club_id,user_id,branch_id'),
+      supabaseRequest(`club_branches?club_id=in.(${list.map(c => c.id).join(',')})&select=id,club_id,name&order=name.asc`),
     ]);
     const countByClub = {};
     (Array.isArray(memberRows) ? memberRows : []).forEach(r => { countByClub[r.club_id] = (countByClub[r.club_id] || 0) + 1; });
-    const teacherIdsByClub = {};
-    (Array.isArray(teacherRows) ? teacherRows : []).forEach(r => { (teacherIdsByClub[r.club_id] = teacherIdsByClub[r.club_id] || []).push(r.user_id); });
+    const branchNameById = {};
+    const branchesByClub = {};
+    (Array.isArray(branchRows) ? branchRows : []).forEach(b => { branchNameById[b.id] = b.name; (branchesByClub[b.club_id] = branchesByClub[b.club_id] || []).push({ id: b.id, name: b.name }); });
+    const teacherRowsByClub = {};
+    (Array.isArray(teacherRows) ? teacherRows : []).forEach(r => { (teacherRowsByClub[r.club_id] = teacherRowsByClub[r.club_id] || []).push(r); });
     const allTeacherIds = [...new Set((Array.isArray(teacherRows) ? teacherRows : []).map(r => r.user_id))];
     let nameById = {};
     if (allTeacherIds.length) {
@@ -3705,12 +3715,12 @@ const handlers = {
     }
     list.forEach(c => {
       c.member_count = countByClub[c.id] || 0;
-      c.teachers = (teacherIdsByClub[c.id] || []).map(uid => ({ user_id: uid, full_name: nameById[uid] || uid }));
+      c.teachers = (teacherRowsByClub[c.id] || []).map(r => ({
+        user_id: r.user_id, full_name: nameById[r.user_id] || r.user_id,
+        branch_id: r.branch_id || null, branch_name: r.branch_id ? (branchNameById[r.branch_id] || null) : null,
+      }));
+      c.branches = branchesByClub[c.id] || [];
     });
-    const branchRows = await supabaseRequest(`club_branches?club_id=in.(${list.map(c => c.id).join(',')})&select=id,club_id,name&order=name.asc`);
-    const branchesByClub = {};
-    (Array.isArray(branchRows) ? branchRows : []).forEach(b => { (branchesByClub[b.club_id] = branchesByClub[b.club_id] || []).push({ id: b.id, name: b.name }); });
-    list.forEach(c => { c.branches = branchesByClub[c.id] || []; });
     return { result: 'success', clubs: list };
   },
 
@@ -3800,11 +3810,20 @@ const handlers = {
     return { result: 'success' };
   },
 
+  // branch_id is optional -- a teacher can now be scoped to one specific
+  // branch (e.g. just "Astronomy") instead of always the whole club, and
+  // can hold several such assignments (one per branch) plus optionally a
+  // separate whole-club one. Each (club, teacher, branch-or-whole-club)
+  // combination is its own row, checked for first to stay idempotent.
   async assignClubTeacher([callerId, payload]) {
     if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin/Cord can assign a club teacher.' };
     const p = payload || {};
     if (!p.club_id || !p.user_id) return { result: 'error', message: 'Missing club or user.' };
-    const created = await supabaseRequest('club_teachers?on_conflict=club_id,user_id', 'post', { club_id: p.club_id, user_id: p.user_id });
+    const branchId = p.branch_id || null;
+    const branchFilter = branchId ? `branch_id=eq.${encodeURIComponent(branchId)}` : 'branch_id=is.null';
+    const existing = await supabaseRequest(`club_teachers?club_id=eq.${encodeURIComponent(p.club_id)}&user_id=eq.${encodeURIComponent(p.user_id)}&${branchFilter}&select=id`);
+    if (Array.isArray(existing) && existing.length) return { result: 'success' };
+    const created = await supabaseRequest('club_teachers', 'post', { club_id: p.club_id, user_id: p.user_id, branch_id: branchId });
     if (created?.error) return { result: 'error', message: created.details || created.error };
     return { result: 'success' };
   },
@@ -3813,23 +3832,34 @@ const handlers = {
     if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin/Cord can remove a club teacher.' };
     const p = payload || {};
     if (!p.club_id || !p.user_id) return { result: 'error', message: 'Missing club or user.' };
-    const deleted = await supabaseRequest(`club_teachers?club_id=eq.${encodeURIComponent(p.club_id)}&user_id=eq.${encodeURIComponent(p.user_id)}`, 'delete');
+    let q = `club_teachers?club_id=eq.${encodeURIComponent(p.club_id)}&user_id=eq.${encodeURIComponent(p.user_id)}`;
+    q += p.branch_id ? `&branch_id=eq.${encodeURIComponent(p.branch_id)}` : '&branch_id=is.null';
+    const deleted = await supabaseRequest(q, 'delete');
     if (deleted?.error) return { result: 'error', message: deleted.details || deleted.error };
     return { result: 'success' };
   },
 
   async getMyClubTeacherClubs([callerId]) {
     if (!callerId) return { result: 'error', message: 'Not signed in.' };
-    const rows = await supabaseRequest(`club_teachers?user_id=eq.${encodeURIComponent(callerId)}&select=club_id`);
-    const clubIds = (Array.isArray(rows) ? rows : []).map(r => r.club_id);
+    const myRows = await supabaseRequest(`club_teachers?user_id=eq.${encodeURIComponent(callerId)}&select=club_id,branch_id`);
+    const myList = Array.isArray(myRows) ? myRows : [];
+    const clubIds = [...new Set(myList.map(r => r.club_id))];
     if (!clubIds.length) return { result: 'success', clubs: [] };
+    // Whole-club assignment (branch_id null) for a club means null here too
+    // (no branch restriction) -- a club teacher only ever has SOME branch
+    // ids here when every one of their rows for that club is branch-specific.
+    const myBranchIdsByClub = {};
+    clubIds.forEach(cid => {
+      const rowsForClub = myList.filter(r => r.club_id === cid);
+      myBranchIdsByClub[cid] = rowsForClub.some(r => !r.branch_id) ? null : rowsForClub.map(r => r.branch_id);
+    });
     const clubs = await supabaseRequest(`clubs?id=in.(${clubIds.join(',')})&select=id,name,description,badge_url&order=name.asc`);
     const list = Array.isArray(clubs) ? clubs : [];
     if (list.length) {
       const branchRows = await supabaseRequest(`club_branches?club_id=in.(${clubIds.join(',')})&select=id,club_id,name&order=name.asc`);
       const branchesByClub = {};
       (Array.isArray(branchRows) ? branchRows : []).forEach(b => { (branchesByClub[b.club_id] = branchesByClub[b.club_id] || []).push({ id: b.id, name: b.name }); });
-      list.forEach(c => { c.branches = branchesByClub[c.id] || []; });
+      list.forEach(c => { c.branches = branchesByClub[c.id] || []; c.my_branch_ids = myBranchIdsByClub[c.id]; });
     }
     return { result: 'success', clubs: list };
   },
@@ -3902,7 +3932,19 @@ const handlers = {
     if (!isAdmin && !(await _isClubTeacherOf(callerId, clubId))) {
       return { result: 'error', message: 'You are not a teacher for this club.' };
     }
-    const memberships = await _sbStudent(`club_memberships?club_id=eq.${encodeURIComponent(clubId)}&select=student_id,assigned_at,branch_id`);
+    let memberships = await _sbStudent(`club_memberships?club_id=eq.${encodeURIComponent(clubId)}&select=student_id,assigned_at,branch_id`);
+    // If the caller's own assignment(s) for this club are ALL branch-specific
+    // (no whole-club row), restrict the roster to just those branches --
+    // Admin/Cord and whole-club-assigned teachers still see everyone.
+    if (!isAdmin) {
+      const myRows = await supabaseRequest(`club_teachers?club_id=eq.${encodeURIComponent(clubId)}&user_id=eq.${encodeURIComponent(callerId)}&select=branch_id`);
+      const myList = Array.isArray(myRows) ? myRows : [];
+      const isWholeClub = myList.some(r => !r.branch_id);
+      if (!isWholeClub) {
+        const myBranchIds = new Set(myList.map(r => String(r.branch_id)));
+        memberships = (Array.isArray(memberships) ? memberships : []).filter(m => m.branch_id && myBranchIds.has(String(m.branch_id)));
+      }
+    }
     const rows = Array.isArray(memberships) ? memberships : [];
     if (!rows.length) return { result: 'success', students: [] };
     const infoByStudent = {};

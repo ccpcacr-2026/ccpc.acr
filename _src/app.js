@@ -51502,11 +51502,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
             <textarea placeholder="Description…" onchange="_clubsManageUpdateField(${c.id}, 'description', this.value)" class="w-full px-2 py-1.5 mb-2 bg-slate-50 border border-slate-200 rounded text-[10px] text-slate-600" rows="2">${_escHtml(c.description || '')}</textarea>
             <div class="flex flex-wrap gap-1.5 mb-2">
-              ${(c.teachers || []).map(t => `<span class="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-full text-[10px] font-bold">${_escHtml(t.full_name)}<button onclick="_clubsManageRemoveTeacher(${c.id}, '${t.user_id}')" class="text-blue-400 hover:text-red-500">&times;</button></span>`).join('') || '<span class="text-[10px] text-slate-300">No club teacher assigned</span>'}
+              ${(c.teachers || []).map(t => `<span class="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-full text-[10px] font-bold">${_escHtml(t.full_name)}${t.branch_name ? ` <span class="opacity-60">· ${_escHtml(t.branch_name)}</span>` : ' <span class="opacity-60">· Whole Club</span>'}<button onclick="_clubsManageRemoveTeacher(${c.id}, '${t.user_id}', ${t.branch_id || 'null'})" class="text-blue-400 hover:text-red-500">&times;</button></span>`).join('') || '<span class="text-[10px] text-slate-300">No club teacher assigned</span>'}
             </div>
-            <div class="relative mb-2">
-              <input placeholder="Search a teacher to assign…" oninput="_clubsTeacherSearch(${c.id}, this.value)" onfocus="_clubsTeacherSearch(${c.id}, this.value)" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px]">
-              <div id="clubsTeacherDrop_${c.id}" class="hidden absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto"></div>
+            <div class="flex gap-1.5 mb-2">
+              <select id="clubsAssignBranch_${c.id}" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px]">
+                <option value="">Whole Club</option>
+                ${(c.branches || []).map(b => `<option value="${b.id}">${_escHtml(b.name)}</option>`).join('')}
+              </select>
+              <div class="relative flex-1">
+                <input placeholder="Search a teacher to assign…" oninput="_clubsTeacherSearch(${c.id}, this.value)" onfocus="_clubsTeacherSearch(${c.id}, this.value)" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px]">
+                <div id="clubsTeacherDrop_${c.id}" class="hidden absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto"></div>
+              </div>
             </div>
             <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Branches — students mainly join one of these</p>
             <div class="flex flex-wrap gap-1.5 mb-2">
@@ -51551,13 +51557,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const proceed = () => {
       const drop = document.getElementById('clubsTeacherDrop_' + clubId);
       if (!drop) return;
-      const assignedIds = ((_clubsAllClubs.find(c => c.id === clubId) || {}).teachers || []).map(t => t.user_id);
-      drop.innerHTML = _userComboHtml(String(q || '').trim().toLowerCase(), assignedIds);
+      // Only a teacher already assigned to the WHOLE club is disabled here —
+      // one assigned to just one branch can still be picked again to add a
+      // different branch (or the whole club, on top of their branch(es)).
+      const wholeClubIds = ((_clubsAllClubs.find(c => c.id === clubId) || {}).teachers || []).filter(t => !t.branch_id).map(t => t.user_id);
+      drop.innerHTML = _userComboHtml(String(q || '').trim().toLowerCase(), wholeClubIds);
       drop.classList.remove('hidden');
       drop.onclick = e => {
         const item = e.target.closest('[data-uid]');
         if (!item) return;
-        _clubsManageAssignTeacher(clubId, item.dataset.uid);
+        const branchSel = document.getElementById('clubsAssignBranch_' + clubId);
+        _clubsManageAssignTeacher(clubId, item.dataset.uid, branchSel ? branchSel.value : '');
         drop.classList.add('hidden');
       };
     };
@@ -51615,7 +51625,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
 
-  function _clubsManageAssignTeacher(clubId, userId) {
+  function _clubsManageAssignTeacher(clubId, userId, branchId) {
     const myId = window.APP_USER && window.APP_USER.user_id;
     google.script.run
       .withSuccessHandler(res => {
@@ -51623,10 +51633,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         _clubsRenderManage();
       })
       .withFailureHandler(() => showToast('Could not assign teacher.', 'error'))
-      .assignClubTeacher(myId, { club_id: clubId, user_id: userId });
+      .assignClubTeacher(myId, { club_id: clubId, user_id: userId, branch_id: branchId || null });
   }
 
-  function _clubsManageRemoveTeacher(clubId, userId) {
+  function _clubsManageRemoveTeacher(clubId, userId, branchId) {
     const myId = window.APP_USER && window.APP_USER.user_id;
     google.script.run
       .withSuccessHandler(res => {
@@ -51634,7 +51644,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         _clubsRenderManage();
       })
       .withFailureHandler(() => showToast('Could not remove teacher.', 'error'))
-      .removeClubTeacher(myId, { club_id: clubId, user_id: userId });
+      .removeClubTeacher(myId, { club_id: clubId, user_id: userId, branch_id: branchId || null });
   }
 
   // ── PERMISSION CONTROL PANEL (Admin only) ────────────────────────────────────
