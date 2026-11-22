@@ -44648,7 +44648,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'guardian_designation', label: "Guardian's Profession/Designation", render: a => { const v = [a.guardian_profession, a.guardian_designation].filter(Boolean).join(', '); return v ? `<p class="text-xs text-slate-500">${_escHtml(v)}</p>` : ''; } },
     { key: 'guardian_contact', label: "Guardian's Contact", render: a => a.guardian_contact ? `<p class="text-xs text-slate-500">${_escHtml(a.guardian_contact)}</p>` : '' },
     { key: 'guardian_address', label: "Guardian's Office Address", render: a => a.guardian_office_address ? `<p class="text-xs text-slate-500">${_escHtml(a.guardian_office_address)}</p>` : '' },
-    { key: 'index_id', label: 'Index No.', render: a => a.index_id ? `<p class="text-xs text-slate-600 font-mono">${_escHtml(a.index_id)}</p>` : '' },
+    { key: 'index_id', label: 'Index ID', render: a => a.index_id ? `<p class="text-xs text-slate-600 font-mono">${_escHtml(a.index_id)}</p>` : '' },
     { key: 'scan_values', label: 'Scan/Tag Results', render: a => { const badges = _admScanValuesCompact(a.scan_values, a.scan_dates).map(({ label, shown }) => `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[9px] font-bold whitespace-nowrap">${_escHtml(label)}: ${_escHtml(shown)}</span>`).join(''); return badges ? `<div class="flex flex-wrap gap-1">${badges}</div>` : ''; } },
   ];
   // Everything above is a hand-curated composite (combines several raw
@@ -48448,7 +48448,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // existed) means the real column actually gets a value for imported rows,
   // and the Applicant list/CSV show one unambiguous Index No. per row.
   const ADM_CAND_CORE_FIELDS = ['token', 'class', 'category', 'version', 'mobile', 'index_id'];
-  const ADM_CAND_CORE_FIELD_LABELS = [['token', 'Tracking ID'], ['class', 'Class'], ['version', 'Version'], ['category', 'Category'], ['mobile', 'Mobile'], ['index_id', 'Index No.']];
+  const ADM_CAND_CORE_FIELD_LABELS = [['token', 'Tracking ID'], ['class', 'Class'], ['version', 'Version'], ['category', 'Category'], ['mobile', 'Mobile'], ['index_id', 'Index ID']];
   // Form Fields (same list app/api/admission-admin/route.js's native
   // application editor reads/writes via getFormFields/saveFormFields) is the
   // vocabulary for every non-fixed mapping row -- fetched once per Import &
