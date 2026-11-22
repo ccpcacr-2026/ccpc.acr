@@ -545,7 +545,8 @@ const RESERVED = [
   '_diaryQrManualSubmit','_diaryQrCloseScanner','_diaryCasePanelShowTab',
   // Clubs (admin club CRUD, class-teacher assignment, club-teacher roster) -- Part 19
   'loadClubsView','_myClassAssignClub','_clubsShowTab','_clubsSelectClub','_clubsApplyFilter',
-  '_clubsManageAddClub','_clubsManageRenameClub','_clubsManageDeleteClub','_clubsManageRemoveTeacher','_clubsTeacherSearch'
+  '_clubsManageAddClub','_clubsManageRenameClub','_clubsManageDeleteClub','_clubsManageRemoveTeacher','_clubsTeacherSearch',
+  '_clubsManageAddBranch','_clubsManageDeleteBranch','_clubsToggleSelfAssignLock'
 ];
 
 // Strip HTML comments and collapse whitespace

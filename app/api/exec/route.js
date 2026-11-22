@@ -579,6 +579,17 @@ async function _isClubTeacherOf(userId, clubId) {
   return Array.isArray(rows) && rows.length > 0;
 }
 
+// Part 19 (Clubs) — who may lock/unlock student self-assignment. Narrower
+// than the general PRIVILEGED_ROLES set (no HR/Principal) -- matches
+// exactly what was asked for this specific control.
+async function _isClubLockAdmin(callerId) {
+  if (!callerId) return false;
+  const users = await supabaseRequest(`app_users?user_id=eq.${encodeURIComponent(callerId)}&select=role`);
+  const role = Array.isArray(users) && users[0] ? users[0].role : '';
+  const roles = String(role || '').split(',').map(r => r.trim());
+  return roles.some(r => ['Admin', 'VP', 'Cord'].includes(r));
+}
+
 // ── DIARY COMMITTEE helpers ──────────────────────────────────────────────
 // 'chairman' | 'member' | null -- never trusts anything client-held, same
 // fresh-per-request discipline as every other permission check in this file.
@@ -3524,25 +3535,39 @@ const handlers = {
       return { classKey, className, section, students: _sortByRoll(Array.isArray(students) ? students : []) };
     }));
 
-    // Part 19 (Clubs) — additive: load the club list + each rostered
+    // Part 19 (Clubs) — additive: load the club+branch list + each rostered
     // student's current membership so the "My Class" cards can show/assign
-    // a club inline, with no extra round-trip from the client.
-    const clubs = await supabaseRequest('clubs?select=id,name&order=name.asc');
+    // a club/branch inline, with no extra round-trip from the client.
+    // Students are mainly assigned to a BRANCH (club is implied by it); a
+    // club with no branches defined falls back to a club-only assignment.
+    const [clubs, branchRows] = await Promise.all([
+      supabaseRequest('clubs?select=id,name&order=name.asc'),
+      supabaseRequest('club_branches?select=id,club_id,name&order=name.asc'),
+    ]);
     const clubList = Array.isArray(clubs) ? clubs : [];
+    const branchNameById = {};
+    const branchClubById = {};
+    const branchesByClub = {};
+    (Array.isArray(branchRows) ? branchRows : []).forEach(b => {
+      branchNameById[b.id] = b.name; branchClubById[b.id] = b.club_id;
+      (branchesByClub[b.club_id] = branchesByClub[b.club_id] || []).push({ id: b.id, name: b.name });
+    });
     const clubNameById = {};
-    clubList.forEach(c => { clubNameById[c.id] = c.name; });
+    clubList.forEach(c => { clubNameById[c.id] = c.name; c.branches = branchesByClub[c.id] || []; });
     const allStudentIds = classes.flatMap(c => c.students.map(s => s.student_id));
     if (allStudentIds.length) {
-      const membershipsByStudent = {};
+      const membershipByStudent = {};
       for (let i = 0; i < allStudentIds.length; i += 150) {
         const part = allStudentIds.slice(i, i + 150);
-        const rows = await _sbStudent(`club_memberships?student_id=in.(${part.map(encodeURIComponent).join(',')})&select=student_id,club_id`);
-        (Array.isArray(rows) ? rows : []).forEach(r => { membershipsByStudent[r.student_id] = r.club_id; });
+        const rows = await _sbStudent(`club_memberships?student_id=in.(${part.map(encodeURIComponent).join(',')})&select=student_id,club_id,branch_id`);
+        (Array.isArray(rows) ? rows : []).forEach(r => { membershipByStudent[r.student_id] = r; });
       }
       classes.forEach(c => c.students.forEach(s => {
-        const clubId = membershipsByStudent[s.student_id];
-        s.club_id = clubId || null;
-        s.club_name = clubId ? (clubNameById[clubId] || null) : null;
+        const m = membershipByStudent[s.student_id];
+        s.club_id = (m && m.club_id) || null;
+        s.club_name = s.club_id ? (clubNameById[s.club_id] || null) : null;
+        s.branch_id = (m && m.branch_id) || null;
+        s.branch_name = s.branch_id ? (branchNameById[s.branch_id] || null) : null;
       }));
     }
     return { classes, clubs: clubList };
@@ -3580,7 +3605,57 @@ const handlers = {
       c.member_count = countByClub[c.id] || 0;
       c.teachers = (teacherIdsByClub[c.id] || []).map(uid => ({ user_id: uid, full_name: nameById[uid] || uid }));
     });
+    const branchRows = await supabaseRequest(`club_branches?club_id=in.(${list.map(c => c.id).join(',')})&select=id,club_id,name&order=name.asc`);
+    const branchesByClub = {};
+    (Array.isArray(branchRows) ? branchRows : []).forEach(b => { (branchesByClub[b.club_id] = branchesByClub[b.club_id] || []).push({ id: b.id, name: b.name }); });
+    list.forEach(c => { c.branches = branchesByClub[c.id] || []; });
     return { result: 'success', clubs: list };
+  },
+
+  async saveClubBranch([callerId, payload]) {
+    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin/Cord can manage club branches.' };
+    const p = payload || {};
+    if (!p.club_id) return { result: 'error', message: 'Missing club.' };
+    const name = String(p.name || '').trim();
+    if (!name) return { result: 'error', message: 'Name is required.' };
+    if (p.id) {
+      const updated = await supabaseRequest(`club_branches?id=eq.${encodeURIComponent(p.id)}`, 'patch', { name });
+      if (updated?.error) return { result: 'error', message: updated.details || updated.error };
+      return { result: 'success', branch: updated[0] };
+    }
+    const created = await supabaseRequest('club_branches', 'post', { club_id: p.club_id, name });
+    if (created?.error) return { result: 'error', message: created.details || created.error };
+    return { result: 'success', branch: created[0] };
+  },
+
+  async deleteClubBranch([callerId, id]) {
+    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Only an Admin/Cord can manage club branches.' };
+    if (!id) return { result: 'error', message: 'Missing branch id.' };
+    const members = await _sbStudent(`club_memberships?branch_id=eq.${encodeURIComponent(id)}&select=student_id`);
+    if (Array.isArray(members) && members.length) {
+      return { result: 'error', message: `Remove all ${members.length} member(s) from this branch first.` };
+    }
+    const deleted = await supabaseRequest(`club_branches?id=eq.${encodeURIComponent(id)}`, 'delete');
+    if (deleted?.error) return { result: 'error', message: deleted.details || deleted.error };
+    return { result: 'success' };
+  },
+
+  // Students self-assign their own club/branch on the Student Portal until
+  // an Admin/VP/Cord locks it (default OPEN — matches "students can fill
+  // until locked", not the other way round); re-opened anytime, same flag.
+  // Stored in the existing generic system_settings key-value table (no new
+  // migration needed) under 'club_self_assign_locked'.
+  async getClubSelfAssignLock() {
+    const rows = await supabaseRequest(`system_settings?key=eq.club_self_assign_locked&select=value`);
+    const row = Array.isArray(rows) && rows[0];
+    return { result: 'success', locked: row ? !!row.value : false };
+  },
+
+  async setClubSelfAssignLock([callerId, locked]) {
+    if (!(await _isClubLockAdmin(callerId))) return { result: 'error', message: 'Only an Admin/VP/Cord can lock/unlock club selection.' };
+    const saved = await supabaseRequest('system_settings?on_conflict=key', 'post', { key: 'club_self_assign_locked', value: !!locked });
+    if (saved?.error) return { result: 'error', message: saved.details || saved.error };
+    return { result: 'success', locked: !!locked };
   },
 
   async createClub([callerId, payload]) {
@@ -3639,7 +3714,14 @@ const handlers = {
     const clubIds = (Array.isArray(rows) ? rows : []).map(r => r.club_id);
     if (!clubIds.length) return { result: 'success', clubs: [] };
     const clubs = await supabaseRequest(`clubs?id=in.(${clubIds.join(',')})&select=id,name&order=name.asc`);
-    return { result: 'success', clubs: Array.isArray(clubs) ? clubs : [] };
+    const list = Array.isArray(clubs) ? clubs : [];
+    if (list.length) {
+      const branchRows = await supabaseRequest(`club_branches?club_id=in.(${clubIds.join(',')})&select=id,club_id,name&order=name.asc`);
+      const branchesByClub = {};
+      (Array.isArray(branchRows) ? branchRows : []).forEach(b => { (branchesByClub[b.club_id] = branchesByClub[b.club_id] || []).push({ id: b.id, name: b.name }); });
+      list.forEach(c => { c.branches = branchesByClub[c.id] || []; });
+    }
+    return { result: 'success', clubs: list };
   },
 
   // Any signed-in user may call this, but it only ever returns data for a
@@ -3652,11 +3734,17 @@ const handlers = {
     if (!isAdmin && !(await _isClubTeacherOf(callerId, clubId))) {
       return { result: 'error', message: 'You are not a teacher for this club.' };
     }
-    const memberships = await _sbStudent(`club_memberships?club_id=eq.${encodeURIComponent(clubId)}&select=student_id,assigned_at`);
+    const memberships = await _sbStudent(`club_memberships?club_id=eq.${encodeURIComponent(clubId)}&select=student_id,assigned_at,branch_id`);
     const rows = Array.isArray(memberships) ? memberships : [];
     if (!rows.length) return { result: 'success', students: [] };
-    const assignedAtById = {};
-    rows.forEach(r => { assignedAtById[r.student_id] = r.assigned_at; });
+    const infoByStudent = {};
+    rows.forEach(r => { infoByStudent[r.student_id] = { assigned_at: r.assigned_at, branch_id: r.branch_id }; });
+    const branchIds = [...new Set(rows.map(r => r.branch_id).filter(Boolean))];
+    let branchNameById = {};
+    if (branchIds.length) {
+      const branches = await supabaseRequest(`club_branches?id=in.(${branchIds.join(',')})&select=id,name`);
+      (Array.isArray(branches) ? branches : []).forEach(b => { branchNameById[b.id] = b.name; });
+    }
     const ids = rows.map(r => r.student_id);
     let students = [];
     for (let i = 0; i < ids.length; i += 150) {
@@ -3667,7 +3755,12 @@ const handlers = {
       );
       if (Array.isArray(chunkRows)) students = students.concat(chunkRows);
     }
-    students.forEach(s => { s.assigned_at = assignedAtById[s.student_id] || null; });
+    students.forEach(s => {
+      const info = infoByStudent[s.student_id] || {};
+      s.assigned_at = info.assigned_at || null;
+      s.branch_id = info.branch_id || null;
+      s.branch_name = info.branch_id ? (branchNameById[info.branch_id] || null) : null;
+    });
     return { result: 'success', students: _sortByRoll(students) };
   },
 
@@ -3675,10 +3768,22 @@ const handlers = {
   // class/section (re-derived server-side via _getClassTeacherAssignments,
   // same posture as getMyClassRoster/getMyClassTodayAttendance — never
   // trusts a client-sent class), or an Admin/Cord.
+  // Students are mainly assigned to a specific BRANCH, not just the bare
+  // club — when branch_id is given, club_id is always re-derived from the
+  // branch's own row server-side (never trusts a client-sent club_id to
+  // match), so a branch can never silently record the wrong club.
   async assignStudentToClub([userId, payload]) {
     if (!userId) return { result: 'error', message: 'Not signed in.' };
     const p = payload || {};
-    if (!p.student_id || !p.club_id) return { result: 'error', message: 'Missing student or club.' };
+    let clubId = p.club_id || null;
+    let branchId = p.branch_id || null;
+    if (branchId) {
+      const branchRows = await supabaseRequest(`club_branches?id=eq.${encodeURIComponent(branchId)}&select=club_id`);
+      const branch = Array.isArray(branchRows) && branchRows[0];
+      if (!branch) return { result: 'error', message: 'Branch not found.' };
+      clubId = branch.club_id;
+    }
+    if (!p.student_id || !clubId) return { result: 'error', message: 'Missing student or club.' };
     const isAdmin = await _isCordOrAdmin(userId);
     if (!isAdmin) {
       const studentRows = await _sbStudent(`students_data?student_id=eq.${encodeURIComponent(p.student_id)}&select=class,section`);
@@ -3691,7 +3796,7 @@ const handlers = {
       if (!owns) return { result: 'error', message: 'You are not the class teacher for this student.' };
     }
     const upserted = await _sbStudentUpsert('club_memberships?on_conflict=student_id', {
-      student_id: p.student_id, club_id: p.club_id, assigned_by: userId, assigned_at: new Date().toISOString(),
+      student_id: p.student_id, club_id: clubId, branch_id: branchId, assigned_by: userId, assigned_at: new Date().toISOString(),
     });
     if (upserted?.error) return { result: 'error', message: upserted.details || upserted.error };
     return { result: 'success' };

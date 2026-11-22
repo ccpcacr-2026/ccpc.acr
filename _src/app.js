@@ -4318,7 +4318,16 @@
                 ${clubOptions.length ? `
                 <select onclick="event.stopPropagation()" onchange="_myClassAssignClub(${JSON.stringify(s.student_id)}, this.value)" class="mt-1 w-full px-1.5 py-1 bg-slate-50 border border-slate-200 rounded-md text-[9px] font-bold text-slate-600">
                   <option value="">No club</option>
-                  ${clubOptions.map(cl => `<option value="${cl.id}" ${String(s.club_id) === String(cl.id) ? 'selected' : ''}>${_escHtml(cl.name)}</option>`).join('')}
+                  ${clubOptions.map(cl => {
+                    const branches = cl.branches || [];
+                    // Students are mainly assigned to a specific BRANCH (value
+                    // "b<id>") -- a club with no branches defined falls back
+                    // to a plain club-only option ("c<id>").
+                    if (!branches.length) {
+                      return `<option value="c${cl.id}" ${!s.branch_id && String(s.club_id) === String(cl.id) ? 'selected' : ''}>${_escHtml(cl.name)}</option>`;
+                    }
+                    return `<optgroup label="${_escHtml(cl.name)}">${branches.map(b => `<option value="b${b.id}" ${String(s.branch_id) === String(b.id) ? 'selected' : ''}>${_escHtml(b.name)}</option>`).join('')}</optgroup>`;
+                  }).join('')}
                 </select>` : ''}
               </div>
               ${tel ? `<a href="tel:${tel}" title="Call" onclick="event.stopPropagation()" class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white" style="background:linear-gradient(135deg,#059669,#22c55e)"><i data-lucide="phone" class="h-3.5 w-3.5"></i></a>` : ''}
@@ -4331,20 +4340,38 @@
   }
 
   // Part 19 (Clubs) — inline from the My Class roster card's club <select>.
-  function _myClassAssignClub(studentId, clubId) {
+  // value is "b<branch_id>" (the common case — students are mainly assigned
+  // to a specific branch), "c<club_id>" (a club with no branches), or "" (no club).
+  function _myClassAssignClub(studentId, value) {
     const myId = window.APP_USER && window.APP_USER.user_id;
     if (!myId) return;
-    const action = clubId ? 'assignStudentToClub' : 'removeStudentFromClub';
-    const args = clubId ? [myId, { student_id: studentId, club_id: clubId }] : [myId, { student_id: studentId }];
+    const isBranch = value.startsWith('b');
+    const isClub = value.startsWith('c');
+    const action = value ? 'assignStudentToClub' : 'removeStudentFromClub';
+    const payload = isBranch ? { student_id: studentId, branch_id: value.slice(1) }
+      : isClub ? { student_id: studentId, club_id: value.slice(1) }
+      : { student_id: studentId };
+    const args = [myId, payload];
     google.script.run
       .withSuccessHandler(res => {
         if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not update club.', 'error'); _renderMyClassRoster(); return; }
         if (_myClassRosterData) {
           _myClassRosterData.classes.forEach(c => c.students.forEach(s => {
-            if (s.student_id === studentId) {
-              s.club_id = clubId || null;
+            if (s.student_id !== studentId) return;
+            if (isBranch) {
+              const branchId = value.slice(1);
+              let branchName = null, clubId = null, clubName = null;
+              (_myClassRosterData.clubs || []).forEach(cl => {
+                const b = (cl.branches || []).find(x => String(x.id) === String(branchId));
+                if (b) { branchName = b.name; clubId = cl.id; clubName = cl.name; }
+              });
+              s.branch_id = branchId; s.branch_name = branchName; s.club_id = clubId; s.club_name = clubName;
+            } else if (isClub) {
+              const clubId = value.slice(1);
               const club = (_myClassRosterData.clubs || []).find(cl => String(cl.id) === String(clubId));
-              s.club_name = club ? club.name : null;
+              s.club_id = clubId; s.club_name = club ? club.name : null; s.branch_id = null; s.branch_name = null;
+            } else {
+              s.club_id = null; s.club_name = null; s.branch_id = null; s.branch_name = null;
             }
           }));
         }
@@ -51129,6 +51156,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _clubsSelectedClubId = null;
   let _clubsRosterData = [];
   let _clubsAllClubs = []; // Manage Clubs tab's full list (admin only)
+  let _clubsSelfAssignLocked = false;
+
+  // Narrower than _forumIsAdmin() (no VP there) — matches exactly who the
+  // server lets lock/unlock student self-assignment.
+  function _isClubLockRole() {
+    const role = String((window.APP_USER && window.APP_USER.role) || '');
+    return /Admin|VP|Cord/.test(role);
+  }
 
   function loadClubsView() {
     _setViewHash('clubs');
@@ -51140,9 +51175,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!myId) return;
     const isAdmin = _forumIsAdmin();
     container.innerHTML = `<div class="pt-4 max-w-5xl mx-auto pb-10">
+      <div id="clubsLockBanner" class="mb-4"></div>
       <div id="clubsTabs" class="flex gap-2 mb-4"></div>
       <div id="clubsBody"><div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
     </div>`;
+    if (_isClubLockRole()) {
+      google.script.run
+        .withSuccessHandler(res => { _clubsSelfAssignLocked = !!(res && res.locked); _renderClubsLockBanner(); })
+        .withFailureHandler(() => {})
+        .getClubSelfAssignLock();
+    }
     google.script.run
       .withSuccessHandler(res => {
         _clubsMyTeacherClubs = (res && res.result === 'success' && res.clubs) || [];
@@ -51152,6 +51194,32 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       })
       .withFailureHandler(() => { _renderClubsTabs(isAdmin); _renderClubsBody(isAdmin); })
       .getMyClubTeacherClubs(myId);
+  }
+
+  function _renderClubsLockBanner() {
+    const el = document.getElementById('clubsLockBanner');
+    if (!el || !_isClubLockRole()) return;
+    el.innerHTML = `
+      <div class="flex items-center justify-between gap-3 bg-white border border-slate-100 rounded-2xl px-4 py-3">
+        <div>
+          <p class="text-xs font-black text-slate-800">Student self-assignment is ${_clubsSelfAssignLocked ? '<span class="text-red-600">LOCKED</span>' : '<span class="text-emerald-600">OPEN</span>'}</p>
+          <p class="text-[10px] text-slate-400">Students can ${_clubsSelfAssignLocked ? 'no longer' : 'currently'} pick/change their own club on the Student Portal.</p>
+        </div>
+        <button onclick="_clubsToggleSelfAssignLock()" class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest ${_clubsSelfAssignLocked ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}">${_clubsSelfAssignLocked ? 'Unlock' : 'Lock'}</button>
+      </div>`;
+  }
+
+  function _clubsToggleSelfAssignLock() {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const next = !_clubsSelfAssignLocked;
+    google.script.run
+      .withSuccessHandler(res => {
+        if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not update lock.', 'error'); return; }
+        _clubsSelfAssignLocked = !!res.locked;
+        _renderClubsLockBanner();
+      })
+      .withFailureHandler(() => showToast('Could not update lock.', 'error'))
+      .setClubSelfAssignLock(myId, next);
   }
 
   function _renderClubsTabs(isAdmin) {
@@ -51190,9 +51258,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <select onchange="_clubsSelectClub(this.value)" class="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold">
         ${_clubsMyTeacherClubs.map(c => `<option value="${c.id}" ${String(c.id) === String(_clubsSelectedClubId) ? 'selected' : ''}>${_escHtml(c.name)}</option>`).join('')}
       </select>` : `<p class="font-black text-slate-800 text-sm">${_escHtml(_clubsMyTeacherClubs[0].name)}</p>`;
+    const selectedClub = _clubsMyTeacherClubs.find(c => String(c.id) === String(_clubsSelectedClubId));
+    const branchOptions = (selectedClub && selectedClub.branches) || [];
     body.innerHTML = `
       <div class="mb-3">${picker}</div>
       <div class="flex flex-wrap gap-2 mb-3">
+        ${branchOptions.length ? `
+        <select id="clubsFilterBranch" onchange="_clubsApplyFilter()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px]">
+          <option value="">All branches</option>
+          ${branchOptions.map(b => `<option value="${_escHtml(b.name)}">${_escHtml(b.name)}</option>`).join('')}
+        </select>` : ''}
         <input id="clubsFilterClass" placeholder="Class" oninput="_clubsApplyFilter()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] w-24">
         <input id="clubsFilterSection" placeholder="Section" oninput="_clubsApplyFilter()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] w-24">
         <input id="clubsFilterSession" placeholder="Session" oninput="_clubsApplyFilter()" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[10px] w-24">
@@ -51224,22 +51299,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const clsEl = document.getElementById('clubsFilterClass');
     const secEl = document.getElementById('clubsFilterSection');
     const sesEl = document.getElementById('clubsFilterSession');
+    const brEl = document.getElementById('clubsFilterBranch');
     const cls = String((clsEl && clsEl.value) || '').trim().toLowerCase();
     const sec = String((secEl && secEl.value) || '').trim().toLowerCase();
     const ses = String((sesEl && sesEl.value) || '').trim().toLowerCase();
+    const br = String((brEl && brEl.value) || '').trim();
     const rows = _clubsRosterData.filter(s =>
       (!cls || String(s.class || '').toLowerCase().includes(cls)) &&
       (!sec || String(s.section || '').toLowerCase().includes(sec)) &&
-      (!ses || String(s.session || '').toLowerCase().includes(ses)));
+      (!ses || String(s.session || '').toLowerCase().includes(ses)) &&
+      (!br || s.branch_name === br));
     if (!rows.length) { wrap.innerHTML = `<div class="text-center py-10 text-slate-400 text-xs font-black uppercase tracking-widest">No members found</div>`; return; }
     wrap.innerHTML = `
       <div class="inv-desktop-block overflow-x-auto">
         <table class="w-full text-xs">
-          <thead><tr class="text-left text-slate-400 uppercase text-[10px] font-black"><th class="py-2">Student</th><th>Roll</th><th>Class</th><th>Section</th><th>Session</th></tr></thead>
+          <thead><tr class="text-left text-slate-400 uppercase text-[10px] font-black"><th class="py-2">Student</th><th>Roll</th><th>Branch</th><th>Class</th><th>Section</th><th>Session</th></tr></thead>
           <tbody>
             ${rows.map(s => `<tr class="border-t border-slate-100">
               <td class="py-2"><div class="flex items-center gap-2">${_avatar(s.student_name, s.photo, 'w-7 h-7')}<span class="font-bold">${_escHtml(s.student_name || '')}</span></div></td>
-              <td>${_escHtml(s.roll || '')}</td><td>${_escHtml(s.class || '')}</td><td>${_escHtml(s.section || '')}</td><td>${_escHtml(s.session || '')}</td>
+              <td>${_escHtml(s.roll || '')}</td><td>${_escHtml(s.branch_name || '—')}</td><td>${_escHtml(s.class || '')}</td><td>${_escHtml(s.section || '')}</td><td>${_escHtml(s.session || '')}</td>
             </tr>`).join('')}
           </tbody>
         </table>
@@ -51248,7 +51326,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         ${rows.map(s => `<div class="flex items-center gap-2 bg-white border border-slate-100 rounded-xl px-3 py-2">
           ${_avatar(s.student_name, s.photo, 'w-8 h-8')}
           <div class="flex-1 min-w-0"><p class="text-xs font-black truncate">${_escHtml(s.student_name || '')}</p>
-          <p class="text-[10px] text-slate-400">Roll ${_escHtml(s.roll || '')} · ${_escHtml(s.class || '')} ${_escHtml(s.section || '')} · ${_escHtml(s.session || '')}</p></div>
+          <p class="text-[10px] text-slate-400">Roll ${_escHtml(s.roll || '')}${s.branch_name ? ' · ' + _escHtml(s.branch_name) : ''} · ${_escHtml(s.class || '')} ${_escHtml(s.section || '')} · ${_escHtml(s.session || '')}</p></div>
         </div>`).join('')}
       </div>`;
   }
@@ -51288,12 +51366,47 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div class="flex flex-wrap gap-1.5 mb-2">
               ${(c.teachers || []).map(t => `<span class="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-full text-[10px] font-bold">${_escHtml(t.full_name)}<button onclick="_clubsManageRemoveTeacher(${c.id}, '${t.user_id}')" class="text-blue-400 hover:text-red-500">&times;</button></span>`).join('') || '<span class="text-[10px] text-slate-300">No club teacher assigned</span>'}
             </div>
-            <div class="relative">
+            <div class="relative mb-2">
               <input placeholder="Search a teacher to assign…" oninput="_clubsTeacherSearch(${c.id}, this.value)" onfocus="_clubsTeacherSearch(${c.id}, this.value)" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px]">
               <div id="clubsTeacherDrop_${c.id}" class="hidden absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto"></div>
             </div>
+            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Branches — students mainly join one of these</p>
+            <div class="flex flex-wrap gap-1.5 mb-2">
+              ${(c.branches || []).map(b => `<span class="inline-flex items-center gap-1 px-2 py-1 bg-violet-50 text-violet-700 rounded-full text-[10px] font-bold">${_escHtml(b.name)}<button onclick="_clubsManageDeleteBranch(${c.id}, ${b.id})" class="text-violet-400 hover:text-red-500">&times;</button></span>`).join('') || '<span class="text-[10px] text-slate-300">No branches yet</span>'}
+            </div>
+            <div class="flex gap-1.5">
+              <input id="clubsNewBranch_${c.id}" placeholder="New branch name" class="flex-1 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px]">
+              <button onclick="_clubsManageAddBranch(${c.id})" class="px-2.5 py-1.5 bg-violet-600 text-white rounded-lg text-[9px] font-black uppercase">+ Branch</button>
+            </div>
           </div>`).join('') : '<p class="text-xs text-slate-400 text-center py-8">No clubs yet — add one above.</p>'}
       </div>`;
+  }
+
+  function _clubsManageAddBranch(clubId) {
+    const input = document.getElementById('clubsNewBranch_' + clubId);
+    const name = String((input && input.value) || '').trim();
+    if (!name) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run
+      .withSuccessHandler(res => {
+        if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not add branch.', 'error'); return; }
+        _clubsRenderManage();
+      })
+      .withFailureHandler(() => showToast('Could not add branch.', 'error'))
+      .saveClubBranch(myId, { club_id: clubId, name });
+  }
+
+  function _clubsManageDeleteBranch(clubId, branchId) {
+    showConfirm('Delete this branch?', () => {
+      const myId = window.APP_USER && window.APP_USER.user_id;
+      google.script.run
+        .withSuccessHandler(res => {
+          if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not delete branch.', 'error'); return; }
+          _clubsRenderManage();
+        })
+        .withFailureHandler(() => showToast('Could not delete branch.', 'error'))
+        .deleteClubBranch(myId, branchId);
+    });
   }
 
   function _clubsTeacherSearch(clubId, q) {
