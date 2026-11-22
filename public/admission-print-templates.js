@@ -17,18 +17,33 @@ function deepMerge(def,ovr){const r={...def};for(const k in(ovr||{})){if(ovr[k]&
 const SITE_ORIGIN=(typeof window!=='undefined'&&window.location&&window.location.origin)||'';
 // Arial has no real Bangla glyph shaping -- conjuncts/matras render wrong or as
 // tofu boxes when a Bangla field (name_bangla, labels like নাম) hits the printed
-// page. Kalpurush/SutonnyMJ are the fonts Bangladeshi offices commonly already
-// have installed locally (picked first, free if present); Noto Sans Bengali is
-// listed next (ahead of Tiro Bangla) because it's loaded as a full variable font
-// below -- its wght (100-900) and wdth (62.5-100) axes are what the Bangla Font
-// Weight/Width designer settings actually control; Tiro Bangla/Arial are static
-// fallbacks if Noto Sans Bengali itself can't load.
-const BANGLA_FONT_STACK="'Kalpurush','SutonnyMJ','Noto Sans Bengali','Tiro Bangla',Arial,sans-serif";
-const BANGLA_FONT_LINK='<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tiro+Bangla&family=Noto+Sans+Bengali:wdth,wght@62.5..100,100..900&display=swap">';
+// page. This is the fallback chain used when the designer's Font setting is left
+// on "Auto": Kalpurush/SutonnyMJ/SolaimanLipi are fonts Bangladeshi offices
+// commonly already have installed locally (tried first, free if present); the
+// two Noto families are loaded below as full variable fonts (wght 100-900, wdth
+// 62.5-100) so the Weight/Width sliders have something to actually move; Tiro
+// Bangla/Hind Siliguri are static Google Font fallbacks; Arial is the last resort.
+const BANGLA_FONT_STACK="'Kalpurush','SutonnyMJ','SolaimanLipi','Noto Sans Bengali','Tiro Bangla','Hind Siliguri',Arial,sans-serif";
+const BANGLA_FONT_LINK='<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tiro+Bangla&family=Hind+Siliguri:wght@300;400;500;600;700&family=Noto+Sans+Bengali:wdth,wght@62.5..100,100..900&family=Noto+Serif+Bengali:wdth,wght@62.5..100,100..900&display=swap">';
+// Picked explicitly in the designer's Font dropdown -- 'auto' (the default)
+// keeps the full fallback chain above; anything else is tried first, THEN falls
+// back to the same chain if that exact font isn't actually available.
+const BANGLA_FONT_OPTIONS=[
+  {value:'auto',label:'Auto (best available)'},
+  {value:'Kalpurush',label:'Kalpurush (needs local install)'},
+  {value:'SutonnyMJ',label:'SutonnyMJ (needs local install)'},
+  {value:'SolaimanLipi',label:'SolaimanLipi (needs local install)'},
+  {value:'Noto Sans Bengali',label:'Noto Sans Bengali (Google Font)'},
+  {value:'Noto Serif Bengali',label:'Noto Serif Bengali (Google Font)'},
+  {value:'Tiro Bangla',label:'Tiro Bangla (Google Font)'},
+  {value:'Hind Siliguri',label:'Hind Siliguri (Google Font)'},
+  {value:'Arial',label:'Arial (no real Bangla shaping)'},
+];
+function banglaFontFamily(bf){const f=bf&&bf.family;return(f&&f!=='auto')?`'${f}',${BANGLA_FONT_STACK}`:BANGLA_FONT_STACK;}
 // font-stretch/font-weight only actually move the glyph if the active font is a
-// variable font exposing that axis -- true for Noto Sans Bengali here, a no-op
-// (or synthetic bold) if Kalpurush/SutonnyMJ win the stack instead because the
-// machine has them installed locally.
+// variable font exposing that axis -- true for Noto Sans/Serif Bengali here, a
+// no-op (or synthetic bold) for any static font (Kalpurush/SutonnyMJ/
+// SolaimanLipi/Tiro Bangla/Hind Siliguri/Arial) winning instead.
 function banglaFontCss(bf){const w=(bf&&bf.weight)||400,s=(bf&&bf.width)||100;return`font-weight:${w};font-stretch:${s}%;`;}
 
 function prQrBlock(data, caption, size){
@@ -130,7 +145,7 @@ const DEFAULT_FORM = {
   },
   footer: 'Chattogram Cantonment Public College — Official Admission Form — Page 1 of 1',
   signatureLabel: "Guardian's Signature & Date",
-  banglaFont: { weight: 400, width: 100 },
+  banglaFont: { family: 'auto', weight: 400, width: 100 },
 };
 
 const DEFAULT_ADMIT = {
@@ -160,7 +175,7 @@ const DEFAULT_ADMIT = {
   sig1: { visible: true, label: "Invigilator's Signature" },
   sig2: { visible: true, label: "Controller of Examination" },
   footer: 'Chattogram Cantonment Public College — Computer Generated Admit Card',
-  banglaFont: { weight: 400, width: 100 },
+  banglaFont: { family: 'auto', weight: 400, width: 100 },
 };
 
 function openPrintTab(html){
@@ -327,7 +342,7 @@ function generateFormHtml(a,fs,isPreview=false){
 ${BANGLA_FONT_LINK}
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:${BANGLA_FONT_STACK};font-size:10pt;color:#111;background:#fff;${banglaFontCss(bf)}}
+body{font-family:${banglaFontFamily(bf)};font-size:10pt;color:#111;background:#fff;${banglaFontCss(bf)}}
 @page{size:A4 portrait;margin:12mm}
 .pr-header{display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid ${ib.bgColor};padding-bottom:8px;margin-bottom:6px}
 .pr-logo{width:60px;height:60px;object-fit:contain}
@@ -421,7 +436,7 @@ function generateAdmitHtml(a,as,isPreview=false){
 ${BANGLA_FONT_LINK}
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:${BANGLA_FONT_STACK};font-size:10pt;color:#111;background:#fff;${banglaFontCss(bf)}}
+body{font-family:${banglaFontFamily(bf)};font-size:10pt;color:#111;background:#fff;${banglaFontCss(bf)}}
 @page{size:A4 portrait;margin:15mm}
 .ac-header{display:flex;align-items:center;justify-content:space-between;padding-bottom:8px;border-bottom:3px solid ${as.bannerBg||'#1a2b5c'};margin-bottom:0}
 .ac-logo{width:60px;height:60px;object-fit:contain}

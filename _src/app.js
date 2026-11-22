@@ -45884,7 +45884,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <details class="dgroup">
               <summary class="dgroup-hdr">Bangla Font (নাম)</summary>
               <div class="dgroup-body space-y-2">
-                <p class="text-[10px] text-slate-400 leading-snug">Controls Noto Sans Bengali's own variable weight/width axes used to render the card's Bangla text. Has no visible effect if a locally-installed font like Kalpurush/SutonnyMJ wins instead.</p>
+                <p class="text-[10px] text-slate-400 leading-snug">"Auto" tries a locally-installed font first (Kalpurush/SutonnyMJ/SolaimanLipi) and falls back to a web font if none is present. Picking a specific font skips straight to it, falling back the same way only if that exact font isn't available. Weight/Width only move the glyph on Noto Sans/Serif Bengali (true variable fonts) — a no-op on every other option here.</p>
+                <div>${lbl('Font')}<select id="adm-ad-bn-family" class="${inp}">
+                  <option value="auto">Auto (best available)</option>
+                  <option value="Kalpurush">Kalpurush (needs local install)</option>
+                  <option value="SutonnyMJ">SutonnyMJ (needs local install)</option>
+                  <option value="SolaimanLipi">SolaimanLipi (needs local install)</option>
+                  <option value="Noto Sans Bengali">Noto Sans Bengali (Google Font)</option>
+                  <option value="Noto Serif Bengali">Noto Serif Bengali (Google Font)</option>
+                  <option value="Tiro Bangla">Tiro Bangla (Google Font)</option>
+                  <option value="Hind Siliguri">Hind Siliguri (Google Font)</option>
+                  <option value="Arial">Arial (no real Bangla shaping)</option>
+                </select></div>
                 <div>${lbl('Weight (100 Thin – 900 Black)')}<input type="range" id="adm-ad-bn-weight" min="100" max="900" step="100" class="w-full" oninput="document.getElementById('adm-ad-bn-weight-val').textContent=this.value"><span id="adm-ad-bn-weight-val" class="text-[10px] font-black text-slate-500"></span></div>
                 <div>${lbl('Width (62.5% Condensed – 100% Normal)')}<input type="range" id="adm-ad-bn-width" min="62.5" max="100" step="2.5" class="w-full" oninput="document.getElementById('adm-ad-bn-width-val').textContent=this.value+'%'"><span id="adm-ad-bn-width-val" class="text-[10px] font-black text-slate-500"></span></div>
               </div>
@@ -46186,6 +46197,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admSetV('adm-ad-banner-bg', s.bannerBg || DEFAULT_ADMIT.bannerBg); _admSetV('adm-ad-banner-text', s.bannerText || DEFAULT_ADMIT.bannerText);
     _admSetChk('adm-ad-show-photo', s.showPhoto !== false);
     const bf = s.banglaFont || DEFAULT_ADMIT.banglaFont;
+    _admSetV('adm-ad-bn-family', bf.family || 'auto');
     _admSetV('adm-ad-bn-weight', bf.weight || 400); _admSetV('adm-ad-bn-width', bf.width || 100);
     const bnwEl = document.getElementById('adm-ad-bn-weight-val'); if (bnwEl) bnwEl.textContent = bf.weight || 400;
     const bnsEl = document.getElementById('adm-ad-bn-width-val'); if (bnsEl) bnsEl.textContent = (bf.width || 100) + '%';
@@ -46217,7 +46229,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       header: { logoUrl: _admV('adm-ad-logo-url') || DEFAULT_ADMIT.header.logoUrl, collegeName: _admV('adm-ad-college-name'), address: _admV('adm-ad-address'), cardTitle: _admV('adm-ad-card-title'), qrEnabled: _admChk('adm-ad-qr-show') },
       bannerBg: _admV('adm-ad-banner-bg'), bannerText: _admV('adm-ad-banner-text'),
       showPhoto: _admChk('adm-ad-show-photo'),
-      banglaFont: { weight: parseInt(_admV('adm-ad-bn-weight'), 10) || 400, width: parseFloat(_admV('adm-ad-bn-width')) || 100 },
+      banglaFont: { family: _admV('adm-ad-bn-family') || 'auto', weight: parseInt(_admV('adm-ad-bn-weight'), 10) || 400, width: parseFloat(_admV('adm-ad-bn-width')) || 100 },
       fields, labelWidths,
       examBox: { visible: _admChk('adm-ad-examdetails-show') },
       examCenter: _admV('adm-ad-exam-center'), examDate: _admV('adm-ad-exam-date'), examTime: _admV('adm-ad-exam-time'),
