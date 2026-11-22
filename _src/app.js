@@ -4473,7 +4473,9 @@
       });
     });
     const [from, to] = _mcaResolveRange();
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    // UTF-8 BOM + "sep=," is what makes Excel open this as UTF-8 instead of the
+    // local ANSI codepage -- without it, a Bangla student name opens as mojibake.
+    const blob = new Blob(['﻿sep=,\n' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -12199,7 +12201,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return [a.class, a.section, s.full_name || '', s.designation || '', s.shortname || '', a.user_id];
     })];
     const csv = lines.map(r => r.map(c => `"${String(c || '').replace(/"/g, '""')}"`).join(',')).join('\n');
-    _ccpcShareOrDownload('class_teacher_list.csv', 'text/csv', csv);
+    _ccpcShareOrDownload('class_teacher_list.csv', 'text/csv;charset=utf-8', '﻿sep=,\n' + csv);
   }
 
   function loadAdminTabVisibility() {
@@ -12574,7 +12576,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (!res || res.result !== 'success') { showToast((res && res.message) || 'Download failed', 'error'); return; }
       const csv = res.headers.join(',') + '\n' + res.rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g,'""')}"`).join(',')).join('\n');
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      a.href = URL.createObjectURL(new Blob(['﻿sep=,\n' + csv], { type: 'text/csv;charset=utf-8' }));
       a.download = `${category_name}_export.csv`;
       a.click();
     });
@@ -36757,7 +36759,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _adminFetch('get_tab_data', { tab_name: tab }).then(res => {
       const csv = res.headers.join(',') + '\n' + res.rows.map(r => r.map(c => `"${String(c || '').replace(/"/g, '""')}"`).join(',')).join('\n');
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      a.href = URL.createObjectURL(new Blob(['﻿sep=,\n' + csv], { type: 'text/csv;charset=utf-8' }));
       a.download = `${tab}_export.csv`;
       a.click();
     });
@@ -37374,7 +37376,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const headerRow = cols.map(c => IMPORT_LABELS[c] || c.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase()));
       const sampleRow = cols.map(c => IMPORT_DEMO_SAMPLES[c] ?? '');
       const csv = [headerRow, sampleRow].map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
-      _ccpcShareOrDownload('student_import_template.csv', 'text/csv', csv);
+      _ccpcShareOrDownload('student_import_template.csv', 'text/csv;charset=utf-8', '﻿sep=,\r\n' + csv);
     };
     if (IMPORT_DB_COLUMNS.length) { build(); return; }
     _adminFetch('get_student_data_headers', {}).then(cols => {
@@ -37736,7 +37738,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (!res || res.result !== 'success') { showToast((res && res.message) || 'Download failed', 'error'); return; }
       const csv = res.headers.join(',') + '\n' + res.rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      a.href = URL.createObjectURL(new Blob(['﻿sep=,\n' + csv], { type: 'text/csv;charset=utf-8' }));
       a.download = `${category_name}_export.csv`;
       a.click();
     }).catch(() => showToast('Network error', 'error'));
@@ -40523,7 +40525,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const csv = [headerRow, sampleRow]
       .map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
       .join('\r\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
+    const blob = new Blob(['﻿sep=,\r\n' + csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -49328,7 +49330,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const headers = [...dataCols.map(c => c.header), ...scanCols.map(c => c.header)];
     const csv = [headers].concat(rows.map(r => [...dataCols.map(c => _ccpcCsvCell(c.get(r), c.isPhone)), ...scanCols.map(c => c.get(r))]))
       .map(row => row.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
-    _ccpcShareOrDownload('candidates.csv', 'text/csv', csv);
+    // UTF-8 BOM + "sep=," is what makes Excel open this as UTF-8 instead of the
+    // local ANSI codepage -- without it, Bangla text (names/addresses/etc.) opens
+    // as mojibake. Every other CSV export in this file already does this; this
+    // one was missing it.
+    _ccpcShareOrDownload('candidates.csv', 'text/csv;charset=utf-8', '﻿sep=,\r\n' + csv);
   }
   async function _admCandDeleteCandidate(id) {
     if (!confirm('Delete this candidate?')) return;
