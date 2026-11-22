@@ -48634,9 +48634,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const sections = [['student', 'Student'], ['father', 'Father'], ['mother', 'Mother'], ['guardian', 'Guardian']];
     let html = `<option value="__asis__" ${isAsIs ? 'selected' : ''}>As per Excel${row.label ? ' — "' + _escHtml(row.label) + '"' : ''}</option>`;
     html += `<option value="__skip__" ${isSkip ? 'selected' : ''}>Skip this column</option>`;
-    html += `<optgroup label="System">` + ADM_CAND_CORE_FIELD_LABELS.map(([key, label]) => `<option value="${key}" ${key === currentKey ? 'selected' : ''}>${_escHtml(label)}</option>`).join('') + `</optgroup>`;
+    // Core fields (token/class/category/version/mobile/index_id) are real
+    // admission_applications columns rather than extra_fields entries, but
+    // that's internal plumbing the admin mapping a column shouldn't have to
+    // think about -- a separate "System" optgroup made "Index No." easy to
+    // miss/avoid in favor of defining a disconnected custom field with a
+    // similar name (e.g. "Roll") that silently never touched the real
+    // column. Merged into the Student group instead, listed first, so every
+    // mappable target looks and sits the same way with no hidden category.
     sections.forEach(([sec, secLabel]) => {
-      const opts = _admCandFormFieldDefs.filter(f => (f.section || 'student') === sec);
+      const coreOpts = sec === 'student' ? ADM_CAND_CORE_FIELD_LABELS.map(([key, label]) => ({ key, label })) : [];
+      const opts = coreOpts.concat(_admCandFormFieldDefs.filter(f => (f.section || 'student') === sec).map(f => ({ key: f.key, label: f.label })));
       if (!opts.length) return;
       html += `<optgroup label="${_escHtml(secLabel)}">` + opts.map(f => `<option value="${_escHtml(f.key)}" ${f.key === currentKey ? 'selected' : ''}>${_escHtml(f.label)}</option>`).join('') + `</optgroup>`;
     });
