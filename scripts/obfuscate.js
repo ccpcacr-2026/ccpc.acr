@@ -546,7 +546,8 @@ const RESERVED = [
   // Clubs (admin club CRUD, class-teacher assignment, club-teacher roster) -- Part 19
   'loadClubsView','_myClassAssignClub','_clubsShowTab','_clubsSelectClub','_clubsApplyFilter',
   '_clubsManageAddClub','_clubsManageRenameClub','_clubsManageDeleteClub','_clubsManageRemoveTeacher','_clubsTeacherSearch',
-  '_clubsManageAddBranch','_clubsManageDeleteBranch','_clubsToggleSelfAssignLock','_clubsManageUpdateField'
+  '_clubsManageAddBranch','_clubsManageDeleteBranch','_clubsToggleSelfAssignLock','_clubsManageUpdateField',
+  '_clubsNoticesSelectClub','_clubsPostNotice','_clubsDeleteNotice'
 ];
 
 // Strip HTML comments and collapse whitespace

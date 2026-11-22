@@ -590,6 +590,25 @@ async function _isClubLockAdmin(callerId) {
   return roles.some(r => ['Admin', 'VP', 'Cord'].includes(r));
 }
 
+// Part 19 (Club Notices) — is this user the verified class teacher of ANY
+// class (not a specific one)? Reuses the same resolver getMyClassRoster
+// already relies on for its own, narrower per-class check.
+async function _isAnyClassTeacher(userId) {
+  if (!userId) return false;
+  const assignments = await _getClassTeacherAssignments();
+  return assignments.some(a => a.resolvedUserId === userId);
+}
+
+// Who may post/view a given club's notice feed: that club's own Club
+// Teacher, ANY class teacher, or Admin/VP/Cord -- confirmed via
+// AskUserQuestion (broader than the roster-view gate on purpose).
+async function _canManageClubNotices(userId, clubId) {
+  if (!userId) return false;
+  if (await _isClubLockAdmin(userId)) return true;
+  if (await _isClubTeacherOf(userId, clubId)) return true;
+  return _isAnyClassTeacher(userId);
+}
+
 // ── DIARY COMMITTEE helpers ──────────────────────────────────────────────
 // 'chairman' | 'member' | null -- never trusts anything client-held, same
 // fresh-per-request discipline as every other permission check in this file.
@@ -3730,6 +3749,64 @@ const handlers = {
       list.forEach(c => { c.branches = branchesByClub[c.id] || []; });
     }
     return { result: 'success', clubs: list };
+  },
+
+  // Low-sensitivity directory (club names/badges aren't secret) so any
+  // signed-in teacher can pick which club to post/read a notice for, even
+  // if they're not that club's own Club Teacher — the Club Notices tab's picker.
+  async listAllClubsBasic([callerId]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const clubs = await supabaseRequest('clubs?select=id,name,badge_url&order=name.asc');
+    return { result: 'success', clubs: Array.isArray(clubs) ? clubs : [] };
+  },
+
+  async listClubNotices([callerId, clubId]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    if (!clubId) return { result: 'error', message: 'Missing club id.' };
+    if (!(await _canManageClubNotices(callerId, clubId))) {
+      return { result: 'error', message: 'Only a Club Teacher, Class Teacher, or Admin/VP/Cord can view this club\'s notices.' };
+    }
+    const rows = await supabaseRequest(`club_notices?club_id=eq.${encodeURIComponent(clubId)}&select=*&order=created_at.desc`);
+    const list = Array.isArray(rows) ? rows : [];
+    if (list.length) {
+      const ids = [...new Set(list.map(n => n.posted_by).filter(Boolean))];
+      if (ids.length) {
+        const profiles = await supabaseRequest(`users_profile?teacher_id=in.(${ids.map(encodeURIComponent).join(',')})&select=teacher_id,full_name`);
+        const nameById = {};
+        (Array.isArray(profiles) ? profiles : []).forEach(p => { nameById[p.teacher_id] = p.full_name; });
+        list.forEach(n => { n.posted_by_name = nameById[n.posted_by] || n.posted_by; });
+      }
+    }
+    return { result: 'success', notices: list };
+  },
+
+  async postClubNotice([callerId, payload]) {
+    const p = payload || {};
+    if (!(await _canManageClubNotices(callerId, p.club_id))) {
+      return { result: 'error', message: 'Only a Club Teacher, Class Teacher, or Admin/VP/Cord can post a notice for this club.' };
+    }
+    const message = String(p.message || '').trim();
+    if (!message) return { result: 'error', message: 'Write a message first.' };
+    const created = await supabaseRequest('club_notices', 'post', { club_id: p.club_id, posted_by: callerId, message });
+    if (created?.error) return { result: 'error', message: created.details || created.error };
+    return { result: 'success', notice: created[0] };
+  },
+
+  // The original poster may always remove their own notice; otherwise the
+  // same broadened permission as posting (never trusts a client-sent
+  // club_id — re-derives it from the notice row itself).
+  async deleteClubNotice([callerId, id]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    if (!id) return { result: 'error', message: 'Missing notice id.' };
+    const rows = await supabaseRequest(`club_notices?id=eq.${encodeURIComponent(id)}&select=club_id,posted_by`);
+    const notice = Array.isArray(rows) && rows[0];
+    if (!notice) return { result: 'error', message: 'Notice not found.' };
+    if (notice.posted_by !== callerId && !(await _canManageClubNotices(callerId, notice.club_id))) {
+      return { result: 'error', message: 'You cannot delete this notice.' };
+    }
+    const deleted = await supabaseRequest(`club_notices?id=eq.${encodeURIComponent(id)}`, 'delete');
+    if (deleted?.error) return { result: 'error', message: deleted.details || deleted.error };
+    return { result: 'success' };
   },
 
   // Any signed-in user may call this, but it only ever returns data for a

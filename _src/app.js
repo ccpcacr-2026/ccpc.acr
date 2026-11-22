@@ -51227,6 +51227,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!tabs) return;
     const items = [];
     if (_clubsMyTeacherClubs.length) items.push(['my_club', 'My Club']);
+    items.push(['notices', 'Club Notices']);
     if (isAdmin) items.push(['manage', 'Manage Clubs']);
     tabs.innerHTML = items.map(([key, label]) => `
       <button onclick="_clubsShowTab('${key}')" class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${_clubsActiveTab === key ? 'bg-blue-600 text-white' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50'}">${label}</button>`).join('');
@@ -51244,7 +51245,104 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!body) return;
     if (_clubsActiveTab === 'manage' && isAdmin) { _clubsRenderManage(); return; }
     if (_clubsActiveTab === 'my_club' && _clubsMyTeacherClubs.length) { _clubsRenderMyClub(); return; }
+    if (_clubsActiveTab === 'notices') { _clubsRenderNoticesTab(); return; }
     body.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">Nothing to show here — you're not a club teacher for any club.</div>`;
+  }
+
+  // ── Club Notices (any Class Teacher, that club's Club Teacher, or
+  //    Admin/VP/Cord can post/read — server re-checks every call) ──────────
+  let _clubsBasicList = null; // {id,name,badge_url}[] cache for the picker
+  let _clubsNoticesClubId = null;
+  let _clubsNoticesData = [];
+
+  function _clubsRenderNoticesTab() {
+    const body = document.getElementById('clubsBody');
+    if (!body) return;
+    body.innerHTML = `<div class="text-center py-10 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div>`;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const proceed = () => {
+      if (!_clubsBasicList.length) { body.innerHTML = `<p class="text-xs text-slate-400 text-center py-8">No clubs yet.</p>`; return; }
+      if (!_clubsNoticesClubId || !_clubsBasicList.some(c => String(c.id) === String(_clubsNoticesClubId))) {
+        _clubsNoticesClubId = _clubsBasicList[0].id;
+      }
+      _clubsRenderNoticesBody();
+    };
+    if (_clubsBasicList) { proceed(); return; }
+    google.script.run
+      .withSuccessHandler(res => { _clubsBasicList = (res && res.result === 'success' && res.clubs) || []; proceed(); })
+      .withFailureHandler(() => { _clubsBasicList = []; proceed(); })
+      .listAllClubsBasic(myId);
+  }
+
+  function _clubsNoticesSelectClub(clubId) {
+    _clubsNoticesClubId = clubId;
+    _clubsRenderNoticesBody();
+  }
+
+  function _clubsRenderNoticesBody() {
+    const body = document.getElementById('clubsBody');
+    if (!body) return;
+    body.innerHTML = `
+      <select onchange="_clubsNoticesSelectClub(this.value)" class="mb-3 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+        ${_clubsBasicList.map(c => `<option value="${c.id}" ${String(c.id) === String(_clubsNoticesClubId) ? 'selected' : ''}>${_escHtml(c.name)}</option>`).join('')}
+      </select>
+      <div class="flex gap-2 mb-4">
+        <textarea id="clubsNoticeInput" placeholder="Post a notice for this club… (e.g. &quot;Practice today, 4pm — School field&quot;)" class="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs" rows="2"></textarea>
+        <button onclick="_clubsPostNotice()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase self-start">Post</button>
+      </div>
+      <div id="clubsNoticesList"><div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>`;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run
+      .withSuccessHandler(res => {
+        _clubsNoticesData = (res && res.result === 'success' && res.notices) || [];
+        if (res && res.result !== 'success') showToast(res.message || 'Could not load notices.', 'error');
+        _clubsRenderNoticesList();
+      })
+      .withFailureHandler(() => showToast('Could not load notices.', 'error'))
+      .listClubNotices(myId, _clubsNoticesClubId);
+  }
+
+  function _clubsRenderNoticesList() {
+    const el = document.getElementById('clubsNoticesList');
+    if (!el) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    if (!_clubsNoticesData.length) { el.innerHTML = `<p class="text-xs text-slate-400 text-center py-8">No notices yet.</p>`; return; }
+    el.innerHTML = _clubsNoticesData.map(n => `
+      <div class="flex items-start justify-between gap-2 bg-white border border-slate-100 rounded-xl px-3 py-2.5 mb-2">
+        <div class="flex-1 min-w-0">
+          <p class="text-xs text-slate-700">${_escHtml(n.message)}</p>
+          <p class="text-[9px] text-slate-400 font-bold uppercase tracking-widest mt-1">${_escHtml(n.posted_by_name || n.posted_by || '')} · ${_escHtml(new Date(n.created_at).toLocaleString())}</p>
+        </div>
+        ${n.posted_by === myId ? `<button onclick="_clubsDeleteNotice(${n.id})" class="text-red-400 hover:text-red-600 text-sm px-1 shrink-0">&times;</button>` : ''}
+      </div>`).join('');
+  }
+
+  function _clubsPostNotice() {
+    const input = document.getElementById('clubsNoticeInput');
+    const message = String((input && input.value) || '').trim();
+    if (!message) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run
+      .withSuccessHandler(res => {
+        if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not post notice.', 'error'); return; }
+        if (input) input.value = '';
+        _clubsRenderNoticesBody();
+      })
+      .withFailureHandler(() => showToast('Could not post notice.', 'error'))
+      .postClubNotice(myId, { club_id: _clubsNoticesClubId, message });
+  }
+
+  function _clubsDeleteNotice(id) {
+    showConfirm('Delete this notice?', () => {
+      const myId = window.APP_USER && window.APP_USER.user_id;
+      google.script.run
+        .withSuccessHandler(res => {
+          if (!res || res.result !== 'success') { showToast((res && res.message) || 'Could not delete notice.', 'error'); return; }
+          _clubsRenderNoticesBody();
+        })
+        .withFailureHandler(() => showToast('Could not delete notice.', 'error'))
+        .deleteClubNotice(myId, id);
+    });
   }
 
   // ── My Club (club teacher's filterable roster) ───────────────────────────
