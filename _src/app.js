@@ -32688,9 +32688,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (r.extra_fields && typeof r.extra_fields === 'object') Object.keys(r.extra_fields).forEach(k => extraKeys.add(k));
     });
     const cols = Array.from(topKeys).map(k => ({ header: k, isPhone: isPhoneKey(k), get: r => r[k] }));
+    // A VortiBD/Excel-mapped extra_fields key can collide with a real top-level
+    // column's name (e.g. a raw "id" or "index_id" field from the source system,
+    // unrelated to this table's own id/index_id) -- without disambiguation that
+    // produced two CSV columns with the exact same header, which looks like a
+    // single column silently losing its value rather than two distinct ones.
+    const usedHeaders = new Set(cols.map(c => c.header));
     Array.from(extraKeys).forEach(k => {
       const def = defByKey[k];
-      cols.push({ header: def ? def.label : k, isPhone: isPhoneKey(k), get: r => (r.extra_fields || {})[k] });
+      let header = def ? def.label : k;
+      if (usedHeaders.has(header)) header += ' (imported field)';
+      usedHeaders.add(header);
+      cols.push({ header, isPhone: isPhoneKey(k), get: r => (r.extra_fields || {})[k] });
     });
     return cols;
   }
