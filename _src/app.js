@@ -1872,20 +1872,7 @@
             </div>
           </form>
         </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-left border-collapse">
-            <thead>
-              <tr class="bg-slate-50 text-slate-400 text-[10px] font-bold uppercase tracking-widest border-b border-slate-100">
-                <th class="px-6 py-3">Committee</th>
-                <th class="px-6 py-3">Chairman</th>
-                <th class="px-6 py-3">Members</th>
-                <th class="px-6 py-3">Status</th>
-                <th class="px-4 py-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="committeeListBody" class="divide-y divide-slate-100"></tbody>
-          </table>
-        </div>
+        <div id="committeeListBody" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
       </div>
 
       <!-- ── Tab: Parameters ── -->
@@ -53425,10 +53412,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   function loadCommitteeData() {
     google.script.run.withSuccessHandler(groups => {
-      const tbody = document.getElementById('committeeListBody');
-      if (!tbody) return;
+      const grid = document.getElementById('committeeListBody');
+      if (!grid) return;
       if (!Array.isArray(groups) || !groups.length) {
-        tbody.innerHTML = `<tr><td colspan="5" class="px-6 py-12 text-center text-slate-400 text-xs font-black uppercase tracking-widest">No committees registered</td></tr>`;
+        grid.innerHTML = `<p class="col-span-full text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">No committees registered</p>`;
         return;
       }
       const myId   = window.APP_USER && window.APP_USER.user_id;
@@ -53436,7 +53423,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const canEditAll = ['Admin','HR','VP'].includes(myRole);
       const archivedList  = groups.filter(g => g.status === 'archived');
       const visibleGroups = _showArchived ? groups : groups.filter(g => g.status !== 'archived');
-      let rowsHtml = visibleGroups.map(g => {
+      let cardsHtml = visibleGroups.map(g => {
         const m   = g.members_list || [];
         const ch  = m[0];
         const isChairman   = myId && ch && ch.user_id === myId;
@@ -53446,14 +53433,32 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const safeName = (g.committee_name||'').replace(/'/g,"\\'");
         const isArchived = g.status === 'archived';
         const isClosed   = g.status === 'closed';
+        const accent = isArchived ? '#a855f7' : isClosed ? '#ef4444' : '#10b981';
         const statusBadge = isArchived
-          ? `<span class="px-2.5 py-1 bg-purple-100 text-purple-600 rounded-full text-[10px] font-black uppercase">Archived</span>`
+          ? `<span class="px-2.5 py-1 bg-purple-100 text-purple-600 rounded-full text-[10px] font-black uppercase shrink-0">Archived</span>`
           : isClosed
-          ? `<span class="px-2.5 py-1 bg-red-100 text-red-600 rounded-full text-[10px] font-black uppercase">Closed</span>`
-          : `<span class="px-2.5 py-1 bg-emerald-100 text-emerald-600 rounded-full text-[10px] font-black uppercase">Active</span>`;
-        const dateStr = g.date_of_creation ? `<span class="ml-1 px-2 py-0.5 bg-slate-100 text-slate-500 rounded-full text-[9px] font-bold">${g.date_of_creation}</span>` : '';
-        const actionCell = `<td class="px-4 py-4">
-          <div class="flex items-center justify-end gap-2 flex-wrap">
+          ? `<span class="px-2.5 py-1 bg-red-100 text-red-600 rounded-full text-[10px] font-black uppercase shrink-0">Closed</span>`
+          : `<span class="px-2.5 py-1 bg-emerald-100 text-emerald-600 rounded-full text-[10px] font-black uppercase shrink-0">Active</span>`;
+        const dateStr = g.date_of_creation ? `<span class="px-2 py-0.5 bg-slate-100 text-slate-500 rounded-full text-[9px] font-bold">${g.date_of_creation}</span>` : '';
+        return `<div class="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all p-4 flex flex-col gap-3" style="border-left:3px solid ${accent}">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <p class="font-black text-slate-800 text-sm truncate">${g.committee_name}</p>
+              ${g.sub_committee ? `<p class="text-[10px] text-slate-400 font-bold mt-0.5 truncate">${g.sub_committee}</p>` : ''}
+            </div>
+            ${statusBadge}
+          </div>
+          ${g.description ? `<p class="text-[10px] text-slate-500">${g.description}</p>` : ''}
+          ${dateStr ? `<div>${dateStr}</div>` : ''}
+          <div>
+            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Chairman</p>
+            <span class="px-2.5 py-1 bg-indigo-100 text-indigo-700 rounded-full text-[10px] font-black">${ch?.name || ch?.user_id || '—'}</span>
+          </div>
+          <div class="flex-1">
+            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">${members.length} Member${members.length === 1 ? '' : 's'}</p>
+            <div class="flex flex-wrap gap-1">${members.map(x => `<span class="px-2 py-0.5 bg-slate-100 text-slate-500 rounded-full text-[10px] font-bold">${x.name || x.user_id}</span>`).join('') || '<span class="text-[10px] text-slate-300">None</span>'}</div>
+          </div>
+          <div class="flex items-center flex-wrap gap-2 pt-2 border-t border-slate-100">
             ${canChat ? `<button onclick="openCommChat(${g.id},'${safeName}')" class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-600 text-[10px] font-black rounded-xl transition-all uppercase tracking-widest">
               <i data-lucide="message-circle" class="h-3 w-3"></i> Chat
             </button>` : ''}
@@ -53473,31 +53478,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <i data-lucide="trash-2" class="h-3 w-3"></i> Delete
             </button>` : ''}
           </div>
-        </td>`;
-        return `<tr class="hover:bg-slate-50 border-b border-slate-100">
-          <td class="px-6 py-4" data-label="Committee Name">
-            <p class="font-black text-slate-800 text-sm">${g.committee_name}</p>
-            ${g.sub_committee ? `<p class="text-[10px] text-slate-400 font-bold mt-0.5">${g.sub_committee}</p>` : ''}
-            ${g.description ? `<p class="text-[10px] text-slate-400 mt-0.5">${g.description}</p>` : ''}
-            ${dateStr}
-          </td>
-          <td class="px-6 py-4" data-label="Chairman">
-            <span class="px-2.5 py-1 bg-indigo-100 text-indigo-700 rounded-full text-[10px] font-black">${ch?.name || ch?.user_id || '—'}</span>
-          </td>
-          <td class="px-6 py-4" data-label="Members">
-            <div class="flex flex-wrap gap-1">${members.map(x => `<span class="px-2 py-0.5 bg-slate-100 text-slate-500 rounded-full text-[10px] font-bold">${x.name || x.user_id}</span>`).join('')}</div>
-          </td>
-          <td class="px-6 py-4" data-label="Status">${statusBadge}</td>
-          ${actionCell.replace('<td class="px-4 py-4">', '<td class="px-4 py-4" data-label="Actions">')}
-        </tr>`;
+        </div>`;
       }).join('');
       if (archivedList.length) {
-        rowsHtml += `<tr><td colspan="5" class="px-6 py-3 text-center" style="background:rgba(248,250,252,.5);">
-          <button onclick="toggleArchivedView()" class="inline-flex items-center gap-1.5 text-[10px] font-black text-slate-500 hover:text-slate-800 uppercase tracking-widest">
-            <i data-lucide="${_showArchived ? 'eye-off' : 'archive'}" class="h-3 w-3"></i> ${_showArchived ? 'Hide' : 'Show'} ${archivedList.length} archived
-          </button></td></tr>`;
+        cardsHtml += `<button onclick="toggleArchivedView()" class="col-span-full flex items-center justify-center gap-1.5 py-3 text-[10px] font-black text-slate-500 hover:text-slate-800 uppercase tracking-widest bg-slate-50 rounded-2xl">
+          <i data-lucide="${_showArchived ? 'eye-off' : 'archive'}" class="h-3 w-3"></i> ${_showArchived ? 'Hide' : 'Show'} ${archivedList.length} archived
+        </button>`;
       }
-      tbody.innerHTML = rowsHtml;
+      grid.innerHTML = cardsHtml;
       _committeeCache = groups;
       lucide.createIcons();
     }).getUserCommittees();
