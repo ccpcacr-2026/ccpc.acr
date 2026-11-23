@@ -590,6 +590,7 @@
   // than cycling through internal views (desired for a modal-style SPA).
   const _HASH_ROUTES = {
     dashboard:     () => loadDefaultView(),
+    calendar:      () => loadCalendarView(),
     system:        () => loadSystemView(),
     committees:    () => loadMyCommittees(),
     messages:      () => loadMessagesView(),
@@ -614,7 +615,7 @@
     clubs:         () => loadClubsView(),
     profile:       () => openMyProfile(),
     ssc_result_analysis: () => loadSscResultAnalysisView(),
-    home:          () => renderMobileHomeGrid(),
+    home:          () => loadMainDashboard(),
     analytics:     () => loadAnalytics(),
     permissions:   () => loadPermissionsPanel(),
     registration_admin: () => loadRegistrationAdminView(),
@@ -655,10 +656,11 @@
     startSessionHeartbeat();
     loadAndApplyTheme();
     _initRealtime();
-    // A fresh mobile login with no saved hash lands on the app-launcher home
-    // grid instead of the Administration dashboard — desktop is untouched
-    // since this only fires when both conditions hold.
-    if (!window.location.hash && window.innerWidth < 768) _setViewHash('home');
+    // Part 20: a fresh login with no saved hash (either screen size) lands on
+    // the aggregating Dashboard ('home') instead of the role-specific
+    // Administration/profile view — that view is still one click away via
+    // the "Administration" sidebar link (hash #dashboard, unchanged).
+    if (!window.location.hash) _setViewHash('home');
     // Route to saved hash (supports refresh & bookmarked views)
     _routeByHash();
     window.addEventListener('hashchange', _routeByHash);
@@ -1056,12 +1058,18 @@
   // instead of swapping the onclick attribute itself.
   function _mobileTopBarNavClick() {
     const key = location.hash.slice(1).split('?')[0] || '';
+    // Part 20: Home is now the aggregating Dashboard, not the module grid —
+    // from Home, the button opens the module drawer (menu icon); from any
+    // other screen it's a back-arrow to Home, same as before, just landing
+    // on the Dashboard instead of the retired grid. The grid itself still
+    // exists (renderMobileHomeGrid, reachable via the Dashboard's "View All
+    // Modules" link) — it's just no longer what "back" resolves to.
     if (key === 'home' || key === '') openMobileSidebar();
     // Any individual Student Portal sub-view (Setup, Data, Access, …) shares
     // this same hash — back should return to the sub-menu of destinations,
     // not jump all the way past it to Home.
     else if (key === 'student_portal') _openStudentPortalMobileMenu();
-    else renderMobileHomeGrid();
+    else { _setViewHash('home'); loadMainDashboard(); }
   }
   function _syncMobileTopBarIcon() {
     if (window.innerWidth >= 768) return;
@@ -51183,6 +51191,374 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return /Admin|VP|Cord/.test(role);
   }
 
+  // ══════════════════════════════════════════════════════════════════════
+  // Part 20 — Unified School Calendar + aggregating Dashboard
+  // ══════════════════════════════════════════════════════════════════════
+  const CAL_TYPE_META = {
+    holiday:      { label: 'Holiday',      color: 'bg-red-100 text-red-700',       dot: 'bg-red-500' },
+    programme:    { label: 'Programme',    color: 'bg-indigo-100 text-indigo-700', dot: 'bg-indigo-500' },
+    exam:         { label: 'Exam',         color: 'bg-amber-100 text-amber-700',   dot: 'bg-amber-500' },
+    homework:     { label: 'Homework Due', color: 'bg-sky-100 text-sky-700',       dot: 'bg-sky-500' },
+    announcement: { label: 'Announcement', color: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500' },
+    birthday:     { label: 'Birthday',     color: 'bg-pink-100 text-pink-700',     dot: 'bg-pink-500' },
+    other:        { label: 'Other',        color: 'bg-slate-100 text-slate-700',   dot: 'bg-slate-500' },
+  };
+  function _calTypeMeta(t) { return CAL_TYPE_META[t] || CAL_TYPE_META.other; }
+  function _calFmtDate(iso) { const d = new Date(iso + 'T00:00:00'); return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); }
+
+  let _calEvents = [];
+  let _calViewTab = 'month'; // 'month' | 'list' | 'manage'
+  let _calMonthCursor = new Date(); // first-of-month anchor for the Month view
+
+  // Convenience-only client gate (server re-verifies on every write) — same
+  // Admin/Cord bar the backend's _isCordOrAdmin() checks.
+  function _calIsAdmin() {
+    const roles = window.USER_ROLES || [window.USER_ROLE];
+    return (roles || []).some(r => ['Admin', 'Cord'].includes(r));
+  }
+
+  function _calFetchEvents(fromDate, toDate) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const p1 = new Promise(resolve => {
+      google.script.run.withSuccessHandler(resolve).withFailureHandler(() => resolve(null))
+        .getCalendarEvents(myId, { from_date: fromDate, to_date: toDate });
+    });
+    const p2 = _adminFetch('get_exam_calendar_events', { from_date: fromDate, to_date: toDate }).catch(() => null);
+    return Promise.all([p1, p2]).then(([r1, r2]) => {
+      const a = (r1 && r1.result === 'success' && r1.events) || [];
+      const b = (r2 && r2.result === 'success' && r2.events) || [];
+      return [...a, ...b].sort((x, y) => x.date < y.date ? -1 : x.date > y.date ? 1 : 0);
+    });
+  }
+
+  function loadMainDashboard() {
+    _setViewHash('home');
+    setActiveNavLink('nav-calendar'); // closest thing to "home" in the sidebar
+    setContentHeader('Dashboard', 'layout-dashboard');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `<div class="pt-4 max-w-5xl mx-auto pb-10 space-y-5">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-black text-slate-800">Welcome${window.APP_USER && window.APP_USER.email ? '' : ''}</h2>
+        <button onclick="renderMobileHomeGrid()" class="text-[10px] font-black uppercase tracking-widest text-indigo-600 flex items-center gap-1">
+          <i data-lucide="grid-3x3" class="h-3.5 w-3.5"></i> View All Modules
+        </button>
+      </div>
+      <div id="dashUpcoming"><div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
+      <div id="dashAnnouncements"></div>
+    </div>`;
+    lucide.createIcons();
+    const today = new Date();
+    const from = today.toISOString().slice(0, 10);
+    const to = new Date(today.getTime() + 13 * 86400000).toISOString().slice(0, 10);
+    _calFetchEvents(from, to).then(events => _renderDashboardUpcoming(events));
+  }
+
+  function _renderDashboardUpcoming(events) {
+    const host = document.getElementById('dashUpcoming');
+    if (!host) return;
+    if (!events.length) {
+      host.innerHTML = `<div class="bg-white rounded-2xl border border-slate-100 p-6 text-center text-xs font-bold text-slate-400">Nothing coming up in the next two weeks.</div>`;
+      return;
+    }
+    host.innerHTML = `
+      <p class="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Upcoming (next 14 days)</p>
+      <div class="space-y-2">
+        ${events.slice(0, 8).map(e => {
+          const m = _calTypeMeta(e.type);
+          return `<div class="flex items-center gap-3 bg-white rounded-2xl border border-slate-100 shadow-sm p-3 cursor-pointer hover:shadow-md" onclick="_calOpenEventDetail('${e.id}')">
+            <span class="h-2.5 w-2.5 rounded-full ${m.dot} shrink-0"></span>
+            <div class="flex-1 min-w-0">
+              <p class="text-xs font-black text-slate-800 truncate">${_escHtml(e.title)}</p>
+              <p class="text-[10px] text-slate-400 font-bold">${_calFmtDate(e.date)}${e.description ? ' · ' + _escHtml(e.description) : ''}</p>
+            </div>
+            <span class="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full ${m.color}">${m.label}</span>
+          </div>`;
+        }).join('')}
+      </div>
+      ${events.length > 8 ? `<button onclick="loadCalendarView()" class="mt-3 w-full text-center text-[10px] font-black uppercase tracking-widest text-indigo-600 py-2">See all on Calendar →</button>` : ''}
+    `;
+    lucide.createIcons();
+  }
+
+  function loadCalendarView() {
+    _setViewHash('calendar');
+    setActiveNavLink('nav-calendar');
+    setContentHeader('Calendar', 'calendar');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    const isAdmin = _calIsAdmin();
+    container.innerHTML = `<div class="pt-4 max-w-5xl mx-auto pb-10">
+      <div class="flex gap-2 mb-4">
+        <button onclick="_calShowTab('month', this)" class="cal-tab px-4 py-2 rounded-xl text-xs font-black ${_calViewTab === 'month' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 border border-slate-200'}">Month</button>
+        <button onclick="_calShowTab('list', this)" class="cal-tab px-4 py-2 rounded-xl text-xs font-black ${_calViewTab === 'list' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 border border-slate-200'}">List</button>
+        ${isAdmin ? `<button onclick="_calShowTab('manage', this)" class="cal-tab px-4 py-2 rounded-xl text-xs font-black ${_calViewTab === 'manage' ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 border border-slate-200'}">Manage</button>` : ''}
+      </div>
+      <div id="calBody"><div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
+    </div>`;
+    _calRenderActiveTab();
+  }
+
+  function _calShowTab(tab, btn) {
+    _calViewTab = tab;
+    document.querySelectorAll('.cal-tab').forEach(b => { b.classList.remove('bg-indigo-600', 'text-white'); b.classList.add('bg-white', 'text-slate-600', 'border', 'border-slate-200'); });
+    if (btn) { btn.classList.add('bg-indigo-600', 'text-white'); btn.classList.remove('bg-white', 'text-slate-600', 'border', 'border-slate-200'); }
+    _calRenderActiveTab();
+  }
+
+  function _calRenderActiveTab() {
+    if (_calViewTab === 'manage') { _calRenderManageTab(); return; }
+    if (_calViewTab === 'list') { _calRenderListTab(); return; }
+    _calRenderMonthTab();
+  }
+
+  function _calRenderMonthTab() {
+    const y = _calMonthCursor.getFullYear(), m = _calMonthCursor.getMonth();
+    const first = new Date(y, m, 1), last = new Date(y, m + 1, 0);
+    const from = first.toISOString().slice(0, 10), to = last.toISOString().slice(0, 10);
+    _calFetchEvents(from, to).then(events => {
+      _calEvents = events;
+      const host = document.getElementById('calBody');
+      if (!host) return;
+      const byDay = {};
+      events.forEach(e => { (byDay[e.date] = byDay[e.date] || []).push(e); });
+      const startDow = first.getDay(); // 0=Sun
+      const daysInMonth = last.getDate();
+      const cells = [];
+      for (let i = 0; i < startDow; i++) cells.push('<div></div>');
+      for (let d = 1; d <= daysInMonth; d++) {
+        const iso = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const dayEvents = byDay[iso] || [];
+        const isToday = iso === new Date().toISOString().slice(0, 10);
+        cells.push(`<div class="h-16 md:h-20 border border-slate-100 rounded-lg p-1 ${isToday ? 'bg-indigo-50 border-indigo-300' : 'bg-white'} ${dayEvents.length ? 'cursor-pointer' : ''}" ${dayEvents.length ? `onclick="_calOpenDayDetail('${iso}')"` : ''}>
+          <p class="text-[10px] font-black ${isToday ? 'text-indigo-600' : 'text-slate-500'}">${d}</p>
+          <div class="flex flex-wrap gap-0.5 mt-1">
+            ${dayEvents.slice(0, 4).map(e => `<span class="h-1.5 w-1.5 rounded-full ${_calTypeMeta(e.type).dot}"></span>`).join('')}
+          </div>
+        </div>`);
+      }
+      host.innerHTML = `
+        <div class="flex items-center justify-between mb-3">
+          <button onclick="_calMonthPrev()" class="p-2 rounded-lg bg-white border border-slate-200"><i data-lucide="chevron-left" class="h-4 w-4"></i></button>
+          <p class="text-sm font-black text-slate-800">${first.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</p>
+          <button onclick="_calMonthNext()" class="p-2 rounded-lg bg-white border border-slate-200"><i data-lucide="chevron-right" class="h-4 w-4"></i></button>
+        </div>
+        <div class="grid grid-cols-7 gap-1 mb-1">
+          ${['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => `<p class="text-center text-[9px] font-black text-slate-400 uppercase">${d}</p>`).join('')}
+        </div>
+        <div class="grid grid-cols-7 gap-1">${cells.join('')}</div>
+      `;
+      lucide.createIcons();
+    });
+  }
+
+  function _calMonthPrev() { _calMonthCursor = new Date(_calMonthCursor.getFullYear(), _calMonthCursor.getMonth() - 1, 1); _calRenderMonthTab(); }
+  function _calMonthNext() { _calMonthCursor = new Date(_calMonthCursor.getFullYear(), _calMonthCursor.getMonth() + 1, 1); _calRenderMonthTab(); }
+
+  function _calOpenDayDetail(iso) {
+    const dayEvents = _calEvents.filter(e => e.date === iso);
+    if (dayEvents.length === 1) { _calOpenEventDetail(dayEvents[0].id); return; }
+    _calShowOverlay(`<p class="text-sm font-black text-slate-800 mb-3">${_calFmtDate(iso)}</p>
+      <div class="space-y-2">
+        ${dayEvents.map(e => { const m = _calTypeMeta(e.type); return `<div class="flex items-center gap-2 cursor-pointer" onclick="_calOpenEventDetail('${e.id}')">
+          <span class="h-2 w-2 rounded-full ${m.dot}"></span>
+          <p class="text-xs font-bold text-slate-700">${_escHtml(e.title)}</p>
+        </div>`; }).join('')}
+      </div>`);
+  }
+
+  function _calOpenEventDetail(id) {
+    const e = _calEvents.find(x => x.id === id);
+    if (!e) return;
+    const m = _calTypeMeta(e.type);
+    const isAdmin = _calIsAdmin();
+    _calShowOverlay(`
+      <span class="inline-block text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full ${m.color} mb-2">${m.label}</span>
+      <p class="text-base font-black text-slate-800 mb-1">${_escHtml(e.title)}</p>
+      <p class="text-xs text-slate-400 font-bold mb-3">${_calFmtDate(e.date)}${e.end_date ? ' – ' + _calFmtDate(e.end_date) : ''}</p>
+      ${e.description ? `<p class="text-xs text-slate-600 mb-3">${_escHtml(e.description)}</p>` : ''}
+      ${isAdmin && e.source === 'manual' ? `<button onclick="_calEventDelete(${e.ref})" class="text-[10px] font-black uppercase tracking-widest text-red-600">Delete Event</button>` : ''}
+    `);
+  }
+
+  function _calShowOverlay(innerHtml) {
+    let wrap = document.getElementById('calOverlayWrap');
+    if (!wrap) {
+      wrap = document.createElement('div');
+      wrap.id = 'calOverlayWrap';
+      wrap.className = 'fixed inset-0 z-[1250] flex items-center justify-center bg-black/50 p-4';
+      wrap.innerHTML = `<div class="bg-white rounded-3xl shadow-xl max-w-md w-full p-5 relative">
+        <button onclick="document.getElementById('calOverlayWrap').remove()" class="absolute top-3 right-3 text-slate-400 text-lg leading-none">✕</button>
+        <div id="calOverlayBody"></div>
+      </div>`;
+      document.body.appendChild(wrap);
+    }
+    document.getElementById('calOverlayBody').innerHTML = innerHtml;
+  }
+
+  function _calEventDelete(id) {
+    if (!confirm('Delete this event?')) return;
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(() => {
+      document.getElementById('calOverlayWrap')?.remove();
+      showToast('Event deleted');
+      _calRenderActiveTab();
+    }).withFailureHandler(() => showToast('Failed to delete', 'error')).deleteCalendarEvent(myId, id);
+  }
+
+  function _calRenderListTab() {
+    const today = new Date().toISOString().slice(0, 10);
+    const to = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
+    _calFetchEvents(today, to).then(events => {
+      _calEvents = events;
+      const host = document.getElementById('calBody');
+      if (!host) return;
+      if (!events.length) { host.innerHTML = `<div class="text-center py-12 text-slate-400 text-xs font-black uppercase tracking-widest">No upcoming events</div>`; return; }
+      host.innerHTML = `<div class="space-y-2">
+        ${events.map(e => { const m = _calTypeMeta(e.type); return `<div class="flex items-center gap-3 bg-white rounded-2xl border border-slate-100 shadow-sm p-3 cursor-pointer hover:shadow-md" onclick="_calOpenEventDetail('${e.id}')">
+          <span class="h-2.5 w-2.5 rounded-full ${m.dot} shrink-0"></span>
+          <div class="flex-1 min-w-0">
+            <p class="text-xs font-black text-slate-800 truncate">${_escHtml(e.title)}</p>
+            <p class="text-[10px] text-slate-400 font-bold">${_calFmtDate(e.date)}${e.description ? ' · ' + _escHtml(e.description) : ''}</p>
+          </div>
+          <span class="text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-full ${m.color}">${m.label}</span>
+        </div>`; }).join('')}
+      </div>`;
+    });
+  }
+
+  let _calImportHeaders = [], _calImportRows = [];
+  function _calRenderManageTab() {
+    const host = document.getElementById('calBody');
+    if (!host) return;
+    const todayIso = new Date().toISOString().slice(0, 10);
+    host.innerHTML = `
+      <div class="bg-white rounded-2xl border border-slate-100 p-4 mb-4">
+        <p class="text-xs font-black text-slate-800 mb-3">Add Event</p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+          <input id="calNewTitle" placeholder="Title" class="px-3 py-2 rounded-lg border border-slate-200 text-xs">
+          <select id="calNewType" class="px-3 py-2 rounded-lg border border-slate-200 text-xs">
+            <option value="programme">Programme</option>
+            <option value="holiday">Holiday</option>
+            <option value="exam">Exam</option>
+            <option value="other">Other</option>
+          </select>
+          <input id="calNewDate" type="date" value="${todayIso}" class="px-3 py-2 rounded-lg border border-slate-200 text-xs">
+          <input id="calNewEndDate" type="date" placeholder="End date (optional)" class="px-3 py-2 rounded-lg border border-slate-200 text-xs">
+        </div>
+        <textarea id="calNewDesc" placeholder="Description (optional)" class="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs mb-2"></textarea>
+        <button onclick="_calEventFormSave()" class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-black">Save Event</button>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-100 p-4 mb-4">
+        <p class="text-xs font-black text-slate-800 mb-2">Bulk Import (Excel)</p>
+        <p class="text-[10px] text-slate-400 mb-2">Columns: title, event_date, end_date (optional), event_type (optional), description (optional).</p>
+        <input type="file" id="calImportFileInput" accept=".xlsx,.xls" onchange="_calEvtHandleImportFile(event)" class="text-xs">
+        <div id="calImportMapping"></div>
+      </div>
+      <div class="bg-white rounded-2xl border border-slate-100 p-4">
+        <p class="text-xs font-black text-slate-800 mb-2">Bangladesh Public Holidays</p>
+        <p class="text-[10px] text-slate-400 mb-2">Pulls from Google's public holiday calendar. Safe to run again — never duplicates.</p>
+        <button onclick="_calSyncGoogleHolidays()" class="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-black">Sync Holidays Now</button>
+        <span id="calSyncStatus" class="ml-2 text-[10px] text-slate-400"></span>
+      </div>
+    `;
+  }
+
+  function _calEventFormSave() {
+    const title = document.getElementById('calNewTitle').value.trim();
+    const event_date = document.getElementById('calNewDate').value;
+    if (!title || !event_date) { showToast('Title and date are required', 'error'); return; }
+    const payload = {
+      title, event_date,
+      end_date: document.getElementById('calNewEndDate').value || null,
+      event_type: document.getElementById('calNewType').value,
+      description: document.getElementById('calNewDesc').value.trim() || null,
+      audience: { mode: 'all' },
+    };
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Failed', 'error'); return; }
+      showToast('Event saved');
+      document.getElementById('calNewTitle').value = '';
+      document.getElementById('calNewDesc').value = '';
+      _calRenderManageTab();
+    }).withFailureHandler(() => showToast('Failed to save', 'error')).saveCalendarEvent(myId, payload);
+  }
+
+  function _calEvtHandleImportFile(evt) {
+    const file = evt.target.files[0];
+    if (!file) return;
+    ensureXLSX().then(() => {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const wb = XLSX.read(e.target.result, { type: 'array' });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+        _calImportHeaders = (rows[0] || []).map(h => String(h).trim());
+        _calImportRows = rows.slice(1).filter(r => r.some(c => String(c).trim() !== ''));
+        _calEvtRenderMapping();
+      };
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  function _calEvtRenderMapping() {
+    const host = document.getElementById('calImportMapping');
+    if (!host) return;
+    const fields = ['title', 'event_date', 'end_date', 'event_type', 'description'];
+    host.innerHTML = `<div class="mt-3 space-y-2">
+      ${fields.map(f => {
+        const guessIdx = _calImportHeaders.findIndex(h => normImportKey(h) === normImportKey(f));
+        return `<div class="flex items-center gap-2">
+          <span class="text-[10px] font-black text-slate-500 w-24">${f}</span>
+          <select class="cal-map-row flex-1 px-2 py-1 rounded-lg border border-slate-200 text-xs" data-field="${f}">
+            <option value="">— skip —</option>
+            ${_calImportHeaders.map((h, i) => `<option value="${i}" ${i === guessIdx ? 'selected' : ''}>${_escHtml(h)}</option>`).join('')}
+          </select>
+        </div>`;
+      }).join('')}
+      <p class="text-[10px] text-slate-400">${_calImportRows.length} row(s) found.</p>
+      <button onclick="_calEvtConfirmImport()" class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-black">Import ${_calImportRows.length} Events</button>
+    </div>`;
+  }
+
+  function _calEvtGetMapping() {
+    const map = {};
+    document.querySelectorAll('.cal-map-row').forEach(sel => { if (sel.value !== '') map[sel.dataset.field] = Number(sel.value); });
+    return map;
+  }
+
+  function _calEvtBuildMappedRows() {
+    const map = _calEvtGetMapping();
+    return _calImportRows.map(row => {
+      const out = {};
+      Object.entries(map).forEach(([field, idx]) => { out[field] = String(row[idx] ?? '').trim(); });
+      return out;
+    });
+  }
+
+  function _calEvtConfirmImport() {
+    const rows = _calEvtBuildMappedRows();
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { showToast((res && res.message) || 'Import failed', 'error'); return; }
+      showToast(`${res.imported} event(s) imported`);
+      document.getElementById('calImportFileInput').value = '';
+      document.getElementById('calImportMapping').innerHTML = '';
+      _calImportHeaders = []; _calImportRows = [];
+    }).withFailureHandler(() => showToast('Import failed', 'error')).importCalendarEventsExcel(myId, { rows });
+  }
+
+  function _calSyncGoogleHolidays() {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    const status = document.getElementById('calSyncStatus');
+    if (status) status.textContent = 'Syncing…';
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') { if (status) status.textContent = (res && res.message) || 'Failed'; return; }
+      if (status) status.textContent = `Added ${res.added} of ${res.fetched} fetched.`;
+    }).withFailureHandler(() => { if (status) status.textContent = 'Failed.'; }).syncGoogleHolidays(myId);
+  }
+
   function loadClubsView() {
     _setViewHash('clubs');
     setActiveNavLink('nav-clubs');
@@ -51698,6 +52074,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'admission_admin',  label: 'Admission Admin',    navId: 'nav-admission-admin' },
     { key: 'omr_results',      label: 'OMR Results',        navId: 'nav-omr-results' },
     { key: 'clubs',            label: 'Clubs',              navId: 'nav-clubs' },
+    { key: 'calendar',         label: 'Calendar',           navId: 'nav-calendar' },
   ];
 
   // Mirrors the hardcoded behavior this feature replaces — used until an
@@ -51748,6 +52125,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // view itself (Admin/Cord check, or an actual club_teachers row),
     // Class Teacher assignment already lives inline in My Class instead.
     clubs: ALL_ROLES,
+    // Read access for everyone (Month/List views); Manage tab (manual CRUD,
+    // Excel import, Google-holiday sync) is self-gated to Admin/VP/Cord
+    // inside the view itself, same pattern as clubs/registration_admin above.
+    calendar: ALL_ROLES,
   };
 
   let _moduleVisibility = null; // { moduleKey: [roles...] } once loaded from system_settings

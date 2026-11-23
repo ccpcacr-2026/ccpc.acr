@@ -1856,6 +1856,172 @@ const handlers = {
     return supabaseRequest('system_settings?on_conflict=key', 'post', payloads);
   },
 
+  // ── CALENDAR (Part 20) ──────────────────────────────────────────────────────
+  // One new table (calendar_events) for the two sources with nowhere else to
+  // live — manual entries + holidays. Diary due-dates and dated announcements
+  // are never copied in here; they're resolved live from their own tables on
+  // every read, same "resolve live, don't cache stale copies" discipline the
+  // Admission scan-resolution (Part 15) already established. Exam dates are a
+  // separate action (getExamCalendarEvents, student-admin/route.js) since
+  // exam.exams lives in a different Postgres schema this file has no helper
+  // for — the frontend calls both and merges client-side.
+
+  async getCalendarEvents([callerId, { from_date, to_date }]) {
+    const from = from_date, to = to_date;
+    const [manual, homework, announcements, caller] = await Promise.all([
+      supabaseRequest(`calendar_events?or=(and(event_date.gte.${from},event_date.lte.${to}),and(end_date.gte.${from},event_date.lte.${to}))&order=event_date.asc`),
+      supabaseRequest(`student_diary_entries?due_date=gte.${from}&due_date=lte.${to}&entry_type=eq.homework&select=id,subject,message,due_date,audience`),
+      fetch(`${process.env.SUPABASE_URL}/rest/v1/announcements?event_date=gte.${from}&event_date=lte.${to}&active=eq.true&select=id,title,body,announcement_type,event_date`, {
+        headers: { apikey: process.env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${process.env.SUPABASE_SERVICE_KEY}` },
+      }).then(r => r.ok ? r.json() : []).catch(() => []),
+      supabaseRequest(`app_users?user_id=eq.${encodeURIComponent(callerId)}&select=role`),
+    ]);
+
+    const events = [];
+    (Array.isArray(manual) ? manual : []).forEach(e => events.push({
+      id: `manual:${e.id}`, title: e.title, description: e.description, date: e.event_date, end_date: e.end_date,
+      type: e.event_type, source: 'manual', color: e.color, ref: e.id,
+    }));
+    (Array.isArray(homework) ? homework : []).forEach(e => events.push({
+      id: `homework:${e.id}`, title: e.subject || 'Homework', description: e.message, date: e.due_date, end_date: null,
+      type: 'homework', source: 'diary', ref: e.id,
+    }));
+    (Array.isArray(announcements) ? announcements : []).forEach(e => events.push({
+      id: `announcement:${e.id}`, title: e.title, description: e.body, date: e.event_date, end_date: null,
+      type: 'announcement', source: 'announcement', ref: e.id,
+    }));
+
+    // Birthdays: never stored, computed live, and only ever shown to the
+    // student's own class teacher or Admin/VP/Cord -- a schoolwide broadcast
+    // of every student's birthdate would be a real privacy regression.
+    const roles = String((Array.isArray(caller) && caller[0] && caller[0].role) || '').split(',').map(r => r.trim());
+    const isBroad = roles.some(r => ['Admin', 'Cord', 'VP'].includes(r));
+    let myClassKeys = null;
+    if (!isBroad) {
+      const assignments = await _getClassTeacherAssignments();
+      myClassKeys = new Set(assignments
+        .filter(a => a.resolvedUserId === callerId)
+        .map(a => `${CLASS_TEACHER_NAME_TO_STUDENT_CLASS[a.className] || a.className}||${CLASS_TEACHER_SECTION_ALIASES[a.section] || a.section}`));
+    }
+    if (isBroad || (myClassKeys && myClassKeys.size)) {
+      const students = await _sbStudent('students_data?select=student_id,student_name,class,section,date_of_birth');
+      (Array.isArray(students) ? students : []).forEach(s => {
+        if (!s.date_of_birth) return;
+        if (!isBroad && !myClassKeys.has(`${s.class}||${s.section}`)) return;
+        const md = s.date_of_birth.slice(5); // 'MM-DD'
+        // Walk each day in [from,to] (always a short range -- the Dashboard/
+        // Calendar only ever asks for a couple of weeks at a time) looking
+        // for a month-day match, so a birthday surfaces on its real date
+        // every year regardless of which year date_of_birth itself stores.
+        for (let d = new Date(from); d <= new Date(to); d.setDate(d.getDate() + 1)) {
+          if (d.toISOString().slice(5, 10) === md) {
+            events.push({
+              id: `birthday:${s.student_id}:${d.toISOString().slice(0, 10)}`,
+              title: `${s.student_name}'s Birthday`, description: `${s.class}${s.section ? '/' + s.section : ''}`,
+              date: d.toISOString().slice(0, 10), end_date: null, type: 'birthday', source: 'birthday', ref: s.student_id,
+            });
+            break;
+          }
+        }
+      });
+    }
+
+    events.sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+    return { result: 'success', events };
+  },
+
+  // event_type 'holiday'/'exam'/'other' or a schoolwide audience ({mode:'all'})
+  // is Admin/VP/Cord-only; a Class Teacher may additionally create a
+  // 'programme' event scoped to their OWN class/section — re-derived and
+  // verified from _getClassTeacherAssignments(), never trusted from the
+  // client, same discipline createDiaryEntry/assignStudentToClub already use.
+  async saveCalendarEvent([callerId, payload]) {
+    const isAdmin = await _isCordOrAdmin(callerId);
+    const audience = payload.audience || { mode: 'all' };
+    if (!isAdmin) {
+      if (payload.event_type !== 'programme' || audience.mode === 'all') {
+        return { result: 'error', message: 'Only Admin/VP/Cord can create this kind of event.' };
+      }
+      const assignments = await _getClassTeacherAssignments();
+      const ownsClass = assignments.some(a => a.resolvedUserId === callerId &&
+        (CLASS_TEACHER_NAME_TO_STUDENT_CLASS[a.className] || a.className) === audience.class &&
+        (!audience.section || (CLASS_TEACHER_SECTION_ALIASES[a.section] || a.section) === audience.section));
+      if (!ownsClass) return { result: 'error', message: 'You can only create events for your own class.' };
+    }
+    if (!payload.title || !payload.event_date) return { result: 'error', message: 'Title and date are required.' };
+    const row = {
+      title: payload.title, description: payload.description || null,
+      event_date: payload.event_date, end_date: payload.end_date || null,
+      event_type: payload.event_type || 'programme', audience, source: 'manual',
+      color: payload.color || null, created_by: callerId,
+    };
+    const res = payload.id
+      ? await supabaseRequest(`calendar_events?id=eq.${payload.id}`, 'patch', row)
+      : await supabaseRequest('calendar_events', 'post', row);
+    if (res?.error) return { result: 'error', message: res.details || res.error };
+    return { result: 'success', event: Array.isArray(res) ? res[0] : res };
+  },
+
+  async deleteCalendarEvent([callerId, id]) {
+    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Admin/VP/Cord only.' };
+    await supabaseRequest(`calendar_events?id=eq.${id}`, 'delete');
+    return { result: 'success' };
+  },
+
+  async importCalendarEventsExcel([callerId, { rows }]) {
+    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Admin/VP/Cord only.' };
+    const list = (Array.isArray(rows) ? rows : [])
+      .filter(r => r.title && r.event_date)
+      .map(r => ({
+        title: r.title, description: r.description || null, event_date: r.event_date, end_date: r.end_date || null,
+        event_type: ['holiday', 'programme', 'exam', 'other'].includes(r.event_type) ? r.event_type : 'programme',
+        audience: { mode: 'all' }, source: 'manual', created_by: callerId,
+      }));
+    if (!list.length) return { result: 'error', message: 'No valid rows (each needs at least a title and a date).' };
+    const res = await supabaseRequest('calendar_events', 'post', list);
+    if (res?.error) return { result: 'error', message: res.details || res.error };
+    return { result: 'success', imported: list.length };
+  },
+
+  // Google's public, read-only, no-API-key-needed country-holiday calendar
+  // feed (the standard way Google publishes these). Parses just the two
+  // fields this needs (SUMMARY/DTSTART) out of the VEVENT blocks rather than
+  // pulling in a full iCal library for one feed. Upserts on (event_date,
+  // title) so re-running this is always safe -- never duplicates.
+  async syncGoogleHolidays([callerId]) {
+    if (!(await _isCordOrAdmin(callerId))) return { result: 'error', message: 'Admin/VP/Cord only.' };
+    try {
+      const res = await fetch('https://calendar.google.com/calendar/ical/en.bd%23holiday%40group.v.calendar.google.com/public/basic.ics');
+      if (!res.ok) return { result: 'error', message: `Google feed returned ${res.status}` };
+      const ics = await res.text();
+      const blocks = ics.split('BEGIN:VEVENT').slice(1);
+      const holidays = [];
+      for (const block of blocks) {
+        const summaryMatch = block.match(/SUMMARY:(.+)/);
+        const dtstartMatch = block.match(/DTSTART(?:;VALUE=DATE)?:(\d{8})/);
+        if (!summaryMatch || !dtstartMatch) continue;
+        const raw = dtstartMatch[1];
+        const date = `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
+        holidays.push({ title: summaryMatch[1].trim(), event_date: date });
+      }
+      if (!holidays.length) return { result: 'error', message: 'No events parsed from the Google feed — it may have changed format.' };
+      let added = 0;
+      for (const h of holidays) {
+        const existing = await supabaseRequest(`calendar_events?event_date=eq.${h.event_date}&title=eq.${encodeURIComponent(h.title)}&select=id`);
+        if (Array.isArray(existing) && existing.length) continue;
+        await supabaseRequest('calendar_events', 'post', {
+          title: h.title, event_date: h.event_date, event_type: 'holiday', audience: { mode: 'all' },
+          source: 'google_holiday', created_by: callerId,
+        });
+        added++;
+      }
+      await handlers.updateSystemSettings([{ calendar_last_google_sync_at: new Date().toISOString() }]);
+      return { result: 'success', fetched: holidays.length, added };
+    } catch (err) {
+      return { result: 'error', message: err.message };
+    }
+  },
+
   // ── AI lesson-plan draft generation (Admin-only setup, any teacher can generate) ──
   async getAiModelSettings([callerId]) {
     if (!(await _isAdmin(callerId))) return { result: 'error', message: 'Admin access required.' };
@@ -5625,7 +5791,7 @@ export async function POST(request) {
   }
 }
 
-// ─── Daily cron: tomorrow's diary reminders ────────────────────────────────
+// ─── Daily cron: tomorrow's diary reminders + tomorrow's birthdays ─────────
 // Runs once a day (see vercel.json, "0 12 * * *" = 6pm Bangladesh time) and
 // sends each affected student ONE digest notification listing every diary
 // entry (in practice always 'homework', the only type with a due_date) due
@@ -5634,6 +5800,49 @@ export async function POST(request) {
 // does at creation time, just re-run here against tomorrow's date instead of
 // trusting a snapshot (a class's roster can change between creation and the
 // reminder firing).
+//
+// Part 20: the same invocation also notifies each class teacher of their own
+// students' birthdays tomorrow — folded into this existing daily run rather
+// than a new route file + new cron schedule, since the alternative would
+// mean duplicating _getClassTeacherAssignments()'s large sheet/DB-merge logic
+// into a second file (a real drift risk for a big stateful function, unlike
+// this codebase's usual duplicated *small* leaf helpers).
+async function _runBirthdayDigest(tomorrow) {
+  const students = await _sbStudent('students_data?select=student_id,student_name,class,section,date_of_birth');
+  const md = tomorrow.slice(5); // 'MM-DD'
+  const matches = (Array.isArray(students) ? students : []).filter(s => s.date_of_birth && s.date_of_birth.slice(5) === md);
+  if (!matches.length) return { birthdays: 0, teachers_notified: 0 };
+
+  const assignments = await _getClassTeacherAssignments();
+  const teacherFor = (cls, sec) => {
+    const hit = assignments.find(a => a.resolvedUserId &&
+      (CLASS_TEACHER_NAME_TO_STUDENT_CLASS[a.className] || a.className) === cls &&
+      (CLASS_TEACHER_SECTION_ALIASES[a.section] || a.section) === sec);
+    return hit ? hit.resolvedUserId : null;
+  };
+
+  const byTeacher = new Map();
+  matches.forEach(s => {
+    const teacherId = teacherFor(s.class, s.section);
+    if (!teacherId) return;
+    if (!byTeacher.has(teacherId)) byTeacher.set(teacherId, []);
+    byTeacher.get(teacherId).push(s);
+  });
+
+  let notified = 0;
+  for (const [teacherId, kids] of byTeacher) {
+    const names = kids.map(k => `${k.student_name} (${k.class}${k.section ? '/' + k.section : ''})`);
+    await _forumNotify([teacherId], {
+      type: 'calendar_birthday',
+      title: `${kids.length === 1 ? "A student's birthday" : kids.length + ' students\' birthdays'} tomorrow`,
+      message: names.join('\n'),
+      data: { date: tomorrow, student_ids: kids.map(k => k.student_id) },
+    });
+    notified++;
+  }
+  return { birthdays: matches.length, teachers_notified: notified };
+}
+
 export async function GET(req) {
   const auth = req.headers.get('authorization');
   if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -5643,7 +5852,6 @@ export async function GET(req) {
     const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const rows = await supabaseRequest(`student_diary_entries?due_date=eq.${tomorrow}&select=*`);
     if (!Array.isArray(rows)) return NextResponse.json({ result: 'error', message: rows?.error || 'Query failed' }, { status: 500 });
-    if (!rows.length) return NextResponse.json({ result: 'success', due_date: tomorrow, entries: 0, students_notified: 0 });
 
     const entriesByStudent = new Map();
     for (const entry of rows) {
@@ -5676,7 +5884,16 @@ export async function GET(req) {
       });
       notified++;
     }
-    return NextResponse.json({ result: 'success', due_date: tomorrow, entries: rows.length, students_notified: notified });
+
+    const birthdayResult = await _runBirthdayDigest(tomorrow).catch(err => {
+      console.error('[api/exec cron birthday-digest]', err);
+      return { birthdays: 0, teachers_notified: 0, error: err.message };
+    });
+
+    return NextResponse.json({
+      result: 'success', due_date: tomorrow, entries: rows.length, students_notified: notified,
+      ...birthdayResult,
+    });
   } catch (err) {
     console.error('[api/exec cron diary-reminders]', err);
     return NextResponse.json({ result: 'error', message: err.message }, { status: 500 });

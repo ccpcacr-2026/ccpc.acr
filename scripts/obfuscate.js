@@ -548,7 +548,11 @@ const RESERVED = [
   '_clubsManageAddClub','_clubsManageRenameClub','_clubsManageDeleteClub','_clubsManageRemoveTeacher','_clubsTeacherSearch',
   '_clubsManageAddBranch','_clubsManageDeleteBranch','_clubsToggleSelfAssignLock','_clubsManageUpdateField',
   '_clubsNoticesSelectClub','_clubsPostNotice','_clubsDeleteNotice','_diaryCommitteeOpenActivityLog',
-  '_diaryCaseOpenStudentPanel'
+  '_diaryCaseOpenStudentPanel',
+  // Calendar + Dashboard -- Part 20
+  'loadMainDashboard','loadCalendarView','_calShowTab','_calMonthPrev','_calMonthNext',
+  '_calOpenDayDetail','_calOpenEventDetail','_calEventDelete','_calEventFormSave',
+  '_calEvtHandleImportFile','_calEvtConfirmImport','_calSyncGoogleHolidays'
 ];
 
 // Strip HTML comments and collapse whitespace

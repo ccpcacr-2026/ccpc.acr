@@ -5148,6 +5148,23 @@ export async function POST(req) {
     if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
     return NextResponse.json({ result: 'success', exams: rows });
   }
+  // Part 20 (Calendar): exam dates are the one calendar source living in the
+  // exam schema, so this read lives here (alongside sbExam()) rather than in
+  // exec/route.js — the frontend calls both getCalendarEvents and this action
+  // and merges the two lists client-side.
+  if (action === 'get_exam_calendar_events') {
+    const { from_date, to_date } = payload || {};
+    const rows = await sbExam(`exams?exam_date=gte.${from_date}&exam_date=lte.${to_date}&is_archived=eq.false&select=id,name,exam_date,exam_end_date,class_patterns(name),exam_patterns(name)`);
+    if (rows?.error) return NextResponse.json({ result: 'error', message: rows.error });
+    const events = (Array.isArray(rows) ? rows : []).map(e => ({
+      id: `exam:${e.id}`,
+      title: e.name || e.exam_patterns?.name || 'Exam',
+      description: e.class_patterns?.name || null,
+      date: e.exam_date, end_date: e.exam_end_date || null,
+      type: 'exam', source: 'exam', ref: e.id,
+    }));
+    return NextResponse.json({ result: 'success', events });
+  }
   // One exam per class for a term + exam pattern (e.g. Half Yearly for every
   // class at once). Classes that already have an exam in that term with the
   // same exam pattern are skipped, not duplicated.
