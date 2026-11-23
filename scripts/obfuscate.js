@@ -446,6 +446,7 @@ const RESERVED = [
   '_admToggleFilterPanel','toggleAdmFilter','clearAdmFilters','_admClearStatusFilter','_admSetScanDateFilter','_admApplyFilters','_admCreateCustomCountFromFilters',
   '_ccpcCsvPickerCancel','_ccpcCsvPickerConfirm','_ccpcCsvPickerToggle','_ccpcCsvPickerSelectAll','_ccpcCsvPickerSelectNone','_ccpcCsvPickerSetFilter',
   '_admExportCsvConfigureColumns','_admCandExportCsvConfigureColumns',
+  'loadDbBackupView','_dbBackupTriggerNow','_dbBackupSaveSchedule','_dbBackupOpenSetPasskey','_dbBackupRestore','_dbBackupDelete',
   '_admCustomCounterPopulateValueSelect','_admCustomCounterAddCondition','_admCustomCounterRemoveCondition','_admCustomCounterToggleGroupBy',
   '_admCustomCounterClearDraft','_admCustomCounterSaveAsCard','_admCustomCounterDeleteCard',
   '_admCustomCounterStartArrange','_admCustomCounterCancelArrange','_admCustomCounterSaveArrange',

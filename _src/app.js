@@ -619,7 +619,8 @@
     analytics:     () => loadAnalytics(),
     permissions:   () => loadPermissionsPanel(),
     registration_admin: () => loadRegistrationAdminView(),
-    omr_results:   () => loadOmrResultsView()
+    omr_results:   () => loadOmrResultsView(),
+    db_backup:     () => loadDbBackupView()
   };
 
   function _setViewHash(key) {
@@ -30012,6 +30013,216 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _omrSubjects = [];        // [{id, name}], global subject catalog
   let _omrPatternSubjectMap = new Set(); // "patternId|subjectId" pairs, same shape _scmClassSubjects filters with
 
+  // ── DB Backups admin panel ──────────────────────────────────────────────
+  // Thin client for app/api/db-backup/route.js, which itself just proxies
+  // to the ccpc-backup-agent service on the VPS (see that route file's own
+  // header comment for the full architecture). Two independent gates:
+  // module visibility (Admin role, checked both client-side here for the
+  // nav link and server-side on every single request) and the separate
+  // passkey (required only for Delete/Restore, prompted for inline via a
+  // plain prompt() rather than a form field, since it's a one-off
+  // confirmation value, not something to leave sitting in a text input).
+  function _dbBackupFetch(action, payload) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    return fetch('/api/db-backup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, payload: payload || {}, user_id: myId })
+    }).then(async r => {
+      let body = null;
+      try { body = await r.json(); } catch (_) {}
+      if (!r.ok || (body && body.result === 'error')) throw new Error((body && body.message) || ('Network error ' + r.status));
+      return body;
+    });
+  }
+  function _dbBackupFmtBytes(n) {
+    n = Number(n) || 0;
+    if (n > 1024 * 1024 * 1024) return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+    if (n > 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+    if (n > 1024) return (n / 1024).toFixed(0) + ' KB';
+    return n + ' B';
+  }
+  function _dbBackupFmtDate(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? String(iso) : d.toLocaleString();
+  }
+  let _dbBackupFiles = [];
+  function loadDbBackupView() {
+    if (!_hasModuleAccess('db_backup')) { showToast('Not available in current role', 'error'); return; }
+    _setViewHash('db_backup');
+    setActiveNavLink('nav-db-backup');
+    setContentHeader('DB Backups', 'database-backup');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    container.innerHTML = `
+      <div class="space-y-5 pb-10">
+        <div>
+          <h2 class="text-2xl font-black text-slate-800 tracking-tight">Database Backups</h2>
+          <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Daily automatic backup to Google Drive, with manual controls</p>
+        </div>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+          <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+            <p class="font-black text-slate-800 text-sm flex items-center gap-2"><i data-lucide="clock" class="h-4 w-4 text-indigo-600"></i>Schedule</p>
+            <button onclick="_dbBackupTriggerNow()" class="flex items-center gap-1.5 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-700"><i data-lucide="play" class="h-3.5 w-3.5"></i> Backup Now</button>
+          </div>
+          <div id="dbBackupScheduleBox" class="grid grid-cols-2 md:grid-cols-4 gap-3 items-end">
+            <p class="text-xs text-slate-400 col-span-4">Loading…</p>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-1"><i data-lucide="key-round" class="h-4 w-4 text-amber-600"></i>Restore/Delete Passkey</p>
+          <p class="text-xs text-slate-400 font-bold mb-3">A second, separate secret required to delete or restore a backup -- only people who know this passkey (not just Admins) can do either.</p>
+          <div id="dbBackupPasskeyBox" class="flex flex-wrap gap-2 items-end">
+            <p class="text-xs text-slate-400">Loading…</p>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+          <p class="font-black text-slate-800 text-sm flex items-center gap-2 mb-3"><i data-lucide="database" class="h-4 w-4 text-emerald-600"></i>Backups on Google Drive</p>
+          <div class="inv-desktop-block overflow-x-auto">
+            <table class="w-full text-xs">
+              <thead><tr class="text-left text-slate-400 uppercase text-[10px] font-black border-b border-slate-100">
+                <th class="py-2 pr-3">File</th><th class="py-2 pr-3">Size</th><th class="py-2 pr-3">Date</th><th class="py-2 pr-3 text-right">Actions</th>
+              </tr></thead>
+              <tbody id="dbBackupListBody"><tr><td colspan="4" class="py-6 text-center text-slate-400">Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <div id="dbBackupListCards" class="md:hidden space-y-2"></div>
+        </div>
+      </div>`;
+    if (window.lucide) { try { lucide.createIcons(); } catch (e) {} }
+    _dbBackupRefreshSchedule();
+    _dbBackupRefreshPasskeyStatus();
+    _dbBackupRefreshList();
+  }
+  async function _dbBackupRefreshSchedule() {
+    const box = document.getElementById('dbBackupScheduleBox');
+    if (!box) return;
+    try {
+      const r = await _dbBackupFetch('getSchedule');
+      const hour = Number.isFinite(r.hour_server_time) ? r.hour_server_time : 20;
+      const minute = Number.isFinite(r.minute) ? r.minute : 0;
+      const retention = r.retention_days || 10;
+      box.innerHTML = `
+        <div><label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Hour (server time, ${_escHtml(r.server_timezone || 'UTC')})</label>
+          <input type="number" id="dbBackupHour" min="0" max="23" value="${hour}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold"></div>
+        <div><label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Minute</label>
+          <input type="number" id="dbBackupMinute" min="0" max="59" value="${minute}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold"></div>
+        <div><label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Keep backups for (days)</label>
+          <input type="number" id="dbBackupRetention" min="1" max="365" value="${retention}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold"></div>
+        <button onclick="_dbBackupSaveSchedule()" class="px-4 py-2.5 bg-slate-800 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black">Save Schedule</button>
+      `;
+    } catch (e) {
+      box.innerHTML = `<p class="text-xs text-red-500 col-span-4">${_escHtml(e.message || 'Could not load schedule')}</p>`;
+    }
+  }
+  async function _dbBackupSaveSchedule() {
+    const hour = parseInt(document.getElementById('dbBackupHour')?.value, 10);
+    const minute = parseInt(document.getElementById('dbBackupMinute')?.value, 10);
+    const retention_days = parseInt(document.getElementById('dbBackupRetention')?.value, 10);
+    try {
+      await _dbBackupFetch('setSchedule', { hour, minute, retention_days });
+      showToast('Schedule saved', 'success');
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+  async function _dbBackupTriggerNow() {
+    if (!confirm('Run a backup right now? This takes a minute or two.')) return;
+    showToast('Backup started…', 'success');
+    try {
+      await _dbBackupFetch('triggerBackup');
+      showToast('Backup complete', 'success');
+      _dbBackupRefreshList();
+    } catch (e) { showToast(e.message || 'Backup failed', 'error'); }
+  }
+  async function _dbBackupRefreshPasskeyStatus() {
+    const box = document.getElementById('dbBackupPasskeyBox');
+    if (!box) return;
+    try {
+      const r = await _dbBackupFetch('getPasskeyStatus');
+      box.innerHTML = r.has_passkey
+        ? `<p class="text-xs font-bold text-emerald-600 flex items-center gap-1"><i data-lucide="check-circle" class="h-3.5 w-3.5"></i> Passkey is set</p>
+           <button onclick="_dbBackupOpenSetPasskey(true)" class="ml-auto px-3 py-2 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase">Change Passkey</button>`
+        : `<p class="text-xs font-bold text-amber-600">No passkey set yet -- Delete/Restore are blocked until you set one.</p>
+           <button onclick="_dbBackupOpenSetPasskey(false)" class="ml-auto px-3 py-2 bg-amber-500 text-white rounded-xl text-[10px] font-black uppercase">Set Passkey</button>`;
+      if (window.lucide) { try { lucide.createIcons(); } catch (e) {} }
+    } catch (e) {
+      box.innerHTML = `<p class="text-xs text-red-500">${_escHtml(e.message || 'Could not load passkey status')}</p>`;
+    }
+  }
+  function _dbBackupOpenSetPasskey(hasExisting) {
+    const current = hasExisting ? prompt('Enter your CURRENT passkey:') : null;
+    if (hasExisting && current === null) return;
+    const next = prompt('Enter the new passkey (at least 6 characters):');
+    if (!next) return;
+    _dbBackupFetch('setPasskey', { passkey: next, current_passkey: current })
+      .then(() => { showToast('Passkey saved', 'success'); _dbBackupRefreshPasskeyStatus(); })
+      .catch(e => showToast(e.message || 'Failed', 'error'));
+  }
+  function _dbBackupPromptPasskey() {
+    return prompt('Enter the backup passkey to confirm this action:');
+  }
+  async function _dbBackupRefreshList() {
+    const tbody = document.getElementById('dbBackupListBody');
+    const cards = document.getElementById('dbBackupListCards');
+    if (!tbody) return;
+    try {
+      const r = await _dbBackupFetch('listBackups');
+      _dbBackupFiles = Array.isArray(r.files) ? r.files : [];
+      if (!_dbBackupFiles.length) {
+        tbody.innerHTML = `<tr><td colspan="4" class="py-6 text-center text-slate-400">No backups yet.</td></tr>`;
+        if (cards) cards.innerHTML = '';
+        return;
+      }
+      tbody.innerHTML = _dbBackupFiles.map((f, i) => `
+        <tr class="border-b border-slate-50">
+          <td class="py-2 pr-3 font-bold text-slate-700">${_escHtml(f.Name || f.name || '')}</td>
+          <td class="py-2 pr-3 text-slate-500">${_dbBackupFmtBytes(f.Size ?? f.size)}</td>
+          <td class="py-2 pr-3 text-slate-500">${_dbBackupFmtDate(f.ModTime ?? f.modTime)}</td>
+          <td class="py-2 pr-3 text-right">
+            <button onclick="_dbBackupRestore(${i})" class="px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase mr-1 hover:bg-slate-50">Restore</button>
+            <button onclick="_dbBackupDelete(${i})" class="px-2.5 py-1.5 border border-red-200 text-red-600 rounded-lg text-[10px] font-black uppercase hover:bg-red-50">Delete</button>
+          </td>
+        </tr>`).join('');
+      if (cards) cards.innerHTML = _dbBackupFiles.map((f, i) => `
+        <div class="border border-slate-200 rounded-xl p-3">
+          <p class="font-bold text-slate-700 text-xs break-all">${_escHtml(f.Name || f.name || '')}</p>
+          <p class="text-[10px] text-slate-400 font-bold uppercase mt-1">${_dbBackupFmtBytes(f.Size ?? f.size)} &middot; ${_dbBackupFmtDate(f.ModTime ?? f.modTime)}</p>
+          <div class="flex gap-2 mt-2">
+            <button onclick="_dbBackupRestore(${i})" class="flex-1 px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">Restore</button>
+            <button onclick="_dbBackupDelete(${i})" class="flex-1 px-2.5 py-1.5 border border-red-200 text-red-600 rounded-lg text-[10px] font-black uppercase">Delete</button>
+          </div>
+        </div>`).join('');
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="4" class="py-6 text-center text-red-500">${_escHtml(e.message || 'Could not load backups')}</td></tr>`;
+    }
+  }
+  function _dbBackupDelete(i) {
+    const f = _dbBackupFiles[i];
+    if (!f) return;
+    const name = f.Name || f.name;
+    if (!confirm(`Permanently delete "${name}" from Google Drive? This cannot be undone.`)) return;
+    const passkey = _dbBackupPromptPasskey();
+    if (!passkey) return;
+    _dbBackupFetch('deleteBackup', { filename: name, passkey })
+      .then(() => { showToast('Deleted', 'success'); _dbBackupRefreshList(); })
+      .catch(e => showToast(e.message || 'Delete failed', 'error'));
+  }
+  function _dbBackupRestore(i) {
+    const f = _dbBackupFiles[i];
+    if (!f) return;
+    const name = f.Name || f.name;
+    if (!confirm(`RESTORE will REPLACE the entire live database with the contents of "${name}". This cannot be undone. Continue?`)) return;
+    const passkey = _dbBackupPromptPasskey();
+    if (!passkey) return;
+    showToast('Restoring… this can take a minute or two', 'success');
+    _dbBackupFetch('restoreBackup', { filename: name, passkey })
+      .then(() => showToast('Restore complete', 'success'))
+      .catch(e => showToast(e.message || 'Restore failed', 'error'));
+  }
+
   function loadOmrResultsView() {
     if (!_hasModuleAccess('omr_results')) { showToast('Not available in current role', 'error'); return; }
     _setViewHash('omr_results');
@@ -52448,6 +52659,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'omr_results',      label: 'OMR Results',        navId: 'nav-omr-results' },
     { key: 'clubs',            label: 'Clubs',              navId: 'nav-clubs' },
     { key: 'calendar',         label: 'Calendar',           navId: 'nav-calendar' },
+    { key: 'db_backup',        label: 'DB Backups',         navId: 'nav-db-backup' },
   ];
 
   // Mirrors the hardcoded behavior this feature replaces — used until an
@@ -52502,6 +52714,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // Excel import, Google-holiday sync) is self-gated to Admin/VP/Cord
     // inside the view itself, same pattern as clubs/registration_admin above.
     calendar: ALL_ROLES,
+    // Admin-only -- triggers/reschedules/deletes/restores real production
+    // database backups. Deliberately NOT in ALL_ROLES like most of the
+    // nav-visibility-only modules above; the server route re-checks the
+    // Admin/DB Backup Admin role fresh on every request regardless, but
+    // there's no reason for this link to even appear for anyone else.
+    db_backup: ['Admin'],
   };
 
   let _moduleVisibility = null; // { moduleKey: [roles...] } once loaded from system_settings
