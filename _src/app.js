@@ -49451,6 +49451,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // custom field marked type:'phone' gets the same digit-normalized,
     // Excel-text-forced treatment as a real phone/mobile/contact column.
     const dataCols = _ccpcCsvColumnsFromRows(rows, _admCandFormFieldDefs);
+    // A VortiBD-sourced row's real-world "tracking ID" lives in token/
+    // external_key (tracking_id/index_id are native-application-only columns
+    // and stay null for these) -- same fallback already used everywhere else
+    // this value is displayed (e.g. the list table, the print templates).
+    // Without this the raw tracking_id column exports empty while token
+    // duplicates the same value a column over, reading as a missing field.
+    const trackingCol = dataCols.find(c => c.header === 'tracking_id');
+    if (trackingCol) trackingCol.get = a => a.tracking_id || a.token || a.external_key || '';
     const scanCols = [];
     (_admCandScanOptions || []).forEach(o => {
       if (o.behavior === 'form') {
