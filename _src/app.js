@@ -32749,6 +32749,56 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // numbers still flipped to scientific notation), while the ="..." formula
   // trick forces TEXT type unconditionally and displays only the digits.
   const CCPC_PHONE_COL_RE = /phone|mobile|contact/i;
+  // Formats a scan timestamp (ISO string, as stored in admission_applications
+  // .scan_dates[optionKey], an append-only array of every scan time for that
+  // option) as "dd MMM, yy hh:mm:ss AM/PM" in the viewer's own local time --
+  // used by the per-Scan-Option CSV export columns below.
+  const CCPC_MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function _ccpcFmtScanDate(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mmm = CCPC_MONTH_ABBR[d.getMonth()];
+    const yy = String(d.getFullYear()).slice(-2);
+    let h = d.getHours();
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    h = h % 12; if (h === 0) h = 12;
+    const hh = String(h).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    return `${dd} ${mmm}, ${yy} ${hh}:${mm}:${ss} ${ampm}`;
+  }
+  // Latest (most recent) scan timestamp for one option, from the append-only
+  // scan_dates[optionKey] array -- the last entry is always the newest.
+  function _ccpcLastScanDate(a, optionKey) {
+    const list = (a.scan_dates || {})[optionKey];
+    return Array.isArray(list) && list.length ? list[list.length - 1] : '';
+  }
+  // A plain UTF-8-BOM CSV (even with the "sep=," directive removed) still
+  // came back as mojibake on at least one real Excel install -- UTF-8 BOM
+  // detection for a .csv file's comma-connector is evidently not reliable
+  // on every Excel version. UTF-16LE + its own BOM (FF FE) + TAB-delimited
+  // plain text is the one format every Excel version (97 through 365)
+  // recognizes unconditionally on a plain double-click open, regardless of
+  // Windows locale or Excel version -- it's exactly what Excel's own
+  // "Save As > Unicode Text (Tab delimited)" produces, just built here
+  // instead of round-tripped through Excel. `rows` is an array of arrays of
+  // already-stringified cell values (e.g. from _ccpcCsvCell) -- no quoting
+  // needed for tab-delimited text, so a literal tab/newline inside a cell
+  // (a free-typed address, say) is replaced with a space instead, since TSV
+  // has no quoting convention to escape them with.
+  function _ccpcBuildUnicodeCsvBlob(rows) {
+    const sanitizeCell = v => String(v ?? '').replace(/\r\n|\r|\n/g, ' ').replace(/\t/g, ' ');
+    const text = '﻿' + rows.map(r => r.map(sanitizeCell).join('\t')).join('\r\n');
+    const bytes = new Uint8Array(text.length * 2);
+    for (let i = 0; i < text.length; i++) {
+      const code = text.charCodeAt(i);
+      bytes[i * 2] = code & 0xff;
+      bytes[i * 2 + 1] = (code >> 8) & 0xff;
+    }
+    return new Blob([bytes], { type: 'text/csv;charset=utf-16le' });
+  }
   // Shared by both the CSV formatter below and import-time normalization
   // (_admCandBuildMappedRows) so a phone/contact value is stored the same
   // clean way it's exported, not just cosmetically reformatted on export.
@@ -45660,14 +45710,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           },
         });
       }
+      // One "Scanned At" column per option (not per field -- a scan event
+      // has one timestamp regardless of how many fields a 'form' option
+      // collects), formatted dd MMM, yy hh:mm:ss AM/PM in the viewer's own
+      // local time, from the most recent entry in scan_dates[o.key].
+      scanCols.push({ header: `${o.label} - Scanned At`, get: a => _ccpcFmtScanDate(_ccpcLastScanDate(a, o.key)) });
     });
     const headers = [...dataCols.map(c => c.header), ...scanCols.map(c => c.header)];
-    const rows = [headers];
+    const csvRows = [headers];
     full.forEach(a => {
-      rows.push([...dataCols.map(c => _ccpcCsvCell(c.get(a), c.isPhone)), ...scanCols.map(c => c.get(a))]);
+      csvRows.push([...dataCols.map(c => _ccpcCsvCell(c.get(a), c.isPhone)), ...scanCols.map(c => c.get(a))]);
     });
-    const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
-    _ccpcShareOrDownload('admission_applications.csv', 'text/csv;charset=utf-8', '﻿' + csv);
+    _ccpcShareOrDownload('admission_applications.csv', 'text/csv;charset=utf-16le', _ccpcBuildUnicodeCsvBlob(csvRows));
   }
   // Prints exactly the rows the Applications tab's current search/filter is
   // showing (_admLastFiltered, set by _admRenderTable on every re-filter),
@@ -49494,18 +49548,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           },
         });
       }
+      // One "Scanned At" column per option (not per field), formatted
+      // dd MMM, yy hh:mm:ss AM/PM in the viewer's own local time, from the
+      // most recent entry in scan_dates[o.key].
+      scanCols.push({ header: `${o.label} - Scanned At`, get: a => _ccpcFmtScanDate(_ccpcLastScanDate(a, o.key)) });
     });
     const headers = [...dataCols.map(c => c.header), ...scanCols.map(c => c.header)];
-    const csv = [headers].concat(rows.map(r => [...dataCols.map(c => _ccpcCsvCell(c.get(r), c.isPhone)), ...scanCols.map(c => c.get(r))]))
-      .map(row => row.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
-    // Bare UTF-8 BOM is what makes Excel open this as UTF-8 instead of the
-    // local ANSI codepage -- without it, Bangla text (names/addresses/etc.)
-    // opens as mojibake. (A "sep=," directive line was tried alongside the
-    // BOM elsewhere in this file at one point, then removed everywhere --
-    // confirmed to make at least one real Excel install ignore the BOM and
-    // fall back to ANSI, which is worse than just letting Excel's own
-    // locale-default list separator apply.)
-    _ccpcShareOrDownload('candidates.csv', 'text/csv;charset=utf-8', '﻿' + csv);
+    const csvRows = [headers].concat(rows.map(r => [...dataCols.map(c => _ccpcCsvCell(c.get(r), c.isPhone)), ...scanCols.map(c => c.get(r))]));
+    // UTF-16LE + its own BOM (FF FE) + TAB-delimited plain text is the one
+    // format every Excel version recognizes unconditionally on a plain
+    // double-click open, regardless of Windows locale or Excel version --
+    // a bare UTF-8-BOM comma CSV (even without a "sep=," directive) was
+    // confirmed to still open as mojibake on at least one real Excel
+    // install, so this is the more robust format, not just an alternative.
+    _ccpcShareOrDownload('candidates.csv', 'text/csv;charset=utf-16le', _ccpcBuildUnicodeCsvBlob(csvRows));
   }
   async function _admCandDeleteCandidate(id) {
     if (!confirm('Delete this candidate?')) return;
