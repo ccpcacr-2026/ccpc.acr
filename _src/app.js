@@ -43728,6 +43728,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admFInput(id, opts) {
     opts = opts || {};
     const common = 'w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-bold text-sm';
+    // A plain <select> can only ever display a value that's exactly one of
+    // its own <option>s -- an existing application whose stored value isn't
+    // in this fixed list (e.g. a VortiBD-sourced row with a session/
+    // category/etc. outside this editor's small native preset, confirmed
+    // live as a blank-looking Category field) ends up with NOTHING shown at
+    // all, since the browser can't select a non-matching option. editable:
+    // true renders a real text <input> with a <datalist> of the same
+    // options instead -- the preset list still shows as suggestions on
+    // click/focus (same affordance as a dropdown), but the field always
+    // displays whatever value is actually stored and can be freely typed to
+    // anything, not just one of the presets.
+    if (opts.type === 'select' && opts.editable) {
+      const dlId = `${id}-list`;
+      return `<input type="text" id="${id}" list="${dlId}" class="${common}" autocomplete="off">
+        <datalist id="${dlId}">${(opts.options || []).filter(o => o !== '').map(o => `<option value="${_escHtml(o)}">`).join('')}</datalist>`;
+    }
     if (opts.type === 'select') {
       return `<select id="${id}" class="${common}">${(opts.options || []).map(o => `<option${opts.placeholder && o === '' ? ' value=""' : ''}>${o}</option>`).join('')}</select>`;
     }
@@ -43768,12 +43784,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const appInfo = `<div id="adm-s-appinfo" class="hidden bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
       <p class="text-xs font-black text-slate-700 uppercase tracking-widest mb-4">Application Information</p>
       <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
-        ${_admFBlock('Session', _admFInput('adm-f-session', { type: 'select', options: ['2025','2026','2027'] }))}
-        ${_admFBlock('Class', _admFInput('adm-f-class', { type: 'select', options: ADM_CLASSES }))}
-        ${_admFBlock('Category', _admFInput('adm-f-category', { type: 'select', options: ADM_CATEGORIES }))}
-        ${_admFBlock('Version', _admFInput('adm-f-version', { type: 'select', options: ['Bangla','English'] }))}
-        ${_admFBlock('Quota', _admFInput('adm-f-quota', { type: 'select', options: ['No','Freedom Fighter'] }))}
-        ${_admFBlock('Status', _admFInput('adm-f-status', { type: 'select', options: ADM_STATUSES }))}
+        ${_admFBlock('Session', _admFInput('adm-f-session', { type: 'select', editable: true, options: ['2025','2026','2027'] }))}
+        ${_admFBlock('Class', _admFInput('adm-f-class', { type: 'select', editable: true, options: ADM_CLASSES }))}
+        ${_admFBlock('Category', _admFInput('adm-f-category', { type: 'select', editable: true, options: ADM_CATEGORIES }))}
+        ${_admFBlock('Version', _admFInput('adm-f-version', { type: 'select', editable: true, options: ['Bangla','English'] }))}
+        ${_admFBlock('Quota', _admFInput('adm-f-quota', { type: 'select', editable: true, options: ['No','Freedom Fighter'] }))}
+        ${_admFBlock('Status', _admFInput('adm-f-status', { type: 'select', editable: true, options: ADM_STATUSES }))}
         ${_admFBlock('Tracking ID (auto)', _admFInput('adm-f-tracking-id', { readonly: true, placeholder: 'Auto on save' }))}
         ${_admFBlock('Index ID (auto)', _admFInput('adm-f-index-id', { readonly: true, placeholder: 'Auto on save' }))}
       </div></div>`;
@@ -43784,15 +43800,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           ${_admFBlock('Name (English)', _admFInput('adm-f-name-en', { placeholder: 'FULL NAME IN CAPS' }), true)}
           ${_admFBlock('নাম (বাংলায়)', _admFInput('adm-f-name-bn'), true)}
           ${_admFBlock('Date of Birth', _admFInput('adm-f-dob', { type: 'date' }))}
-          ${_admFBlock('Blood Group', _admFInput('adm-f-blood', { type: 'select', options: ['','A+','A-','B+','B-','AB+','AB-','O+','O-'], placeholder: true }))}
-          ${_admFBlock('Gender', _admFInput('adm-f-gender', { type: 'select', options: ['','Male','Female','Other'], placeholder: true }))}
-          ${_admFBlock('Religion', _admFInput('adm-f-religion', { type: 'select', options: ['','Islam','Hindu','Christian','Buddhist','Other'], placeholder: true }))}
+          ${_admFBlock('Blood Group', _admFInput('adm-f-blood', { type: 'select', editable: true, options: ['A+','A-','B+','B-','AB+','AB-','O+','O-'] }))}
+          ${_admFBlock('Gender', _admFInput('adm-f-gender', { type: 'select', editable: true, options: ['Male','Female','Other'] }))}
+          ${_admFBlock('Religion', _admFInput('adm-f-religion', { type: 'select', editable: true, options: ['Islam','Hindu','Christian','Buddhist','Other'] }))}
           ${_admFBlock('Birth Registration No.', _admFInput('adm-f-birth-reg', { placeholder: '17-digit' }))}
           ${_admFBlock('Nationality', _admFInput('adm-f-nationality'))}
           ${_admFBlock('Emergency Contact', _admFInput('adm-f-emergency', { type: 'tel', placeholder: '+880…' }))}
           ${_admFBlock('Height (Inch)', _admFInput('adm-f-height'))}
           ${_admFBlock('Last Class', _admFInput('adm-f-last-class'))}
-          ${_admFBlock('Last Version', _admFInput('adm-f-last-version', { type: 'select', options: ['','Bangla','English'], placeholder: true }))}
+          ${_admFBlock('Last Version', _admFInput('adm-f-last-version', { type: 'select', editable: true, options: ['Bangla','English'] }))}
           ${_admFBlock('Last Institute', _admFInput('adm-f-last-institute'), true)}
           ${_admFBlock('Present Address', _admFInput('adm-f-present-address', { type: 'textarea' }), true)}
           ${_admFBlock('Permanent Address', _admFInput('adm-f-permanent-address', { type: 'textarea' }), true)}
