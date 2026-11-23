@@ -32770,7 +32770,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       Object.keys(r).forEach(k => { if (k !== 'extra_fields') topKeys.add(k); });
       if (r.extra_fields && typeof r.extra_fields === 'object') Object.keys(r.extra_fields).forEach(k => extraKeys.add(k));
     });
-    const cols = Array.from(topKeys).map(k => ({ header: k, isPhone: isPhoneKey(k), get: r => r[k] }));
+    // A VortiBD-sourced row's real-world "tracking ID" lives in token/
+    // external_key (tracking_id/index_id are native-application-only columns
+    // and stay null for these) -- same fallback used by the list table/print
+    // templates, applied here so EVERY CSV export built from this shared
+    // helper (Applications tab's own export included, not just Candidates')
+    // gets it, instead of each caller needing its own copy of this override.
+    const cols = Array.from(topKeys).map(k => ({
+      header: k,
+      isPhone: isPhoneKey(k),
+      get: k === 'tracking_id' ? (r => r.tracking_id || r.token || r.external_key || '') : (r => r[k]),
+    }));
     // A VortiBD/Excel-mapped extra_fields key can collide with a real top-level
     // column's name (e.g. a raw "id" or "index_id" field from the source system,
     // unrelated to this table's own id/index_id) -- without disambiguation that
