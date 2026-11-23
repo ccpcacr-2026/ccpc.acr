@@ -32799,6 +32799,169 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     return new Blob([bytes], { type: 'text/csv;charset=utf-16le' });
   }
+  // Generic column-picker modal for a CSV export whose column set can run
+  // past 100 (admission_applications' real columns + every flattened
+  // extra_fields key + every Scan Option) -- lets the admin choose exactly
+  // which columns go into THIS export rather than always getting all of
+  // them. `storageKey` is per-screen (Applications vs. Candidates tab pass
+  // their own, distinct keys) so each remembers its own last pick
+  // independently via localStorage -- a pure per-viewer convenience, same
+  // reasoning this codebase already applies to other local UI prefs, never
+  // used for anything that must be read back reliably. Toggling is
+  // index-based (not the header text itself) since a header can contain
+  // characters (quotes, slashes, etc.) that would need careful escaping if
+  // threaded through an inline onclick attribute.
+  let _ccpcCsvPickerState = null; // { headers, selected: Set<string>, storageKey, onConfirm, filter, title }
+  function _ccpcCsvPickerLoadSaved(storageKey, headers) {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return new Set(headers);
+      const saved = JSON.parse(raw);
+      if (!Array.isArray(saved) || !saved.length) return new Set(headers);
+      const headerSet = new Set(headers);
+      const kept = saved.filter(h => headerSet.has(h));
+      // A saved pick whose columns no longer exist at all (e.g. the circular
+      // changed) falls back to "everything" rather than an empty export.
+      return new Set(kept.length ? kept : headers);
+    } catch (e) { return new Set(headers); }
+  }
+  function _ccpcOpenCsvColumnPicker(opts) {
+    const headers = opts.headers || [];
+    _ccpcCsvPickerState = {
+      headers,
+      selected: _ccpcCsvPickerLoadSaved(opts.storageKey, headers),
+      storageKey: opts.storageKey,
+      onConfirm: opts.onConfirm,
+      filter: '',
+      title: opts.title || 'Choose columns to export',
+    };
+    let wrap = document.getElementById('ccpcCsvPickerWrap');
+    if (!wrap) {
+      wrap = document.createElement('div');
+      wrap.id = 'ccpcCsvPickerWrap';
+      wrap.className = 'fixed inset-0 z-[1250] flex items-center justify-center bg-black/50 p-4';
+      document.body.appendChild(wrap);
+    }
+    _ccpcCsvPickerRender();
+  }
+  function _ccpcCsvPickerRender() {
+    const st = _ccpcCsvPickerState;
+    const wrap = document.getElementById('ccpcCsvPickerWrap');
+    if (!wrap || !st) return;
+    const q = (st.filter || '').toLowerCase();
+    const shown = st.headers.map((h, i) => ({ h, i })).filter(({ h }) => !q || h.toLowerCase().includes(q));
+    wrap.innerHTML = `
+      <div class="bg-white rounded-3xl shadow-xl w-full max-w-lg max-h-[85vh] flex flex-col relative">
+        <div class="p-5 border-b border-slate-100 flex items-center justify-between gap-3">
+          <div>
+            <p class="font-black text-slate-800 text-sm">${_escHtml(st.title)}</p>
+            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">${st.selected.size} of ${st.headers.length} columns selected</p>
+          </div>
+          <button onclick="_ccpcCsvPickerCancel()" class="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 shrink-0"><i data-lucide="x" class="h-4 w-4"></i></button>
+        </div>
+        <div class="px-5 pt-3">
+          <input type="text" placeholder="Search columns…" value="${_escHtml(st.filter || '')}" oninput="_ccpcCsvPickerSetFilter(this.value)" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold">
+          <div class="flex gap-3 mt-2">
+            <button onclick="_ccpcCsvPickerSelectAll()" class="text-[10px] font-black text-indigo-600 uppercase hover:underline">Select All</button>
+            <button onclick="_ccpcCsvPickerSelectNone()" class="text-[10px] font-black text-slate-400 uppercase hover:underline">Select None</button>
+          </div>
+        </div>
+        <div class="px-5 py-3 overflow-y-auto flex-1">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5">
+            ${shown.map(({ h, i }) => `
+              <label class="flex items-center gap-2 text-xs font-bold text-slate-600 py-0.5 cursor-pointer">
+                <input type="checkbox" onchange="_ccpcCsvPickerToggle(${i})" ${st.selected.has(h) ? 'checked' : ''} class="rounded border-slate-300 shrink-0">
+                <span class="truncate" title="${_escHtml(h)}">${_escHtml(h)}</span>
+              </label>`).join('') || '<p class="text-xs text-slate-400 col-span-2">No columns match.</p>'}
+          </div>
+        </div>
+        <div class="p-5 border-t border-slate-100 flex items-center justify-end gap-2">
+          <button onclick="_ccpcCsvPickerCancel()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase">Cancel</button>
+          <button onclick="_ccpcCsvPickerConfirm()" class="px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase">Export CSV</button>
+        </div>
+      </div>`;
+    if (window.lucide) { try { lucide.createIcons(); } catch (e) {} }
+  }
+  function _ccpcCsvPickerToggle(i) {
+    const st = _ccpcCsvPickerState; if (!st) return;
+    const h = st.headers[i];
+    st.selected.has(h) ? st.selected.delete(h) : st.selected.add(h);
+    _ccpcCsvPickerRender();
+  }
+  function _ccpcCsvPickerSelectAll() {
+    const st = _ccpcCsvPickerState; if (!st) return;
+    st.headers.forEach(h => st.selected.add(h));
+    _ccpcCsvPickerRender();
+  }
+  function _ccpcCsvPickerSelectNone() {
+    const st = _ccpcCsvPickerState; if (!st) return;
+    st.selected.clear();
+    _ccpcCsvPickerRender();
+  }
+  function _ccpcCsvPickerSetFilter(v) {
+    const st = _ccpcCsvPickerState; if (!st) return;
+    st.filter = v;
+    _ccpcCsvPickerRender();
+    // innerHTML replace drops focus -- restore it to the search box with
+    // the cursor at the end, so typing to filter doesn't require re-tapping
+    // the field after every keystroke.
+    const inp = document.querySelector('#ccpcCsvPickerWrap input[type="text"]');
+    if (inp) { inp.focus(); const len = inp.value.length; try { inp.setSelectionRange(len, len); } catch (e) {} }
+  }
+  function _ccpcCsvPickerCancel() {
+    const wrap = document.getElementById('ccpcCsvPickerWrap');
+    if (wrap) wrap.remove();
+    _ccpcCsvPickerState = null;
+  }
+  function _ccpcCsvPickerConfirm() {
+    const st = _ccpcCsvPickerState; if (!st) return;
+    if (!st.selected.size) { showToast('Pick at least one column', 'error'); return; }
+    const ordered = st.headers.filter(h => st.selected.has(h));
+    try { localStorage.setItem(st.storageKey, JSON.stringify(ordered)); } catch (e) {}
+    const onConfirm = st.onConfirm;
+    _ccpcCsvPickerCancel();
+    onConfirm(ordered);
+  }
+  // Returns the saved column selection for storageKey, intersected with the
+  // CURRENT set of available headers, or null if there's no valid saved
+  // choice yet (first-ever export for this screen, or every previously
+  // saved header has since disappeared) -- null means "must show the picker
+  // at least once," a non-null array means "already configured, export
+  // straight away." Distinct from _ccpcCsvPickerLoadSaved above, which is
+  // for the picker's own initial checkbox state and falls back to
+  // "everything" rather than null, since that one's job is always to show
+  // *something* checked, never to decide whether to show the picker at all.
+  function _ccpcCsvPickerSavedSelection(storageKey, headers) {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (!raw) return null;
+      const saved = JSON.parse(raw);
+      if (!Array.isArray(saved) || !saved.length) return null;
+      const headerSet = new Set(headers);
+      const kept = saved.filter(h => headerSet.has(h));
+      return kept.length ? kept : null;
+    } catch (e) { return null; }
+  }
+  // The one place that turns a column list + a row set into a downloaded
+  // CSV -- "saved until reconfigured": a column choice already saved for
+  // `storageKey` is reused silently (no picker shown) unless forceConfigure
+  // is passed (the dedicated "Columns" button next to each tab's Export CSV
+  // uses this); the very first export for a screen, or the picker's own
+  // "Export CSV" button, both fall through to _ccpcOpenCsvColumnPicker,
+  // which is what actually saves a new choice (via _ccpcCsvPickerConfirm).
+  function _ccpcExportCsvWithColumns({ title, storageKey, filename, cols, items, forceConfigure }) {
+    const headers = cols.map(c => c.header);
+    const byHeader = {}; cols.forEach(c => { byHeader[c.header] = c; });
+    const doExport = (selectedHeaders) => {
+      const useCols = selectedHeaders.map(h => byHeader[h]).filter(Boolean);
+      const csvRows = [useCols.map(c => c.header)];
+      items.forEach(a => csvRows.push(useCols.map(c => _ccpcCsvCell(c.get(a), c.isPhone))));
+      _ccpcShareOrDownload(filename, 'text/csv;charset=utf-16le', _ccpcBuildUnicodeCsvBlob(csvRows));
+    };
+    const saved = forceConfigure ? null : _ccpcCsvPickerSavedSelection(storageKey, headers);
+    if (saved) { doExport(saved); return; }
+    _ccpcOpenCsvColumnPicker({ title, storageKey, headers, onConfirm: doExport });
+  }
   // Shared by both the CSV formatter below and import-time normalization
   // (_admCandBuildMappedRows) so a phone/contact value is stored the same
   // clean way it's exported, not just cosmetically reformatted on export.
@@ -32821,6 +32984,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // "Phone number" in the mapping screen or Form Fields settings lives
   // inside extra_fields, not as a named column, so without this flattening
   // step its type:'phone' marking would never reach the CSV formatter.
+  // Raw jsonb/legacy columns that are fully superseded by the clean,
+  // human-readable per-Scan-Option columns the export already builds
+  // alongside dataCols -- scan_values/scan_dates are the exact storage this
+  // dumps its own "<Option> - <Field>"/"<Option> - Scanned At" columns
+  // FROM, and tags/marks are the inert pre-Part-10 legacy columns Part 10
+  // itself left in place, never written to again. Without this exclusion
+  // these came through as raw JSON text (e.g. {"viva_test_mark":"13"}),
+  // confirmed live as "it should be only the inputted value" -- the clean
+  // columns already carry that value, so the raw jsonb underneath it adds
+  // nothing but noise.
+  const CCPC_CSV_RAW_JSON_COLS = new Set(['scan_values', 'scan_dates', 'tags', 'marks']);
   function _ccpcCsvColumnsFromRows(rows, formFieldDefs) {
     const defByKey = {};
     (formFieldDefs || []).forEach(f => { defByKey[f.key] = f; });
@@ -32828,7 +33002,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const topKeys = new Set();
     const extraKeys = new Set();
     (rows || []).forEach(r => {
-      Object.keys(r).forEach(k => { if (k !== 'extra_fields') topKeys.add(k); });
+      Object.keys(r).forEach(k => { if (k !== 'extra_fields' && !CCPC_CSV_RAW_JSON_COLS.has(k)) topKeys.add(k); });
       if (r.extra_fields && typeof r.extra_fields === 'object') Object.keys(r.extra_fields).forEach(k => extraKeys.add(k));
     });
     // A VortiBD-sourced row's real-world "tracking ID" lives in token/
@@ -43385,6 +43559,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="_admExportCsv()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="download" class="h-3.5 w-3.5"></i> Export CSV
           </button>
+          <button onclick="_admExportCsvConfigureColumns()" title="Choose which columns Export CSV includes" class="flex items-center gap-1.5 px-3 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
+            <i data-lucide="sliders-horizontal" class="h-3.5 w-3.5"></i> Columns
+          </button>
           <button onclick="_admPrintFilteredApps()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="printer" class="h-3.5 w-3.5"></i> Print
           </button>
@@ -43818,12 +43995,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admFilterPanelHostId(panelKey) { return panelKey === 'scanData' ? 'admCandScanDataFilterPanel' : 'admFilterPanel'; }
   function _admFilterPanelBadgeId(panelKey) { return panelKey === 'scanData' ? 'admCandScanDataFilterCount' : 'admFilterCount'; }
   function _admFilterPanelOnChange(panelKey) { if (panelKey === 'scanData') _admCandScanDataFilterChanged(); else _admFilterApps(); }
-  // Explicit manual trigger for the date-range rows' "Apply" button -- a
-  // fallback alongside the oninput/onchange auto-filter below, since a date
-  // input's change event has been reported unreliable in some Android
-  // WebView builds (same class of quirk already hit with keydown/Enter
-  // earlier this session).
-  function _admApplyFilters(panelKey) { _admFilterPanelOnChange(panelKey); }
+  // Explicit manual trigger for the date-range/min-max/contains rows'
+  // "Apply" button -- a fallback alongside the oninput/onchange auto-filter
+  // on each input, since a date/number input's change event has been
+  // reported unreliable in some Android WebView builds (same class of quirk
+  // already hit with keydown/Enter earlier this session). Confirmed live:
+  // the fallback itself didn't actually fall back to anything -- it only
+  // re-ran filtering against whatever was ALREADY in state, which is
+  // exactly what's unreliable, so clicking Apply after a value never fired
+  // its own onchange left the filter state untouched (list stayed
+  // unfiltered). Every date/number/text input in this panel carries a
+  // data-filter-key attribute (its exact state key) specifically so Apply
+  // can re-read each one's CURRENT value straight off the DOM right before
+  // filtering, instead of trusting an event that may never have fired.
+  function _admApplyFilters(panelKey) {
+    const host = document.getElementById(_admFilterPanelHostId(panelKey));
+    if (host) {
+      const st = _admFilterPanelState(panelKey);
+      host.querySelectorAll('[data-filter-key]').forEach(el => {
+        st[el.getAttribute('data-filter-key')] = el.value || '';
+      });
+    }
+    _admFilterPanelOnChange(panelKey);
+  }
   function _admToggleFilterPanel(panelKey) {
     panelKey = panelKey || 'app';
     const panel = document.getElementById(_admFilterPanelHostId(panelKey));
@@ -43846,12 +44040,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admFilterPanelOnChange(panelKey);
     if (panelKey === 'app' && dimKey === 'status') _admLoadStats(); // keeps the stat tiles' active-ring in sync
   }
+  // Replaces the panel's whole state object with a brand new, pristine one
+  // (rather than sweeping+clearing whatever keys happen to already exist on
+  // it) so a stray dynamically-added key (opt:/scanOpt:/formf: dims are all
+  // added lazily, on first use) can never survive a "Clear all filters"
+  // click by some edge case the sweep missed -- a full replacement can't
+  // have that class of bug by construction. Every other place in this file
+  // reads the state via _admFilterPanelState(panelKey) fresh each time
+  // (never a cached long-lived reference), so reassigning the underlying
+  // _admFilterState/_admCandScanDataFilterState variable here takes effect
+  // everywhere immediately.
   function clearAdmFilters(panelKey) {
-    const st = _admFilterPanelState(panelKey);
-    Object.keys(st).forEach(k => {
-      const s = st[k];
-      if (s instanceof Set) s.clear(); else st[k] = '';
-    });
+    const fresh = { class: new Set(), category: new Set(), version: new Set(), status: new Set(), source: new Set(), scanFrom: '', scanTo: '' };
+    if (panelKey === 'scanData') _admCandScanDataFilterState = fresh; else _admFilterState = fresh;
     _admRenderFilterPanel(panelKey);
     _admFilterPanelOnChange(panelKey);
     if (panelKey === 'app') _admLoadStats();
@@ -43955,9 +44156,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const scanRangeHtml = `<div class="mb-3 last:mb-0">
         <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Scanned Between (any option)</p>
         <div class="flex items-center gap-2">
-          <input type="date" value="${_escHtml(st.scanFrom || '')}" oninput="_admSetScanDateFilter(${JSON.stringify(panelKey)}, 'scanFrom', this.value)" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, 'scanFrom', this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          <input type="date" data-filter-key="scanFrom" value="${_escHtml(st.scanFrom || '')}" oninput="_admSetScanDateFilter(${JSON.stringify(panelKey)}, 'scanFrom', this.value)" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, 'scanFrom', this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
           <span class="text-slate-300 text-xs">to</span>
-          <input type="date" value="${_escHtml(st.scanTo || '')}" oninput="_admSetScanDateFilter(${JSON.stringify(panelKey)}, 'scanTo', this.value)" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, 'scanTo', this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          <input type="date" data-filter-key="scanTo" value="${_escHtml(st.scanTo || '')}" oninput="_admSetScanDateFilter(${JSON.stringify(panelKey)}, 'scanTo', this.value)" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, 'scanTo', this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
           <button type="button" onclick="_admApplyFilters(${JSON.stringify(panelKey)})" class="px-2.5 py-1.5 bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase tracking-wide hover:bg-indigo-700">Apply</button>
         </div>
       </div>`;
@@ -43971,9 +44172,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return `<div class="mb-3 last:mb-0">
         <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">${_escHtml(opt.label)} — Scanned Between</p>
         <div class="flex items-center gap-2">
-          <input type="date" value="${_escHtml(st[fromKey] || '')}" oninput="_admSetScanDateFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(fromKey)}, this.value)" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(fromKey)}, this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          <input type="date" data-filter-key="${_escHtml(fromKey)}" value="${_escHtml(st[fromKey] || '')}" oninput="_admSetScanDateFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(fromKey)}, this.value)" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(fromKey)}, this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
           <span class="text-slate-300 text-xs">to</span>
-          <input type="date" value="${_escHtml(st[toKey] || '')}" oninput="_admSetScanDateFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(toKey)}, this.value)" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(toKey)}, this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          <input type="date" data-filter-key="${_escHtml(toKey)}" value="${_escHtml(st[toKey] || '')}" oninput="_admSetScanDateFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(toKey)}, this.value)" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, ${JSON.stringify(toKey)}, this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
           <button type="button" onclick="_admApplyFilters(${JSON.stringify(panelKey)})" class="px-2.5 py-1.5 bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase tracking-wide hover:bg-indigo-700">Apply</button>
         </div>
       </div>`;
@@ -43982,11 +44183,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const base = `formf:${optKey}:${field.key}`;
       const control = field.input_type === 'number'
         ? `<div class="flex items-center gap-2">
-            <input type="number" placeholder="Min" value="${_escHtml(st[base + ':min'] || '')}" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, '${base}:min', this.value)" class="w-20 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs">
+            <input type="number" placeholder="Min" data-filter-key="${_escHtml(base)}:min" value="${_escHtml(st[base + ':min'] || '')}" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, '${base}:min', this.value)" class="w-20 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs">
             <span class="text-slate-300 text-xs">–</span>
-            <input type="number" placeholder="Max" value="${_escHtml(st[base + ':max'] || '')}" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, '${base}:max', this.value)" class="w-20 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs">
+            <input type="number" placeholder="Max" data-filter-key="${_escHtml(base)}:max" value="${_escHtml(st[base + ':max'] || '')}" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, '${base}:max', this.value)" class="w-20 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs">
           </div>`
-        : `<input type="text" placeholder="Contains…" value="${_escHtml(st[base + ':contains'] || '')}" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, '${base}:contains', this.value)" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs">`;
+        : `<input type="text" placeholder="Contains…" data-filter-key="${_escHtml(base)}:contains" value="${_escHtml(st[base + ':contains'] || '')}" onchange="_admSetScanDateFilter(${JSON.stringify(panelKey)}, '${base}:contains', this.value)" class="px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs">`;
       return `<div class="mb-3 last:mb-0">
         <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">${_escHtml(optLabel)} — ${_escHtml(field.label)}</p>
         ${control}
@@ -45676,26 +45877,33 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // table shows -- so this fetches a fresh select=* for exactly the ids
   // _admLastFiltered already narrowed down to (see getApplicationsFullById
   // above), rather than exporting from the lean listApplications payload.
-  async function _admExportCsv() {
+  // Shared by _admExportCsv and _admExportCsvConfigureColumns -- both need
+  // the exact same fetch (the full, unthinned rows for whatever's currently
+  // filtered/visible) and the exact same column list (every real+flattened
+  // DB column plus one human-readable column per Scan Option, see
+  // _ccpcCsvColumnsFromRows/the scanCols loop below), so this is the one
+  // place that logic lives rather than two copies that could drift apart.
+  async function _admFetchExportCols() {
     const apps = _admLastFiltered;
-    if (!apps.length) { showToast('No applications to export', 'error'); return; }
+    if (!apps.length) { showToast('No applications to export', 'error'); return null; }
     let full;
     try {
       const res = await _admAdminFetch('getApplicationsFullById', { circular_id: _admCandActiveCircularId, ids: apps.map(a => a.id) });
       if (res.error) throw new Error(res.error);
       full = res.applications || [];
-    } catch (e) { showToast(e.message || 'Could not prepare export', 'error'); return; }
-    if (!full.length) { showToast('No applications to export', 'error'); return; }
+    } catch (e) { showToast(e.message || 'Could not prepare export', 'error'); return null; }
+    if (!full.length) { showToast('No applications to export', 'error'); return null; }
     // extra_fields is flattened into one column per actual sub-key (with a
     // Form Field's own label when one exists), and any column -- real or
     // flattened -- whose Form Field definition is marked type:'phone' gets
     // the digit-normalized, Excel-text-forced treatment too, not just
     // columns whose NAME happens to contain phone/mobile/contact.
     const dataCols = _ccpcCsvColumnsFromRows(full, _admCandFormFieldDefs);
-    // Part 10: on top of every raw DB column above (scan_values/scan_dates
-    // included as raw JSON), one extra human-readable column per Scan
-    // Option so scanned/tagged/marks data is still easy to read at a
-    // glance, not just buried inside that JSON.
+    // Part 10: on top of every real DB column above, one extra
+    // human-readable column per Scan Option so scanned/tagged/marks data is
+    // easy to read at a glance, not just buried inside the raw scan_values
+    // jsonb (which _ccpcCsvColumnsFromRows already excludes -- see
+    // CCPC_CSV_RAW_JSON_COLS).
     const scanCols = [];
     (_admCandScanOptions || []).forEach(o => {
       if (o.behavior === 'form') {
@@ -45716,12 +45924,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // local time, from the most recent entry in scan_dates[o.key].
       scanCols.push({ header: `${o.label} - Scanned At`, get: a => _ccpcFmtScanDate(_ccpcLastScanDate(a, o.key)) });
     });
-    const headers = [...dataCols.map(c => c.header), ...scanCols.map(c => c.header)];
-    const csvRows = [headers];
-    full.forEach(a => {
-      csvRows.push([...dataCols.map(c => _ccpcCsvCell(c.get(a), c.isPhone)), ...scanCols.map(c => c.get(a))]);
-    });
-    _ccpcShareOrDownload('admission_applications.csv', 'text/csv;charset=utf-16le', _ccpcBuildUnicodeCsvBlob(csvRows));
+    return { items: full, cols: [...dataCols, ...scanCols] };
+  }
+  // Every real+flattened DB column plus every Scan Option column, letting
+  // the admin narrow this down to just what they actually want in THIS
+  // export (the full set runs well past 100 columns for a VortiBD-heavy
+  // circular) -- picked separately from the Candidates tab's own export
+  // below (distinct storageKey), since the two lists have different column
+  // sets and are picked independently in practice. Once a choice is saved
+  // it's reused on every later export with no picker shown again --
+  // _admExportCsvConfigureColumns (a separate "Columns" button) is the only
+  // thing that reopens the picker to change it.
+  async function _admExportCsv() {
+    const data = await _admFetchExportCols();
+    if (!data) return;
+    _ccpcExportCsvWithColumns({ title: 'Choose columns to export', storageKey: 'admExportCsvCols_applications', filename: 'admission_applications.csv', ...data });
+  }
+  // The "Columns" button next to Export CSV -- always reopens the picker
+  // (forceConfigure) regardless of a prior saved choice, so the admin can
+  // deliberately change it.
+  async function _admExportCsvConfigureColumns() {
+    const data = await _admFetchExportCols();
+    if (!data) return;
+    _ccpcExportCsvWithColumns({ title: 'Choose columns to export', storageKey: 'admExportCsvCols_applications', filename: 'admission_applications.csv', ...data, forceConfigure: true });
   }
   // Prints exactly the rows the Applications tab's current search/filter is
   // showing (_admLastFiltered, set by _admRenderTable on every re-filter),
@@ -48091,6 +48316,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <input type="text" id="admCandListTagValueFilter" oninput="_admCandFilterListDebounced()" placeholder="Value" class="hidden w-28 px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold">
           <select id="admCandListTagValueSelect" onchange="_admCandFilterList()" class="hidden px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold"></select>
           <button onclick="_admCandExportCsv()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50"><i data-lucide="download" class="h-3.5 w-3.5"></i> Export CSV</button>
+          <button onclick="_admCandExportCsvConfigureColumns()" title="Choose which columns Export CSV includes" class="flex items-center gap-1.5 px-3 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50"><i data-lucide="sliders-horizontal" class="h-3.5 w-3.5"></i> Columns</button>
         </div>
         <div id="admCandBulkBar" class="hidden flex items-center gap-2 bg-rose-50 border border-rose-200 rounded-xl px-4 py-2.5 mb-3">
           <span id="admCandBulkCount" class="text-xs font-bold text-rose-700">0 selected</span>
@@ -49553,15 +49779,33 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // most recent entry in scan_dates[o.key].
       scanCols.push({ header: `${o.label} - Scanned At`, get: a => _ccpcFmtScanDate(_ccpcLastScanDate(a, o.key)) });
     });
-    const headers = [...dataCols.map(c => c.header), ...scanCols.map(c => c.header)];
-    const csvRows = [headers].concat(rows.map(r => [...dataCols.map(c => _ccpcCsvCell(c.get(r), c.isPhone)), ...scanCols.map(c => c.get(r))]));
-    // UTF-16LE + its own BOM (FF FE) + TAB-delimited plain text is the one
-    // format every Excel version recognizes unconditionally on a plain
-    // double-click open, regardless of Windows locale or Excel version --
-    // a bare UTF-8-BOM comma CSV (even without a "sep=," directive) was
-    // confirmed to still open as mojibake on at least one real Excel
-    // install, so this is the more robust format, not just an alternative.
-    _ccpcShareOrDownload('candidates.csv', 'text/csv;charset=utf-16le', _ccpcBuildUnicodeCsvBlob(csvRows));
+    // Picked separately from the Applications tab's own export above
+    // (distinct storageKey) -- this tab's column set (candidate roster
+    // fields + Scan Options) is different in practice and is remembered on
+    // its own. Once a choice is saved it's reused on every later export
+    // with no picker shown again -- _admCandExportCsvConfigureColumns (a
+    // separate "Columns" button) is the only thing that reopens it.
+    _ccpcExportCsvWithColumns({ title: 'Choose columns to export', storageKey: 'admExportCsvCols_candidates', filename: 'candidates.csv', cols: [...dataCols, ...scanCols], items: rows });
+  }
+  // The "Columns" button next to the Candidates tab's own Export CSV --
+  // always reopens the picker (forceConfigure) regardless of a prior saved
+  // choice, so the admin can deliberately change it.
+  function _admCandExportCsvConfigureColumns() {
+    const rows = _admCandAllCandidates;
+    if (!rows.length) { showToast('Nothing to export', 'error'); return; }
+    const dataCols = _ccpcCsvColumnsFromRows(rows, _admCandFormFieldDefs);
+    const trackingCol = dataCols.find(c => c.header === 'tracking_id');
+    if (trackingCol) trackingCol.get = a => a.tracking_id || a.token || a.external_key || '';
+    const scanCols = [];
+    (_admCandScanOptions || []).forEach(o => {
+      if (o.behavior === 'form') {
+        (o.config?.fields || []).forEach(f => scanCols.push({ header: `${o.label} - ${f.label}`, get: a => ((a.scan_values || {})[o.key] || {})[f.key] ?? '' }));
+      } else {
+        scanCols.push({ header: o.label, get: a => { const v = (a.scan_values || {})[o.key]; if (o.behavior === 'status') return v && v.done ? 'Done' : ''; return v === true ? 'Yes' : (v ?? ''); } });
+      }
+      scanCols.push({ header: `${o.label} - Scanned At`, get: a => _ccpcFmtScanDate(_ccpcLastScanDate(a, o.key)) });
+    });
+    _ccpcExportCsvWithColumns({ title: 'Choose columns to export', storageKey: 'admExportCsvCols_candidates', filename: 'candidates.csv', cols: [...dataCols, ...scanCols], items: rows, forceConfigure: true });
   }
   async function _admCandDeleteCandidate(id) {
     if (!confirm('Delete this candidate?')) return;
