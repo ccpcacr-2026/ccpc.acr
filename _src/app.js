@@ -32855,7 +32855,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="p-5 border-b border-slate-100 flex items-center justify-between gap-3">
           <div>
             <p class="font-black text-slate-800 text-sm">${_escHtml(st.title)}</p>
-            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">${st.selected.size} of ${st.headers.length} columns selected</p>
+            <p id="ccpcCsvPickerCount" class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">${st.selected.size} of ${st.headers.length} columns selected</p>
           </div>
           <button onclick="_ccpcCsvPickerCancel()" class="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 shrink-0"><i data-lucide="x" class="h-4 w-4"></i></button>
         </div>
@@ -32866,11 +32866,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button onclick="_ccpcCsvPickerSelectNone()" class="text-[10px] font-black text-slate-400 uppercase hover:underline">Select None</button>
           </div>
         </div>
-        <div class="px-5 py-3 overflow-y-auto flex-1">
+        <div id="ccpcCsvPickerList" class="px-5 py-3 overflow-y-auto flex-1">
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1.5">
             ${shown.map(({ h, i }) => `
               <label class="flex items-center gap-2 text-xs font-bold text-slate-600 py-0.5 cursor-pointer">
-                <input type="checkbox" onchange="_ccpcCsvPickerToggle(${i})" ${st.selected.has(h) ? 'checked' : ''} class="rounded border-slate-300 shrink-0">
+                <input type="checkbox" data-col-index="${i}" onchange="_ccpcCsvPickerToggle(${i})" ${st.selected.has(h) ? 'checked' : ''} class="rounded border-slate-300 shrink-0">
                 <span class="truncate" title="${_escHtml(h)}">${_escHtml(h)}</span>
               </label>`).join('') || '<p class="text-xs text-slate-400 col-span-2">No columns match.</p>'}
           </div>
@@ -32882,21 +32882,36 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>`;
     if (window.lucide) { try { lucide.createIcons(); } catch (e) {} }
   }
+  function _ccpcCsvPickerUpdateCount() {
+    const st = _ccpcCsvPickerState; if (!st) return;
+    const el = document.getElementById('ccpcCsvPickerCount');
+    if (el) el.textContent = `${st.selected.size} of ${st.headers.length} columns selected`;
+  }
+  // Toggling one checkbox (and Select All/None, which only flip the
+  // checkboxes already on screen) update state + the counter in place
+  // rather than calling _ccpcCsvPickerRender()'s full innerHTML rebuild --
+  // confirmed live that the rebuild was resetting the scrollable list back
+  // to the top on every single checkbox click, forcing a re-scroll before
+  // picking the next column. The list only genuinely needs a full re-render
+  // when the FILTER changes (a different set of rows becomes visible),
+  // handled separately in _ccpcCsvPickerSetFilter below.
   function _ccpcCsvPickerToggle(i) {
     const st = _ccpcCsvPickerState; if (!st) return;
     const h = st.headers[i];
     st.selected.has(h) ? st.selected.delete(h) : st.selected.add(h);
-    _ccpcCsvPickerRender();
+    _ccpcCsvPickerUpdateCount();
   }
   function _ccpcCsvPickerSelectAll() {
     const st = _ccpcCsvPickerState; if (!st) return;
     st.headers.forEach(h => st.selected.add(h));
-    _ccpcCsvPickerRender();
+    document.querySelectorAll('#ccpcCsvPickerList input[type="checkbox"]').forEach(cb => { cb.checked = true; });
+    _ccpcCsvPickerUpdateCount();
   }
   function _ccpcCsvPickerSelectNone() {
     const st = _ccpcCsvPickerState; if (!st) return;
     st.selected.clear();
-    _ccpcCsvPickerRender();
+    document.querySelectorAll('#ccpcCsvPickerList input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+    _ccpcCsvPickerUpdateCount();
   }
   function _ccpcCsvPickerSetFilter(v) {
     const st = _ccpcCsvPickerState; if (!st) return;
