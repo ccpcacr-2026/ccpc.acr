@@ -158,8 +158,9 @@
   // app's iframe. Driven entirely by touch events, so it never engages for
   // a mouse/desktop user.
   (function () {
-    const THRESHOLD = 70; // px of downward drag, measured from the top, before release triggers a reload
-    let startY = null, dy = 0, indicator = null;
+    const THRESHOLD = 70; // px of downward drag, measured from the top, before a hold can trigger a reload
+    const HOLD_MS = 1000; // must stay pulled past THRESHOLD for this long — a quick pull-and-release no longer reloads
+    let startY = null, dy = 0, indicator = null, holdTimer = null, holding = false;
     // The actual scrolling element is #main-scroll-area (the content pane
     // next to the sidebar, app.html) -- <body> itself is overflow-hidden
     // and never scrolls, so document.scrollingElement.scrollTop was always
@@ -186,22 +187,42 @@
       document.body.appendChild(indicator);
       return indicator;
     }
+    function clearHold(el) {
+      if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+      if (holding) { holding = false; if (el) el.style.background = 'transparent'; }
+    }
     document.addEventListener('touchstart', e => {
       startY = (scrollTopNow() <= 0 && e.touches.length === 1) ? e.touches[0].clientY : null;
       dy = 0;
+      clearHold(indicator);
     }, { passive: true });
     document.addEventListener('touchmove', e => {
       if (startY == null) return;
-      if (scrollTopNow() > 0) { startY = null; ensureIndicator().style.height = '0px'; return; }
+      const el = ensureIndicator();
+      if (scrollTopNow() > 0) { startY = null; clearHold(el); el.style.height = '0px'; return; }
       dy = e.touches[0].clientY - startY;
-      if (dy <= 0) { ensureIndicator().style.height = '0px'; return; }
-      ensureIndicator().style.height = Math.min(dy * 0.5, 80) + 'px';
+      if (dy <= 0) { clearHold(el); el.style.height = '0px'; return; }
+      el.style.height = Math.min(dy * 0.5, 80) + 'px';
+      // Crossing the threshold starts a hold timer rather than reloading
+      // immediately — only a sustained pull (finger still down HOLD_MS later)
+      // triggers the reload, so a normal quick pull-and-release scroll
+      // gesture at the top of the page never accidentally reloads the app.
+      if (dy >= THRESHOLD && !holding) {
+        holding = true;
+        el.style.background = 'rgba(37,99,235,0.08)'; // subtle tint while holding, signals "keep holding"
+        holdTimer = setTimeout(() => {
+          el.style.height = '56px';
+          location.reload();
+        }, HOLD_MS);
+      } else if (dy < THRESHOLD && holding) {
+        clearHold(el);
+      }
     }, { passive: true });
     document.addEventListener('touchend', () => {
       if (startY == null) return;
       const el = ensureIndicator();
-      if (dy >= THRESHOLD) { el.style.height = '56px'; location.reload(); }
-      else el.style.height = '0px';
+      clearHold(el);
+      el.style.height = '0px';
       startY = null; dy = 0;
     });
   })();
