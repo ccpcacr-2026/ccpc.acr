@@ -33050,6 +33050,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${_escHtml(title)}</title><style>
       * { box-sizing: border-box; }
       body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; color: #111827; }
+      /* This window has none of the main app's own CSS reset (it's a bare
+         new tab/window, not the portal's own styled DOM) -- several table
+         cells (e.g. the Applications print's "Family" column) are built
+         from _admAppFieldRender's <p> elements joined with <br>, which on
+         screen look tight only because the app's own stylesheet zeroes out
+         paragraph margins; here the browser's default ~1em top/bottom <p>
+         margin applied unopposed, confirmed live as excessive line spacing
+         between stacked Father/Mother info lines. Reset here, once, for
+         every print window this function builds, rather than per-caller. */
+      p { margin: 0; }
       /* @page's own margin only ever applies to the actual print/PDF
          output -- the tab this opens in shows the raw page with NO margin
          at all until the print dialog (auto-triggered below) actually
