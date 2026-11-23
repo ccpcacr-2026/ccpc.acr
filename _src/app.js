@@ -665,6 +665,7 @@
     // Route to saved hash (supports refresh & bookmarked views)
     _routeByHash();
     window.addEventListener('hashchange', _routeByHash);
+    _tourMaybeStart();
   }
 
   // Sidebar user card: id/email come straight from the login response for
@@ -56410,6 +56411,105 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     win.focus();
     setTimeout(function() { win.print(); setTimeout(function() { URL.revokeObjectURL(url); }, 1000); }, 800);
+  }
+
+  // ═══════════════════════════════════════════════════════
+  //  FIRST-TIME WALKTHROUGH (spotlight tour)
+  // ═══════════════════════════════════════════════════════
+  // Shown once per device (localStorage flag) right after the dashboard
+  // first renders. Points at real, already-rendered topbar/sidebar elements
+  // rather than building any new chrome of its own.
+  const TOUR_STORAGE_KEY = 'ccpc_tour_v1_seen';
+  const TOUR_STEPS = [
+    { selector: '#main-sidebar', mobileSelector: '#mobileTopBarNavBtn', title: 'Your Menu', text: 'Everything you can do lives here — Attendance, Exams, Diary, Calendar, and every other tool for your role.' },
+    { selector: '#msgBell', title: 'Messages', text: 'Send and read messages with other staff members.' },
+    { selector: '#notifBell', title: 'Notifications', text: 'Diary cases, announcements, and other updates show up here.' },
+    { selector: '#nav-calendar', title: 'School Calendar', text: 'See holidays, exams, and upcoming events for the whole school.' }
+  ];
+  let _tourIndex = 0;
+
+  function _tourMaybeStart() {
+    if (window.innerWidth >= 768) return; // mobile/app-only walkthrough, same breakpoint as the rest of this file
+    try { if (localStorage.getItem(TOUR_STORAGE_KEY)) return; } catch (e) { return; }
+    setTimeout(_tourStart, 700);
+  }
+
+  function _tourTargetEl(step) {
+    if (step.mobileSelector && window.innerWidth < 768) {
+      const el = document.querySelector(step.mobileSelector);
+      if (el && el.offsetParent !== null) return el;
+    }
+    const el = document.querySelector(step.selector);
+    return (el && el.offsetParent !== null) ? el : null;
+  }
+
+  function _tourRenderOverlay() {
+    if (document.getElementById('tourOverlay')) return;
+    const ov = document.createElement('div');
+    ov.id = 'tourOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:9999;';
+    ov.innerHTML = `
+      <div id="tourRing" style="position:fixed;border-radius:14px;box-shadow:0 0 0 4px #3b82f6,0 0 0 9999px rgba(15,23,42,0.6);transition:all .25s ease;pointer-events:none;"></div>
+      <div id="tourCard" style="position:fixed;width:260px;background:#fff;color:#0f172a;border-radius:14px;padding:16px;box-shadow:0 20px 40px rgba(0,0,0,.3);font-family:inherit;">
+        <div id="tourCardTitle" style="font-weight:800;font-size:14px;margin-bottom:4px;"></div>
+        <div id="tourCardText" style="font-size:12.5px;color:#475569;line-height:1.45;margin-bottom:12px;"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+          <button onclick="_tourSkip()" style="font-size:12px;color:#94a3b8;background:none;border:none;cursor:pointer;padding:4px;">Skip</button>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span id="tourStepLabel" style="font-size:11px;color:#94a3b8;"></span>
+            <button onclick="_tourNext()" id="tourNextBtn" style="font-size:12.5px;font-weight:700;color:#fff;background:#2563eb;border:none;border-radius:8px;padding:7px 14px;cursor:pointer;">Next</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(ov);
+  }
+
+  function _tourStart() {
+    _tourIndex = 0;
+    _tourRenderOverlay();
+    _tourShowStep(0);
+  }
+
+  function _tourShowStep(i) {
+    const step = TOUR_STEPS[i];
+    if (!step) { _tourFinish(); return; }
+    const el = _tourTargetEl(step);
+    if (!el) { _tourShowStep(i + 1); return; }
+    _tourIndex = i;
+    const r = el.getBoundingClientRect();
+    const pad = 6;
+    const ring = document.getElementById('tourRing');
+    ring.style.left = (r.left - pad) + 'px';
+    ring.style.top = (r.top - pad) + 'px';
+    ring.style.width = (r.width + pad * 2) + 'px';
+    ring.style.height = (r.height + pad * 2) + 'px';
+
+    document.getElementById('tourCardTitle').textContent = step.title;
+    document.getElementById('tourCardText').textContent = step.text;
+    document.getElementById('tourStepLabel').textContent = (i + 1) + ' / ' + TOUR_STEPS.length;
+    document.getElementById('tourNextBtn').textContent = (i === TOUR_STEPS.length - 1) ? 'Done' : 'Next';
+
+    const card = document.getElementById('tourCard');
+    const cardH = 150;
+    let top = r.bottom + 14;
+    if (top + cardH > window.innerHeight) top = Math.max(10, r.top - cardH - 14);
+    let left = Math.min(Math.max(10, r.left), window.innerWidth - 276);
+    card.style.top = top + 'px';
+    card.style.left = left + 'px';
+  }
+
+  function _tourNext() {
+    const next = _tourIndex + 1;
+    if (next >= TOUR_STEPS.length) { _tourFinish(); return; }
+    _tourShowStep(next);
+  }
+
+  function _tourSkip() { _tourFinish(); }
+
+  function _tourFinish() {
+    try { localStorage.setItem(TOUR_STORAGE_KEY, '1'); } catch (e) {}
+    const ov = document.getElementById('tourOverlay');
+    if (ov) ov.remove();
   }
 
   // ═══════════════════════════════════════════════════════

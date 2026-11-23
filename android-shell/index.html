@@ -394,6 +394,38 @@
         setTop(currentTop());
       });
 
+      // ── First-time tooltip for the switch button ────────────────────────
+      // Shell-only UI (the teacher/student toggle lives here, not inside
+      // either portal's iframe), so its own one-time hint lives here too,
+      // separate from each portal's own in-app walkthrough.
+      (function () {
+        var SEEN_KEY = 'ccpc_shell_switch_tip_seen';
+        try { if (localStorage.getItem(SEEN_KEY)) return; } catch (e) { return; }
+        setTimeout(function () {
+          var tip = document.createElement('div');
+          tip.id = 'switch-tip';
+          tip.style.cssText = 'position:fixed;z-index:10000;max-width:200px;background:#0f172a;color:#fff;' +
+            'font:12.5px/1.4 -apple-system,Segoe UI,Roboto,sans-serif;padding:10px 12px;border-radius:10px;' +
+            'box-shadow:0 10px 24px rgba(0,0,0,.35);';
+          tip.innerHTML = 'Tap this button anytime to switch between the <b>Teachers</b> and <b>Students</b> portal.' +
+            '<div style="text-align:right;margin-top:8px;"><button id="switch-tip-ok" style="font-size:12px;font-weight:700;color:#93c5fd;background:none;border:none;cursor:pointer;padding:2px 4px;">Got it</button></div>';
+          document.body.appendChild(tip);
+          function position() {
+            var r = btn.getBoundingClientRect();
+            var top = Math.max(10, r.top - tip.offsetHeight - 10);
+            var left = Math.min(Math.max(10, r.left - 140), window.innerWidth - tip.offsetWidth - 10);
+            tip.style.top = top + 'px';
+            tip.style.left = left + 'px';
+          }
+          position();
+          window.addEventListener('resize', position);
+          document.getElementById('switch-tip-ok').addEventListener('click', function () {
+            try { localStorage.setItem(SEEN_KEY, '1'); } catch (e) {}
+            tip.remove();
+          });
+        }, 1200);
+      })();
+
       // ── Hardware/gesture Back button ────────────────────────────────────
       // The top-level WebView (this page) never itself navigates - only the
       // iframes' own JS does (ccpc-acr's pushState-based modal/drill-down/

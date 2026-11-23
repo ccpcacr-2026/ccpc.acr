@@ -546,6 +546,8 @@ const RESERVED = [
   '_diaryEntryEditOpen','_diaryEntryEditSave','_diaryCloseSimpleModal','_diaryCaseReferOpen','_diaryCaseClose',
   '_diaryCaseTriageSubtypeChange','_diaryCaseTriageSave','_diaryCaseReferSave','_diaryRepliesToggle','_diaryReplySend',
   '_diaryQrManualSubmit','_diaryQrCloseScanner','_diaryCasePanelShowTab',
+  // First-time walkthrough tour (onclick-bound Next/Skip buttons built dynamically)
+  '_tourNext','_tourSkip',
   // Clubs (admin club CRUD, class-teacher assignment, club-teacher roster) -- Part 19
   'loadClubsView','_myClassAssignClub','_clubsShowTab','_clubsSelectClub','_clubsApplyFilter',
   '_clubsManageAddClub','_clubsManageRenameClub','_clubsManageDeleteClub','_clubsManageRemoveTeacher','_clubsTeacherSearch',
