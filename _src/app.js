@@ -4525,9 +4525,17 @@
       });
     });
     const [from, to] = _mcaResolveRange();
-    // UTF-8 BOM + "sep=," is what makes Excel open this as UTF-8 instead of the
-    // local ANSI codepage -- without it, a Bangla student name opens as mojibake.
-    const blob = new Blob(['﻿sep=,\n' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    // Bare UTF-8 BOM is what makes Excel open this as UTF-8 instead of the
+    // local ANSI codepage -- without it, a Bangla student name opens as
+    // mojibake. A "sep=," directive line was tried alongside the BOM at one
+    // point specifically to force comma-splitting on non-US Excel locales,
+    // but that combination is a confirmed, real-world Excel bug: on at least
+    // one live Excel install it made Excel ignore the BOM entirely and fall
+    // back to ANSI (Bangla -> mojibake), so it's deliberately left out here
+    // -- Bangladesh-locale Windows already defaults to a comma list
+    // separator (decimal symbol "."), so the bare BOM alone is both safer
+    // and sufficient.
+    const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -12284,7 +12292,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return [a.class, a.section, s.full_name || '', s.designation || '', s.shortname || '', a.user_id];
     })];
     const csv = lines.map(r => r.map(c => `"${String(c || '').replace(/"/g, '""')}"`).join(',')).join('\n');
-    _ccpcShareOrDownload('class_teacher_list.csv', 'text/csv;charset=utf-8', '﻿sep=,\n' + csv);
+    _ccpcShareOrDownload('class_teacher_list.csv', 'text/csv;charset=utf-8', '﻿' + csv);
   }
 
   function loadAdminTabVisibility() {
@@ -12659,7 +12667,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (!res || res.result !== 'success') { showToast((res && res.message) || 'Download failed', 'error'); return; }
       const csv = res.headers.join(',') + '\n' + res.rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g,'""')}"`).join(',')).join('\n');
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob(['﻿sep=,\n' + csv], { type: 'text/csv;charset=utf-8' }));
+      a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
       a.download = `${category_name}_export.csv`;
       a.click();
     });
@@ -32671,12 +32679,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
     const a = document.createElement('a');
-    // "sep=,\n" + the UTF-8 BOM is what makes Excel reliably split into real
-    // columns instead of dumping the whole quoted line into column A --
-    // without it, Excel falls back to the Windows list-separator setting
-    // (often ";" outside the US), which silently breaks comma-delimited
-    // CSVs exactly like this one on exactly those machines.
-    a.href = URL.createObjectURL(new Blob(['﻿sep=,\n' + csv], { type: 'text/csv;charset=utf-8' }));
+    // Bare UTF-8 BOM makes Excel open this as UTF-8 instead of the local ANSI
+    // codepage. A "sep=," directive line was tried alongside it at one point
+    // to force comma-splitting on non-US Excel locales, but combining it
+    // with the BOM is a confirmed, real-world Excel bug: on at least one
+    // live Excel install it made Excel ignore the BOM entirely and fall
+    // back to ANSI (Bangla text -> mojibake), so it's deliberately left out
+    // -- Bangladesh-locale Windows already defaults to a comma list
+    // separator, so the bare BOM alone is both safer and sufficient.
+    a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
     a.download = `${(_gfRosterForm?.title || 'group_form').replace(/[^a-z0-9]+/gi, '_')}_teams.csv`;
     a.click();
   }
@@ -33799,7 +33810,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       });
       const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob(['﻿sep=,\n' + csv], { type: 'text/csv;charset=utf-8' }));
+      a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
       a.download = `${(form?.title || 'judges').replace(/[^a-z0-9]+/gi, '_')}_combined_result.csv`;
       a.click();
     });
@@ -34278,7 +34289,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       });
       const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob(['﻿sep=,\n' + csv], { type: 'text/csv;charset=utf-8' }));
+      a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
       a.download = `${(form?.title || 'position_holders').replace(/[^a-z0-9]+/gi, '_')}_position_holders.csv`;
       a.click();
     });
@@ -35314,7 +35325,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob(['﻿sep=,\n' + csv], { type: 'text/csv;charset=utf-8' }));
+    a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
     a.download = `${(_gfReviewForm?.title || 'group_form').replace(/[^a-z0-9]+/gi, '_')}_review.csv`;
     a.click();
   }
@@ -36861,7 +36872,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _adminFetch('get_tab_data', { tab_name: tab }).then(res => {
       const csv = res.headers.join(',') + '\n' + res.rows.map(r => r.map(c => `"${String(c || '').replace(/"/g, '""')}"`).join(',')).join('\n');
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob(['﻿sep=,\n' + csv], { type: 'text/csv;charset=utf-8' }));
+      a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
       a.download = `${tab}_export.csv`;
       a.click();
     });
@@ -37478,7 +37489,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const headerRow = cols.map(c => IMPORT_LABELS[c] || c.replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase()));
       const sampleRow = cols.map(c => IMPORT_DEMO_SAMPLES[c] ?? '');
       const csv = [headerRow, sampleRow].map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
-      _ccpcShareOrDownload('student_import_template.csv', 'text/csv;charset=utf-8', '﻿sep=,\r\n' + csv);
+      _ccpcShareOrDownload('student_import_template.csv', 'text/csv;charset=utf-8', '﻿' + csv);
     };
     if (IMPORT_DB_COLUMNS.length) { build(); return; }
     _adminFetch('get_student_data_headers', {}).then(cols => {
@@ -37840,7 +37851,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (!res || res.result !== 'success') { showToast((res && res.message) || 'Download failed', 'error'); return; }
       const csv = res.headers.join(',') + '\n' + res.rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob(['﻿sep=,\n' + csv], { type: 'text/csv;charset=utf-8' }));
+      a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
       a.download = `${category_name}_export.csv`;
       a.click();
     }).catch(() => showToast('Network error', 'error'));
@@ -40627,7 +40638,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const csv = [headerRow, sampleRow]
       .map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
       .join('\r\n');
-    const blob = new Blob(['﻿sep=,\r\n' + csv], { type: 'text/csv;charset=utf-8' });
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -45656,7 +45667,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       rows.push([...dataCols.map(c => _ccpcCsvCell(c.get(a), c.isPhone)), ...scanCols.map(c => c.get(a))]);
     });
     const csv = rows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
-    _ccpcShareOrDownload('admission_applications.csv', 'text/csv;charset=utf-8', '﻿sep=,\n' + csv);
+    _ccpcShareOrDownload('admission_applications.csv', 'text/csv;charset=utf-8', '﻿' + csv);
   }
   // Prints exactly the rows the Applications tab's current search/filter is
   // showing (_admLastFiltered, set by _admRenderTable on every re-filter),
@@ -49487,11 +49498,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const headers = [...dataCols.map(c => c.header), ...scanCols.map(c => c.header)];
     const csv = [headers].concat(rows.map(r => [...dataCols.map(c => _ccpcCsvCell(c.get(r), c.isPhone)), ...scanCols.map(c => c.get(r))]))
       .map(row => row.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
-    // UTF-8 BOM + "sep=," is what makes Excel open this as UTF-8 instead of the
-    // local ANSI codepage -- without it, Bangla text (names/addresses/etc.) opens
-    // as mojibake. Every other CSV export in this file already does this; this
-    // one was missing it.
-    _ccpcShareOrDownload('candidates.csv', 'text/csv;charset=utf-8', '﻿sep=,\r\n' + csv);
+    // Bare UTF-8 BOM is what makes Excel open this as UTF-8 instead of the
+    // local ANSI codepage -- without it, Bangla text (names/addresses/etc.)
+    // opens as mojibake. (A "sep=," directive line was tried alongside the
+    // BOM elsewhere in this file at one point, then removed everywhere --
+    // confirmed to make at least one real Excel install ignore the BOM and
+    // fall back to ANSI, which is worse than just letting Excel's own
+    // locale-default list separator apply.)
+    _ccpcShareOrDownload('candidates.csv', 'text/csv;charset=utf-8', '﻿' + csv);
   }
   async function _admCandDeleteCandidate(id) {
     if (!confirm('Delete this candidate?')) return;
@@ -50612,7 +50626,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     const csv = csvRows.map(r => r.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(new Blob(['﻿sep=,\n' + csv], { type: 'text/csv;charset=utf-8' }));
+    link.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
     link.download = `scan_${(opt.key || 'option').replace(/[^a-z0-9_-]/gi, '_')}.csv`;
     link.click();
   }
