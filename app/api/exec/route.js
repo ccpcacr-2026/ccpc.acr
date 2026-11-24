@@ -2711,6 +2711,38 @@ const handlers = {
     return { result: 'success', student, open_committee_cases: openCommitteeCases };
   },
 
+  // Sibling of getStudentForScan above, for an NFC tap instead of a QR/
+  // barcode scan — looked up by nfc_uid (students_data's existing canteen-
+  // card column) rather than student_id. Same "any signed-in teacher/staff,
+  // full case history" access level; the caller never reaches this at all
+  // while logged out, since the client only starts listening for NFC taps
+  // once window.APP_USER is set (see _diaryNfcScanStart's call site).
+  // Normalizes case/whitespace/colons the same way ccpc-students' own
+  // nfc_login action already does, so the same physical card reads
+  // consistently on both portals.
+  async getStudentByNfcUid([callerId, rawUid]) {
+    if (!callerId) return { result: 'error', message: 'Not signed in.' };
+    const clean = String(rawUid || '').replace(/[\s:]/g, '').toLowerCase();
+    if (!clean) return { result: 'error', message: 'No student found.' };
+    let student = null;
+    for (const uid of [rawUid, clean, clean.toUpperCase()]) {
+      if (!uid) continue;
+      const rows = await _sbStudent(`students_data?nfc_uid=eq.${encodeURIComponent(uid)}&select=*`);
+      if (Array.isArray(rows) && rows[0]) { student = rows[0]; break; }
+    }
+    if (!student) return { result: 'error', message: 'No student found.' };
+    delete student.pin;
+    delete student.nfc_uid;
+    const openCases = await supabaseRequest(`diary_entry_students?student_id=eq.${encodeURIComponent(student.student_id)}&select=diary_entry_id`);
+    let openCommitteeCases = 0;
+    if (Array.isArray(openCases) && openCases.length) {
+      const entryIds = openCases.map(c => c.diary_entry_id);
+      const cases = await supabaseRequest(`student_diary_entries?id=in.(${entryIds.join(',')})&case_type=eq.committee&status=neq.closed&select=id`);
+      openCommitteeCases = Array.isArray(cases) ? cases.length : 0;
+    }
+    return { result: 'success', student, open_committee_cases: openCommitteeCases };
+  },
+
   // Full case/diary history for one student — any signed-in teacher/staff
   // sees full message text (confirmed access level), not a restricted
   // summary. committee_id/subtype_id/current_handler_id ride along here

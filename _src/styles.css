@@ -1642,3 +1642,20 @@ button { user-select: none; }
 .adm-submission-summary-table td {
   border: 1px solid #e2e8f0;
 }
+
+/* Application editor's view-only mode -- a plain readOnly/disabled input
+   still shows a focus ring and text cursor when clicked, which looks
+   identical to a genuinely editable field that just "isn't taking the
+   edit" (reported live). This makes view-only state visible at a glance:
+   greyed fill, no text cursor, no focus ring, so clicking it clearly reads
+   as "locked," not "broken." */
+.adm-field-readonly {
+  background: #f1f5f9 !important;
+  color: #64748b !important;
+  cursor: default !important;
+  caret-color: transparent !important;
+}
+.adm-field-readonly:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}

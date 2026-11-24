@@ -38,4 +38,11 @@
          Declared not-required so devices without a camera can still install. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- Android's build tools auto-infer a REQUIRED android.hardware.screen.portrait
+         feature whenever any orientation gets locked (ours is portrait-only), which
+         wrongly excludes tablets/desktop/foldable/XR devices from the Play Store
+         listing. The app works fine on those too, just in a portrait window.
+         This override is the fix Play Console itself recommends: "mark non-essential
+         hardware features as optional". -->
+    <uses-feature android:name="android.hardware.screen.portrait" android:required="false" />
 </manifest>

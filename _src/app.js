@@ -379,6 +379,7 @@
           if (loginId) loginId.value = '';
           if (loginPw) loginPw.value = '';
           _qrFabInit();
+          _diaryNfcScanStart();
           launchDashboard();
         } else if (isAuto) {
           if (loginId) loginId.value = id;
@@ -441,6 +442,7 @@
       window.APP_USER = null;
       window.USER_ROLE = null;
       window.removeEventListener('hashchange', _routeByHash);
+      _diaryNfcScanStop();
       _destroyRealtime();
       history.replaceState(null, '', window.location.pathname);
       if (_detachedLoginScreen) { document.body.appendChild(_detachedLoginScreen); _detachedLoginScreen = null; }
@@ -1081,13 +1083,12 @@
   // instead of swapping the onclick attribute itself.
   function _mobileTopBarNavClick() {
     const key = location.hash.slice(1).split('?')[0] || '';
-    // Part 20: Home is now the aggregating Dashboard, not the module grid —
-    // from Home, the button opens the module drawer (menu icon); from any
-    // other screen it's a back-arrow to Home, same as before, just landing
-    // on the Dashboard instead of the retired grid. The grid itself still
-    // exists (renderMobileHomeGrid, reachable via the Dashboard's "View All
-    // Modules" link) — it's just no longer what "back" resolves to.
-    if (key === 'home' || key === '') openMobileSidebar();
+    // Home is the aggregating Dashboard (news/events + an embedded tile
+    // section), not the standalone module grid — but the menu-icon button,
+    // shown only while already on Home, opens the dedicated full tile grid
+    // (renderMobileHomeGrid) rather than a sliding drawer. From any other
+    // screen the same button is a back-arrow to Home/Dashboard instead.
+    if (key === 'home' || key === '') renderMobileHomeGrid();
     // Any individual Student Portal sub-view (Setup, Data, Access, …) shares
     // this same hash — back should return to the sub-menu of destinations,
     // not jump all the way past it to Home.
@@ -1124,14 +1125,18 @@
   // only toggles an accordion (no equivalent surface here), so its tile
   // opens a mobile-only sub-menu of its own instead (see
   // _openStudentPortalMobileMenu).
-  function renderMobileHomeGrid() {
-    if (window.innerWidth >= 768) { loadDefaultView(); return; }
-    _setViewHash('home');
-    setActiveNavLink();
-    setContentHeader('Home', 'layout-grid');
-    const container = document.getElementById('view-container');
-    if (!container) return;
+  // Tracks which of the two screens sharing the #home hash is actually on
+  // screen right now (Dashboard-with-embedded-tiles vs. the dedicated
+  // tiles-only grid reached from the mobile menu button) — _refreshHome-
+  // GridIfVisible needs this so a module-visibility refresh re-renders
+  // whichever one the user is actually looking at, not always the grid.
+  let _homeSubView = 'dashboard';
 
+  // Builds just the tile-grid markup (no hash/header/container side
+  // effects) so both the dedicated grid screen (renderMobileHomeGrid) and
+  // the Dashboard's own embedded tiles section can share one source of
+  // truth for "what tiles exist right now" instead of drifting apart.
+  function _buildHomeGridHtml() {
     // Grouped exactly like the PC sidebar: a single linear scan (in document
     // order — querySelectorAll guarantees this even mixing selectors/depths)
     // over every visible nav-link and every section-label text in the
@@ -1160,8 +1165,7 @@
     if (current.links.length) groups.push(current);
 
     if (!groups.length) {
-      container.innerHTML = `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No modules available — contact your administrator</div>`;
-      return;
+      return `<div class="text-center py-16 text-slate-400 text-xs font-black uppercase tracking-widest">No modules available — contact your administrator</div>`;
     }
 
     // Fixed rainbow palette, independent of the active theme — cycling
@@ -1190,26 +1194,39 @@
         </button>`;
     };
 
-    container.innerHTML = groups.map(g => `
+    return groups.map(g => `
       <div class="mb-4">
         ${g.label ? `<p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">${_escHtml(g.label)}</p>` : ''}
         <div class="grid grid-cols-3 gap-3">${g.links.map(tileHtml).join('')}</div>
-      </div>`).join('')
-      // Designer credit — mobile has no always-visible sidebar to anchor it
-      // in (off-canvas, hidden by default), so it only shows here, at the
-      // bottom of the one mobile-only screen that's roughly this app's
-      // "home" — deliberately the smallest text in the UI.
+      </div>`).join('');
+  }
+
+  function renderMobileHomeGrid() {
+    if (window.innerWidth >= 768) { loadDefaultView(); return; }
+    _homeSubView = 'grid';
+    _setViewHash('home');
+    setActiveNavLink();
+    setContentHeader('Home', 'layout-grid');
+    const container = document.getElementById('view-container');
+    if (!container) return;
+    // Designer credit — mobile has no always-visible sidebar to anchor it
+    // in (off-canvas, hidden by default), so it only shows here, at the
+    // bottom of the one mobile-only screen that's roughly this app's
+    // "home" — deliberately the smallest text in the UI.
+    container.innerHTML = _buildHomeGridHtml()
       + `<p class="text-center text-[8px] text-slate-400 font-bold mt-2 mb-1">Designed &amp; Developed by: Md. Mamunur Rashid, CCPC</p>`;
     lucide.createIcons();
   }
 
-  // Re-draws the grid only if it's the currently visible screen — called
+  // Re-draws whichever home sub-view is actually on screen right now — called
   // from every async source that can reveal/hide a sidebar link after the
   // grid's first paint (module-visibility matrix, per-account tab grants,
   // field-category grants), so a tile never silently goes missing just
   // because that fetch hadn't resolved yet when the grid first rendered.
   function _refreshHomeGridIfVisible() {
-    if ((location.hash.slice(1).split('?')[0] || '') === 'home') renderMobileHomeGrid();
+    if ((location.hash.slice(1).split('?')[0] || '') !== 'home') return;
+    if (_homeSubView === 'grid') renderMobileHomeGrid();
+    else _refreshDashboardTiles();
   }
 
   // Mobile equivalent of expanding the "Student Portal" sidebar accordion.
@@ -8352,6 +8369,67 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (!res || res.result !== 'success') { showToast((res && res.message) || 'Student not found', 'error'); return; }
       _diaryCaseOpenStudentPanel(res.student);
     }).withFailureHandler(() => showToast('Network error', 'error')).getStudentForScan(myId, raw);
+  }
+
+  // ── Ambient NFC tap -> Student Diary popup (own requestId namespace) ────────
+  // Unlike the QR flow above (an explicit "I want to scan now" button tap),
+  // this listens continuously in the background the whole time a teacher is
+  // signed in -- started right after login succeeds, stopped on logout, so
+  // NFC lookup is only ever live while "a teacher account is logged in."
+  // Re-arms itself after every read/error (except a deliberate stop) so a
+  // teacher can keep tapping cards back-to-back without re-opening anything.
+  let _diaryNfcReqSeq = 0;
+  let _diaryNfcPending = null;
+  let _diaryNfcListenerBound = false;
+  let _diaryNfcActive = false;
+
+  function _diaryNfcEnsureListener() {
+    if (_diaryNfcListenerBound) return;
+    _diaryNfcListenerBound = true;
+    window.addEventListener('message', ev => {
+      const data = ev.data;
+      if (!data || typeof data.type !== 'string' || data.requestId !== _diaryNfcPending) return;
+      if (data.type === 'ccpc-nfc-result') {
+        _diaryNfcPending = null;
+        _diaryNfcHandleUid(String(data.uid || '').trim());
+      } else if (data.type === 'ccpc-nfc-error') {
+        _diaryNfcPending = null;
+        // 'unavailable' (no NFC hardware / bridge never came up) and
+        // 'denied' are persistent, not worth silently retrying forever;
+        // 'cancelled' is our own explicit stop. Only 'failed' (a genuine
+        // one-off read error) re-arms, same as any successful read does.
+        if (data.error === 'failed' && _diaryNfcActive) setTimeout(_diaryNfcScanStart, 1200);
+      }
+    });
+  }
+
+  function _diaryNfcScanStart() {
+    if (!_diaryQrIsInShell() || !(window.APP_USER && window.APP_USER.user_id)) return;
+    _diaryNfcEnsureListener();
+    _diaryNfcActive = true;
+    const requestId = 'diarynfc' + (++_diaryNfcReqSeq);
+    _diaryNfcPending = requestId;
+    window.parent.postMessage({ type: 'ccpc-nfc-start', requestId }, '*');
+  }
+
+  function _diaryNfcScanStop() {
+    _diaryNfcActive = false;
+    if (!_diaryNfcPending) return;
+    window.parent.postMessage({ type: 'ccpc-nfc-stop', requestId: _diaryNfcPending }, '*');
+    _diaryNfcPending = null;
+  }
+
+  function _diaryNfcHandleUid(uid) {
+    const myId = window.APP_USER && window.APP_USER.user_id;
+    if (!myId || !uid) { if (_diaryNfcActive) setTimeout(_diaryNfcScanStart, 1200); return; }
+    google.script.run.withSuccessHandler(res => {
+      if (!res || res.result !== 'success') showToast('No student found', 'error');
+      else _diaryCaseOpenStudentPanel(res.student);
+      if (_diaryNfcActive) setTimeout(_diaryNfcScanStart, 1500);
+    }).withFailureHandler(() => {
+      showToast('Network error', 'error');
+      if (_diaryNfcActive) setTimeout(_diaryNfcScanStart, 1500);
+    }).getStudentByNfcUid(myId, uid);
   }
 
   // ── Scan-result student panel (photo/info + case/diary history + new entry) ──
@@ -45928,8 +46006,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const el = document.getElementById(id);
       if (!el) return;
       if (el.tagName === 'SELECT') el.disabled = readonly; else el.readOnly = readonly;
+      el.classList.toggle('adm-field-readonly', readonly);
     });
-    document.querySelectorAll('#adm-academic-tbody input, #adm-sibling-tbody input').forEach(el => { el.readOnly = readonly; });
+    document.querySelectorAll('#adm-academic-tbody input, #adm-sibling-tbody input').forEach(el => {
+      el.readOnly = readonly;
+      el.classList.toggle('adm-field-readonly', readonly);
+    });
     document.querySelectorAll('.adm-table-row-del').forEach(el => el.classList.toggle('hidden', readonly));
     document.getElementById('adm-academic-add-btn')?.classList.toggle('hidden', readonly);
     document.getElementById('adm-sibling-add-btn')?.classList.toggle('hidden', readonly);
@@ -51838,26 +51920,54 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   function loadMainDashboard() {
+    _homeSubView = 'dashboard';
     _setViewHash('home');
     setActiveNavLink('nav-calendar'); // closest thing to "home" in the sidebar
     setContentHeader('Dashboard', 'layout-dashboard');
     const container = document.getElementById('view-container');
     if (!container) return;
     container.innerHTML = `<div class="pt-4 max-w-5xl mx-auto pb-10 space-y-5">
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-black text-slate-800">Welcome${window.APP_USER && window.APP_USER.email ? '' : ''}</h2>
-        <button onclick="renderMobileHomeGrid()" class="text-[10px] font-black uppercase tracking-widest text-indigo-600 flex items-center gap-1">
-          <i data-lucide="grid-3x3" class="h-3.5 w-3.5"></i> View All Modules
-        </button>
-      </div>
+      <div id="dashWelcome" class="flex items-center gap-3"></div>
       <div id="dashUpcoming"><div class="text-center py-8 text-slate-400 text-xs font-black uppercase tracking-widest">Loading…</div></div>
       <div id="dashAnnouncements"></div>
+      <div>
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 px-1">Quick Access</p>
+        <div id="dashTiles">${_buildHomeGridHtml()}</div>
+      </div>
     </div>`;
     lucide.createIcons();
+    // Same "render with whatever's cached, then refresh once the real fetch
+    // resolves" pattern _renderSidebarUserCard already uses — a profile
+    // fetched at login (_myProfileStable) may not have landed yet the very
+    // first time this screen paints.
+    _renderDashboardWelcome(window._myProfileStable || window._loginProfile);
+    if (!window._myProfileStable) {
+      const u = window.APP_USER || {};
+      google.script.run.withSuccessHandler(p => { window._myProfileStable = p; _renderDashboardWelcome(p); }).withFailureHandler(() => {}).getMyProfile(u.email, u.user_id);
+    }
     const today = new Date();
     const from = today.toISOString().slice(0, 10);
     const to = new Date(today.getTime() + 13 * 86400000).toISOString().slice(0, 10);
     _calFetchEvents(from, to).then(events => _renderDashboardUpcoming(events));
+  }
+
+  function _renderDashboardWelcome(p) {
+    const host = document.getElementById('dashWelcome');
+    if (!host) return;
+    const u = window.APP_USER || {};
+    const name = (p && p.full_name) || u.user_id || '';
+    host.innerHTML = `${_avatar(name, p && p.photo_url, 'w-12 h-12')}
+      <div class="min-w-0">
+        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Welcome back</p>
+        <h2 class="text-base font-black text-slate-800 truncate">${_escHtml(name)}</h2>
+      </div>`;
+  }
+
+  function _refreshDashboardTiles() {
+    const host = document.getElementById('dashTiles');
+    if (!host) return;
+    host.innerHTML = _buildHomeGridHtml();
+    lucide.createIcons();
   }
 
   function _renderDashboardUpcoming(events) {
