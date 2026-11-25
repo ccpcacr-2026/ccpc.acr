@@ -33416,6 +33416,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // joins whichever of its source headers actually exist, so one shared
   // template pool degrades gracefully across Applications vs Candidates'
   // only-partially-overlapping column sets instead of erroring.
+  function _ccpcPlainCell(value, isPhone) {
+    if (value === null || value === undefined) return '';
+    const str = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    if (!str) return '';
+    return isPhone ? _ccpcNormalizePhoneDigits(str) : str;
+  }
   function _ccpcTplResolvedCols() {
     const id = _ccpcTplSelectedId();
     const omitSet = (_ccpcTplHideFiltered && _ccpcTplFilterMeta && _ccpcTplFilterMeta.filterHeaders)
@@ -33435,7 +33441,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         out.push({
           header: entry.label || sources.join('+'),
           isPhone: false,
-          get: a => sources.map(h => _ccpcCsvCell(byHeader[h].get(a), byHeader[h].isPhone)).filter(s => s !== '').join(entry.delimiter ?? ' '),
+          get: a => sources.map(h => _ccpcPlainCell(byHeader[h].get(a), byHeader[h].isPhone)).filter(s => s !== '').join(entry.delimiter ?? ' '),
         });
       } else if (byHeader[entry.header]) {
         if (omitSet && omitSet.has(entry.header)) return;
@@ -33547,6 +33553,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         if (lineCount > maxLines) maxLines = lineCount;
         const cell = dr.getCell(idx + 1);
         cell.value = txt;
+        cell.numFmt = '@';
         cell.font = { size: ps.font_size || 10 };
         cell.alignment = { horizontal: ps.center_in_page ? 'center' : 'left', vertical: 'middle', wrapText: true };
         cell.border = thinBorder;
@@ -33570,7 +33577,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // value -- plain HTML collapses that to a space, so it's converted to
     // <br> AFTER escaping (never before, or the literal "<br>" text would
     // itself get escaped away).
-    const cellHtml = (c, a) => _escHtml(_ccpcCsvCell(c.get(a), c.isPhone)).replace(/\r\n|\r|\n/g, '<br>');
+    const cellHtml = (c, a) => _escHtml(_ccpcPlainCell(c.get(a), c.isPhone)).replace(/\r\n|\r|\n/g, '<br>');
     const rowsHtml = _ccpcTplItems.map(a => `<tr>${cols.map(c => `<td style="height:${ps.row_height}px;">${cellHtml(c, a)}</td>`).join('')}</tr>`).join('');
     const logoHtml = ps.show_logo
       ? `<img src="${_escHtml(window.location.origin + '/logo.jpg')}" alt="Logo" style="height:48px;width:48px;object-fit:contain;display:block;margin:${ps.center_in_page ? '0 auto 4pt auto' : '0 0 4pt 0'};">`
