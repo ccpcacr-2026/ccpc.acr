@@ -33332,9 +33332,30 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _ccpcTplFilename = 'export.csv';
   let _ccpcTplEntries = [];
   let _ccpcTplEditId = null;
-  let _ccpcTplPrint = { header: '', font_size: 10, column_width: 90, row_height: 24 };
+  let _ccpcTplPrint = { header: '', header_lines: [], show_logo: false, center_in_page: true, font_size: 10, column_width: 90, row_height: 24 };
   let _ccpcTplFilterMeta = null;
   let _ccpcTplHideFiltered = true;
+
+  function _ccpcTplNormalizePrintSettings(raw) {
+    const ps = Object.assign({ header: '', header_lines: [], show_logo: false, center_in_page: true, font_size: 10, column_width: 90, row_height: 24 }, raw || {});
+    let lines = Array.isArray(ps.header_lines) ? ps.header_lines.map(l => ({
+      text: String((l && l.text) || ''),
+      font_size: parseInt(l && l.font_size, 10) || 11,
+      bold: l ? l.bold !== false : true,
+      italic: !!(l && l.italic),
+      align: (l && ['left', 'center', 'right'].includes(l.align)) ? l.align : 'center',
+      color: (l && /^#[0-9a-f]{6}$/i.test(l.color)) ? l.color : '#0f172a',
+    })) : [];
+    if (!lines.length && ps.header) {
+      lines = String(ps.header).split(/\r?\n/).filter(Boolean).map(t => ({
+        text: t, font_size: 11, bold: true, italic: false, align: 'center', color: '#0f172a'
+      }));
+    }
+    ps.header_lines = lines;
+    ps.show_logo = !!ps.show_logo;
+    ps.center_in_page = ps.center_in_page !== false;
+    return ps;
+  }
 
   async function _ccpcOpenExportTemplatesModal(cols, items, filename, filterMeta) {
     _ccpcTplCols = cols;
@@ -33375,7 +33396,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <button onclick="_ccpcTplDelete()" class="flex-1 px-3 py-1.5 border border-red-200 text-red-500 rounded-lg text-[10px] font-black uppercase">Delete Template</button>
       </div>` : ''}
       <div class="flex gap-2">
-        <button onclick="_ccpcTplDownloadCsv()" class="flex-1 px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-slate-800 text-white hover:bg-black transition-all">Download CSV</button>
+        <button onclick="_ccpcTplDownloadExcel()" class="flex-1 px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-emerald-700 text-white hover:bg-black transition-all">Download Excel</button>
         <button onclick="_ccpcTplPrintNow()" class="flex-1 px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black transition-all">Print</button>
       </div>
     `);
@@ -33423,19 +33444,126 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
     return out.length ? out : filterOmit(_ccpcTplCols);
   }
-  function _ccpcTplDownloadCsv() {
+  async function _ccpcTplDownloadExcel() {
+    try {
+      await ensureExcelJS();
+    } catch (e) {
+      showToast(e.message || 'Could not load Excel exporter', 'error');
+      return;
+    }
+    const id = _ccpcTplSelectedId();
+    const tpl = id ? _ccpcExportTemplates.find(t => t.id === id) : null;
+    const ps = _ccpcTplNormalizePrintSettings(tpl && tpl.print_settings);
     const cols = _ccpcTplResolvedCols();
-    const showFilterTop = _ccpcTplHideFiltered && _ccpcTplFilterMeta && Array.isArray(_ccpcTplFilterMeta.filterSummaryRow) && _ccpcTplFilterMeta.filterSummaryRow.some(Boolean);
-    const csvRows = [[MPO_INSTITUTION_NAME]];
-    if (showFilterTop) csvRows.push(_ccpcTplFilterMeta.filterSummaryRow);
-    csvRows.push(cols.map(c => c.header));
-    _ccpcTplItems.forEach(a => csvRows.push(cols.map(c => _ccpcCsvCell(c.get(a), c.isPhone))));
-    _ccpcShareOrDownload(_ccpcTplFilename, 'text/csv;charset=utf-16le', _ccpcBuildUnicodeCsvBlob(csvRows));
+    if (!cols.length) { showToast('No columns to export', 'error'); return; }
+    const showFilterTop = _ccpcTplHideFiltered && _ccpcTplFilterMeta && _ccpcTplFilterMeta.filterSummaryText;
+
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Export');
+    const colCount = cols.length;
+    ws.pageSetup = {
+      horizontalCentered: !!ps.center_in_page,
+      orientation: colCount > 6 ? 'landscape' : 'portrait',
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 0,
+    };
+    const charW = Math.max(8, Math.round((ps.column_width || 90) / 7));
+    ws.columns = cols.map(() => ({ width: charW }));
+
+    let rowIdx = 1;
+    if (ps.show_logo) {
+      try {
+        const resp = await fetch(window.location.origin + '/logo.jpg');
+        if (resp.ok) {
+          const buf = await resp.arrayBuffer();
+          const imgId = wb.addImage({ buffer: buf, extension: 'jpeg' });
+          ws.addImage(imgId, { tl: { col: 0, row: 0 }, ext: { width: 44, height: 44 } });
+        }
+      } catch (_) {}
+    }
+
+    const instRow = ws.getRow(rowIdx);
+    instRow.getCell(1).value = MPO_INSTITUTION_NAME;
+    instRow.getCell(1).font = { size: 13, bold: true, color: { argb: 'FF0F172A' } };
+    instRow.getCell(1).alignment = { horizontal: ps.center_in_page ? 'center' : 'left', vertical: 'middle' };
+    if (colCount > 1) ws.mergeCells(rowIdx, 1, rowIdx, colCount);
+    instRow.height = ps.show_logo ? 38 : 24;
+    rowIdx++;
+
+    ps.header_lines.forEach(l => {
+      if (!l.text) return;
+      const r = ws.getRow(rowIdx);
+      r.getCell(1).value = l.text;
+      r.getCell(1).font = {
+        size: l.font_size || 11,
+        bold: !!l.bold,
+        italic: !!l.italic,
+        color: { argb: 'FF' + (l.color || '#0f172a').replace('#', '').toUpperCase() },
+      };
+      r.getCell(1).alignment = { horizontal: l.align || 'center', vertical: 'middle', wrapText: true };
+      if (colCount > 1) ws.mergeCells(rowIdx, 1, rowIdx, colCount);
+      r.height = Math.max(18, Math.round((l.font_size || 11) * 1.7));
+      rowIdx++;
+    });
+
+    if (showFilterTop) {
+      const fr = ws.getRow(rowIdx);
+      fr.getCell(1).value = _ccpcTplFilterMeta.filterSummaryText;
+      fr.getCell(1).font = { size: 10, bold: true, color: { argb: 'FF1E293B' } };
+      fr.getCell(1).alignment = { horizontal: ps.center_in_page ? 'center' : 'left', vertical: 'middle' };
+      if (colCount > 1) ws.mergeCells(rowIdx, 1, rowIdx, colCount);
+      fr.height = 20;
+      rowIdx++;
+    }
+
+    const thinBorder = {
+      top: { style: 'thin', color: { argb: 'FF000000' } },
+      left: { style: 'thin', color: { argb: 'FF000000' } },
+      bottom: { style: 'thin', color: { argb: 'FF000000' } },
+      right: { style: 'thin', color: { argb: 'FF000000' } },
+    };
+    const hdrRow = ws.getRow(rowIdx);
+    cols.forEach((c, idx) => {
+      const cell = hdrRow.getCell(idx + 1);
+      cell.value = c.header;
+      cell.font = { size: ps.font_size || 10, bold: true, color: { argb: 'FF0F172A' } };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+      cell.border = thinBorder;
+    });
+    hdrRow.height = 22;
+    rowIdx++;
+
+    const baseRowPt = Math.max(16, Math.round((ps.row_height || 24) * 0.75));
+    _ccpcTplItems.forEach(a => {
+      const dr = ws.getRow(rowIdx);
+      let maxLines = 1;
+      cols.forEach((c, idx) => {
+        const rawVal = c.get(a);
+        let txt = rawVal === null || rawVal === undefined ? '' : (typeof rawVal === 'object' ? JSON.stringify(rawVal) : String(rawVal));
+        if (c.isPhone && txt) txt = _ccpcNormalizePhoneDigits(txt);
+        const lineCount = txt ? txt.split(/\r\n|\r|\n/).length : 1;
+        if (lineCount > maxLines) maxLines = lineCount;
+        const cell = dr.getCell(idx + 1);
+        cell.value = txt;
+        cell.font = { size: ps.font_size || 10 };
+        cell.alignment = { horizontal: ps.center_in_page ? 'center' : 'left', vertical: 'middle', wrapText: true };
+        cell.border = thinBorder;
+      });
+      dr.height = Math.max(baseRowPt, maxLines * Math.round((ps.font_size || 10) * 1.45));
+      rowIdx++;
+    });
+
+    const outBuf = await wb.xlsx.writeBuffer();
+    const baseName = (_ccpcTplFilename || 'export.xlsx').replace(/\.csv$/i, '.xlsx');
+    const finalName = /\.xlsx$/i.test(baseName) ? baseName : (baseName + '.xlsx');
+    _ccpcShareOrDownload(finalName, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', new Blob([outBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
   }
   function _ccpcTplPrintNow() {
     const id = _ccpcTplSelectedId();
     const tpl = id ? _ccpcExportTemplates.find(t => t.id === id) : null;
-    const ps = Object.assign({ header: '', font_size: 10, column_width: 90, row_height: 24 }, (tpl && tpl.print_settings) || {});
+    const ps = _ccpcTplNormalizePrintSettings(tpl && tpl.print_settings);
     const cols = _ccpcTplResolvedCols();
     const showFilterTop = _ccpcTplHideFiltered && _ccpcTplFilterMeta && _ccpcTplFilterMeta.filterSummaryText;
     // A "New line" merge delimiter produces a real \n character in the cell
@@ -33444,11 +33572,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // itself get escaped away).
     const cellHtml = (c, a) => _escHtml(_ccpcCsvCell(c.get(a), c.isPhone)).replace(/\r\n|\r|\n/g, '<br>');
     const rowsHtml = _ccpcTplItems.map(a => `<tr>${cols.map(c => `<td style="height:${ps.row_height}px;">${cellHtml(c, a)}</td>`).join('')}</tr>`).join('');
+    const logoHtml = ps.show_logo
+      ? `<img src="${_escHtml(window.location.origin + '/logo.jpg')}" alt="Logo" style="height:48px;width:48px;object-fit:contain;display:block;margin:${ps.center_in_page ? '0 auto 4pt auto' : '0 0 4pt 0'};">`
+      : '';
+    const headerLinesHtml = ps.header_lines.filter(l => l.text).map(l =>
+      `<div style="text-align:${_escHtml(l.align || 'center')};font-size:${l.font_size || 11}pt;font-weight:${l.bold ? 800 : 400};font-style:${l.italic ? 'italic' : 'normal'};color:${_escHtml(l.color || '#0f172a')};margin-bottom:2pt;">${_escHtml(l.text)}</div>`
+    ).join('');
+    const tableAlignStyle = ps.center_in_page ? 'margin:0 auto;' : '';
     const html = `
-      <div style="text-align:center;font-weight:900;font-size:13pt;margin-bottom:4pt;">${_escHtml(MPO_INSTITUTION_NAME)}</div>
-      ${ps.header ? `<div style="text-align:center;font-weight:700;font-size:11pt;margin-bottom:4pt;">${_escHtml(ps.header)}</div>` : ''}
-      ${showFilterTop ? `<div style="text-align:center;font-weight:700;font-size:10pt;margin-bottom:8pt;">${_escHtml(_ccpcTplFilterMeta.filterSummaryText)}</div>` : '<div style="margin-bottom:4pt;"></div>'}
-      <table style="width:100%;border-collapse:collapse;font-size:${ps.font_size}pt;">
+      ${logoHtml}
+      <div style="text-align:${ps.center_in_page ? 'center' : 'left'};font-weight:900;font-size:13pt;margin-bottom:4pt;">${_escHtml(MPO_INSTITUTION_NAME)}</div>
+      ${headerLinesHtml}
+      ${showFilterTop ? `<div style="text-align:${ps.center_in_page ? 'center' : 'left'};font-weight:700;font-size:10pt;margin-bottom:8pt;">${_escHtml(_ccpcTplFilterMeta.filterSummaryText)}</div>` : '<div style="margin-bottom:6pt;"></div>'}
+      <table style="${tableAlignStyle}border-collapse:collapse;font-size:${ps.font_size}pt;">
         <thead><tr>${cols.map(c => `<th style="border:1px solid #000;padding:2px 4px;width:${ps.column_width}px;">${_escHtml(c.header)}</th>`).join('')}</tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>`;
@@ -33478,9 +33614,42 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const tpl = editId ? _ccpcExportTemplates.find(t => t.id === editId) : null;
     _ccpcTplEditId = tpl ? tpl.id : null;
     _ccpcTplEntries = tpl ? JSON.parse(JSON.stringify(tpl.columns || [])) : [];
-    _ccpcTplPrint = Object.assign({ header: '', font_size: 10, column_width: 90, row_height: 24 }, tpl ? (tpl.print_settings || {}) : {});
+    _ccpcTplPrint = _ccpcTplNormalizePrintSettings(tpl ? tpl.print_settings : null);
     _ccpcTplMergePickOrder = [];
     _ccpcTplBuilderRender(tpl ? tpl.name : '');
+  }
+  function _ccpcTplSyncPrintFields() {
+    const logoEl = document.getElementById('ccpcTplShowLogo');
+    const centerEl = document.getElementById('ccpcTplCenterPage');
+    const fontEl = document.getElementById('ccpcTplPrintFont');
+    const colWEl = document.getElementById('ccpcTplPrintColWidth');
+    const rowHEl = document.getElementById('ccpcTplPrintRowHeight');
+    if (logoEl) _ccpcTplPrint.show_logo = !!logoEl.checked;
+    if (centerEl) _ccpcTplPrint.center_in_page = !!centerEl.checked;
+    if (fontEl) _ccpcTplPrint.font_size = parseInt(fontEl.value, 10) || 10;
+    if (colWEl) _ccpcTplPrint.column_width = parseInt(colWEl.value, 10) || 90;
+    if (rowHEl) _ccpcTplPrint.row_height = parseInt(rowHEl.value, 10) || 24;
+    const rows = document.querySelectorAll('#ccpcTplHeaderLinesList [data-hdr-idx]');
+    if (rows.length) {
+      _ccpcTplPrint.header_lines = Array.from(rows).map(r => ({
+        text: r.querySelector('[data-hdr-text]')?.value || '',
+        font_size: parseInt(r.querySelector('[data-hdr-size]')?.value, 10) || 11,
+        bold: !!r.querySelector('[data-hdr-bold]')?.checked,
+        italic: !!r.querySelector('[data-hdr-italic]')?.checked,
+        align: r.querySelector('[data-hdr-align]')?.value || 'center',
+        color: r.querySelector('[data-hdr-color]')?.value || '#0f172a',
+      }));
+    }
+  }
+  function _ccpcTplHeaderLineAdd() {
+    _ccpcTplSyncPrintFields();
+    _ccpcTplPrint.header_lines.push({ text: '', font_size: 11, bold: true, italic: false, align: 'center', color: '#0f172a' });
+    _ccpcTplBuilderRender(document.getElementById('ccpcTplName')?.value || '');
+  }
+  function _ccpcTplHeaderLineRemove(idx) {
+    _ccpcTplSyncPrintFields();
+    _ccpcTplPrint.header_lines.splice(idx, 1);
+    _ccpcTplBuilderRender(document.getElementById('ccpcTplName')?.value || '');
   }
   function _ccpcTplBuilderRender(name) {
     const checks = _ccpcTplCols.map(c => {
@@ -33519,8 +33688,32 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <button onclick="_ccpcTplMergeAdd()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Add Merge</button>
       </div>
 
-      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Print Settings</p>
-      <input id="ccpcTplPrintHeader" placeholder="Header text (optional, shown above the table when printed)" value="${_escHtml(_ccpcTplPrint.header || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs mb-2">
+      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Print &amp; Excel Formatting</p>
+      <div class="flex gap-4 mb-2 flex-wrap">
+        <label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" id="ccpcTplShowLogo" ${_ccpcTplPrint.show_logo ? 'checked' : ''}> Show Institution Logo</label>
+        <label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" id="ccpcTplCenterPage" ${_ccpcTplPrint.center_in_page !== false ? 'checked' : ''}> Center in Page</label>
+      </div>
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-[10px] font-bold text-slate-500">Header Lines (multi-line &amp; per-line format)</span>
+        <button type="button" onclick="_ccpcTplHeaderLineAdd()" class="px-2 py-0.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded text-[10px] font-black uppercase">+ Add Line</button>
+      </div>
+      <div id="ccpcTplHeaderLinesList" class="space-y-1.5 mb-2">
+        ${(_ccpcTplPrint.header_lines || []).map((l, idx) => `
+          <div data-hdr-idx="${idx}" class="flex gap-1 items-center bg-slate-50 border border-slate-200 rounded-lg p-1.5 flex-wrap">
+            <input data-hdr-text placeholder="Header line ${idx + 1}" value="${_escHtml(l.text || '')}" class="flex-1 min-w-[140px] px-2 py-1 bg-white border border-slate-200 rounded text-xs">
+            <input data-hdr-size type="number" min="7" max="28" value="${l.font_size || 11}" title="Font pt" class="w-12 px-1.5 py-1 bg-white border border-slate-200 rounded text-xs">
+            <label class="text-[10px] font-black px-1 cursor-pointer" title="Bold"><input data-hdr-bold type="checkbox" ${l.bold ? 'checked' : ''}> B</label>
+            <label class="text-[10px] italic font-serif px-1 cursor-pointer" title="Italic"><input data-hdr-italic type="checkbox" ${l.italic ? 'checked' : ''}> I</label>
+            <select data-hdr-align class="px-1.5 py-1 bg-white border border-slate-200 rounded text-[11px]">
+              <option value="left" ${l.align === 'left' ? 'selected' : ''}>Left</option>
+              <option value="center" ${!l.align || l.align === 'center' ? 'selected' : ''}>Center</option>
+              <option value="right" ${l.align === 'right' ? 'selected' : ''}>Right</option>
+            </select>
+            <input data-hdr-color type="color" value="${_escHtml(l.color || '#0f172a')}" title="Color" class="w-7 h-6 p-0 border border-slate-200 rounded cursor-pointer">
+            <button type="button" onclick="_ccpcTplHeaderLineRemove(${idx})" class="px-1.5 text-red-500 font-black text-xs">×</button>
+          </div>
+        `).join('') || '<p class="text-[10px] text-slate-400">No custom header lines (click + Add Line).</p>'}
+      </div>
       <div class="grid grid-cols-3 gap-2 mb-3">
         <div><label class="text-[9px] text-slate-400 font-bold block">Font (pt)</label><input id="ccpcTplPrintFont" type="number" min="6" max="24" value="${_ccpcTplPrint.font_size}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></div>
         <div><label class="text-[9px] text-slate-400 font-bold block">Column width (px)</label><input id="ccpcTplPrintColWidth" type="number" min="20" value="${_ccpcTplPrint.column_width}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></div>
@@ -33548,6 +33741,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (el.checked) _ccpcTplEntries.push({ type: 'field', header });
   }
   function _ccpcTplMergePickToggle(el) {
+    _ccpcTplSyncPrintFields();
     const header = el.dataset.mergePick;
     if (el.checked) { if (!_ccpcTplMergePickOrder.includes(header)) _ccpcTplMergePickOrder.push(header); }
     else { _ccpcTplMergePickOrder = _ccpcTplMergePickOrder.filter(h => h !== header); }
@@ -33558,6 +33752,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('ccpcTplMergeDelimCustom').classList.toggle('hidden', v !== '__custom__');
   }
   function _ccpcTplMergeAdd() {
+    _ccpcTplSyncPrintFields();
     const sources = _ccpcTplMergePickOrder.slice();
     const label = document.getElementById('ccpcTplMergeLabel').value.trim();
     const presetVal = document.getElementById('ccpcTplMergeDelimPreset').value;
@@ -33570,6 +33765,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _ccpcTplBuilderRender(document.getElementById('ccpcTplName').value);
   }
   function _ccpcTplMergeRemove(idx) {
+    _ccpcTplSyncPrintFields();
     const merges = _ccpcTplEntries.filter(e => e.type === 'merge');
     const target = merges[idx];
     _ccpcTplEntries = _ccpcTplEntries.filter(e => e !== target);
@@ -33578,11 +33774,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   async function _ccpcTplSave() {
     const name = document.getElementById('ccpcTplName').value.trim();
     if (!name) { showToast('Name the template first', 'error'); return; }
+    _ccpcTplSyncPrintFields();
+    const cleanLines = (_ccpcTplPrint.header_lines || []).filter(l => l.text.trim() !== '');
     const print_settings = {
-      header: document.getElementById('ccpcTplPrintHeader').value.trim(),
-      font_size: parseInt(document.getElementById('ccpcTplPrintFont').value, 10) || 10,
-      column_width: parseInt(document.getElementById('ccpcTplPrintColWidth').value, 10) || 90,
-      row_height: parseInt(document.getElementById('ccpcTplPrintRowHeight').value, 10) || 24,
+      header: cleanLines.map(l => l.text).join('\n'),
+      header_lines: cleanLines,
+      show_logo: !!_ccpcTplPrint.show_logo,
+      center_in_page: !!_ccpcTplPrint.center_in_page,
+      font_size: _ccpcTplPrint.font_size || 10,
+      column_width: _ccpcTplPrint.column_width || 90,
+      row_height: _ccpcTplPrint.row_height || 24,
     };
     const res = await _admAdminFetch('saveExportTemplate', { id: _ccpcTplEditId, name, columns: _ccpcTplEntries, print_settings });
     if (res.error) { showToast(res.error, 'error'); return; }
@@ -38369,6 +38570,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       sc.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
       sc.onload = resolve;
       sc.onerror = () => reject(new Error('Could not load the Excel reader — check your connection and retry.'));
+      document.head.appendChild(sc);
+    });
+  }
+  function ensureExcelJS() {
+    if (window.ExcelJS) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const sc = document.createElement('script');
+      sc.src = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+      sc.onload = resolve;
+      sc.onerror = () => reject(new Error('Could not load the Excel formatter — check your connection and retry.'));
       document.head.appendChild(sc);
     });
   }
