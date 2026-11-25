@@ -33727,8 +33727,51 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div><label class="text-[9px] text-slate-400 font-bold block">Row height (px)</label><input id="ccpcTplPrintRowHeight" type="number" min="10" value="${_ccpcTplPrint.row_height}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></div>
       </div>
 
+      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Selected Columns Order</p>
+      <div id="ccpcTplOrderList" class="space-y-1 max-h-40 overflow-y-auto border border-slate-100 rounded-xl p-2 mb-3 bg-slate-50/60"></div>
+
       <button onclick="_ccpcTplSave()" class="w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black transition-all">Save Template</button>
     `);
+    _ccpcTplRenderOrderList();
+  }
+  function _ccpcTplRenderOrderList() {
+    const box = document.getElementById('ccpcTplOrderList');
+    if (!box) return;
+    if (!_ccpcTplEntries.length) {
+      box.innerHTML = '<p class="text-[10px] text-slate-400 text-center py-1">No columns selected yet.</p>';
+      return;
+    }
+    box.innerHTML = _ccpcTplEntries.map((e, idx) => {
+      const label = e.type === 'merge' ? `${e.label || 'Merged'} <span class="text-[9px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 font-black uppercase">Merge</span>` : _escHtml(e.header);
+      const isFirst = idx === 0;
+      const isLast = idx === _ccpcTplEntries.length - 1;
+      return `<div class="flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs">
+        <span class="font-bold text-slate-700 truncate"><span class="text-slate-400 mr-1">${idx + 1}.</span>${label}</span>
+        <span class="flex items-center gap-1 shrink-0">
+          <button type="button" onclick="_ccpcTplEntryMove(${idx}, -1)" ${isFirst ? 'disabled' : ''} class="px-1.5 py-0.5 rounded border border-slate-200 text-[10px] font-black ${isFirst ? 'opacity-30 cursor-not-allowed' : 'hover:bg-slate-100'}">↑</button>
+          <button type="button" onclick="_ccpcTplEntryMove(${idx}, 1)" ${isLast ? 'disabled' : ''} class="px-1.5 py-0.5 rounded border border-slate-200 text-[10px] font-black ${isLast ? 'opacity-30 cursor-not-allowed' : 'hover:bg-slate-100'}">↓</button>
+          <button type="button" onclick="_ccpcTplEntryRemove(${idx})" class="px-1.5 py-0.5 rounded text-red-500 font-black text-xs hover:bg-red-50">×</button>
+        </span>
+      </div>`;
+    }).join('');
+  }
+  function _ccpcTplEntryMove(idx, delta) {
+    const next = idx + delta;
+    if (next < 0 || next >= _ccpcTplEntries.length) return;
+    const tmp = _ccpcTplEntries[idx];
+    _ccpcTplEntries[idx] = _ccpcTplEntries[next];
+    _ccpcTplEntries[next] = tmp;
+    _ccpcTplRenderOrderList();
+  }
+  function _ccpcTplEntryRemove(idx) {
+    const removed = _ccpcTplEntries[idx];
+    if (!removed) return;
+    _ccpcTplEntries.splice(idx, 1);
+    if (removed.type !== 'merge') {
+      const chk = document.querySelector(`#ccpcTplFieldList input[data-tpl-field="${CSS.escape(removed.header)}"]`);
+      if (chk) chk.checked = false;
+    }
+    _ccpcTplRenderOrderList();
   }
   // Plain in-place show/hide, not a re-render -- a full _ccpcTplBuilderRender
   // on every keystroke would rebuild the search input itself mid-type and
@@ -33746,6 +33789,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const header = el.dataset.tplField;
     _ccpcTplEntries = _ccpcTplEntries.filter(e => !(e.type !== 'merge' && e.header === header));
     if (el.checked) _ccpcTplEntries.push({ type: 'field', header });
+    _ccpcTplRenderOrderList();
   }
   function _ccpcTplMergePickToggle(el) {
     _ccpcTplSyncPrintFields();
