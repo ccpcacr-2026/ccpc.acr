@@ -33333,14 +33333,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _ccpcTplEntries = [];
   let _ccpcTplEditId = null;
   let _ccpcTplPrint = { header: '', font_size: 10, column_width: 90, row_height: 24 };
+  let _ccpcTplFilterMeta = null;
+  let _ccpcTplHideFiltered = true;
 
-  async function _ccpcOpenExportTemplatesModal(cols, items, filename) {
+  async function _ccpcOpenExportTemplatesModal(cols, items, filename, filterMeta) {
     _ccpcTplCols = cols;
     _ccpcTplItems = items;
     _ccpcTplFilename = filename;
+    _ccpcTplFilterMeta = filterMeta && filterMeta.filterHeaders && filterMeta.filterHeaders.length ? filterMeta : null;
+    _ccpcTplHideFiltered = true;
     const res = await _admAdminFetch('listExportTemplates', {});
     _ccpcExportTemplates = (res && res.templates) || [];
     _ccpcRenderTemplatesModal();
+  }
+  function _ccpcTplHideFilteredToggle(checked) {
+    _ccpcTplHideFiltered = !!checked;
   }
   function _ccpcTplIsAdmin() {
     return (window.USER_ROLES || [window.ACTIVE_ROLE]).some(r => ['Admin', 'Admission Admin'].includes(r));
@@ -33348,7 +33355,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _ccpcRenderTemplatesModal() {
     const isAdmin = _ccpcTplIsAdmin();
     const options = _ccpcExportTemplates.map(t => `<option value="${t.id}">${_escHtml(t.name)}</option>`).join('');
+    const filterChkHtml = _ccpcTplFilterMeta
+      ? `<label class="flex items-center gap-2 px-3 py-2 mb-3 bg-indigo-50/70 border border-indigo-100 rounded-xl text-xs font-bold text-slate-700 cursor-pointer select-none">
+          <input type="checkbox" id="ccpcTplHideFilteredChk" ${_ccpcTplHideFiltered ? 'checked' : ''} onchange="_ccpcTplHideFilteredToggle(this.checked)">
+          <span>Hide filtered column(s) &amp; show filter on top <span class="text-indigo-600">(${_escHtml(_ccpcTplFilterMeta.filterSummaryText || '')})</span></span>
+        </label>`
+      : '';
     _diaryShowSimpleModal('Export Templates', `
+      ${filterChkHtml}
       <div class="flex gap-2 items-center mb-3 flex-wrap">
         <select id="ccpcTplSelect" class="flex-1 min-w-[180px] px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs">
           <option value="">— No template (every available column) —</option>
@@ -33383,29 +33397,38 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // only-partially-overlapping column sets instead of erroring.
   function _ccpcTplResolvedCols() {
     const id = _ccpcTplSelectedId();
-    if (!id) return _ccpcTplCols;
+    const omitSet = (_ccpcTplHideFiltered && _ccpcTplFilterMeta && _ccpcTplFilterMeta.filterHeaders)
+      ? new Set(_ccpcTplFilterMeta.filterHeaders)
+      : null;
+    const filterOmit = list => omitSet && omitSet.size ? list.filter(c => !omitSet.has(c.header)) : list;
+    if (!id) return filterOmit(_ccpcTplCols);
     const tpl = _ccpcExportTemplates.find(t => t.id === id);
-    if (!tpl) return _ccpcTplCols;
+    if (!tpl) return filterOmit(_ccpcTplCols);
     const byHeader = {}; _ccpcTplCols.forEach(c => { byHeader[c.header] = c; });
     const out = [];
     (tpl.columns || []).forEach(entry => {
       if (entry.type === 'merge') {
         const sources = (entry.sources || []).filter(h => byHeader[h]);
         if (!sources.length) return;
+        if (omitSet && omitSet.size && sources.every(h => omitSet.has(h))) return;
         out.push({
           header: entry.label || sources.join('+'),
           isPhone: false,
           get: a => sources.map(h => _ccpcCsvCell(byHeader[h].get(a), byHeader[h].isPhone)).filter(s => s !== '').join(entry.delimiter ?? ' '),
         });
       } else if (byHeader[entry.header]) {
+        if (omitSet && omitSet.has(entry.header)) return;
         out.push(byHeader[entry.header]);
       }
     });
-    return out.length ? out : _ccpcTplCols;
+    return out.length ? out : filterOmit(_ccpcTplCols);
   }
   function _ccpcTplDownloadCsv() {
     const cols = _ccpcTplResolvedCols();
-    const csvRows = [[MPO_INSTITUTION_NAME], cols.map(c => c.header)];
+    const showFilterTop = _ccpcTplHideFiltered && _ccpcTplFilterMeta && Array.isArray(_ccpcTplFilterMeta.filterSummaryRow) && _ccpcTplFilterMeta.filterSummaryRow.some(Boolean);
+    const csvRows = [[MPO_INSTITUTION_NAME]];
+    if (showFilterTop) csvRows.push(_ccpcTplFilterMeta.filterSummaryRow);
+    csvRows.push(cols.map(c => c.header));
     _ccpcTplItems.forEach(a => csvRows.push(cols.map(c => _ccpcCsvCell(c.get(a), c.isPhone))));
     _ccpcShareOrDownload(_ccpcTplFilename, 'text/csv;charset=utf-16le', _ccpcBuildUnicodeCsvBlob(csvRows));
   }
@@ -33414,10 +33437,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const tpl = id ? _ccpcExportTemplates.find(t => t.id === id) : null;
     const ps = Object.assign({ header: '', font_size: 10, column_width: 90, row_height: 24 }, (tpl && tpl.print_settings) || {});
     const cols = _ccpcTplResolvedCols();
-    const rowsHtml = _ccpcTplItems.map(a => `<tr>${cols.map(c => `<td style="height:${ps.row_height}px;">${_escHtml(_ccpcCsvCell(c.get(a), c.isPhone)).replace(/\r\n|\r|\n/g, '<br>')}</td>`).join('')}</tr>`).join('');
+    const showFilterTop = _ccpcTplHideFiltered && _ccpcTplFilterMeta && _ccpcTplFilterMeta.filterSummaryText;
+    // A "New line" merge delimiter produces a real \n character in the cell
+    // value -- plain HTML collapses that to a space, so it's converted to
+    // <br> AFTER escaping (never before, or the literal "<br>" text would
+    // itself get escaped away).
+    const cellHtml = (c, a) => _escHtml(_ccpcCsvCell(c.get(a), c.isPhone)).replace(/\r\n|\r|\n/g, '<br>');
+    const rowsHtml = _ccpcTplItems.map(a => `<tr>${cols.map(c => `<td style="height:${ps.row_height}px;">${cellHtml(c, a)}</td>`).join('')}</tr>`).join('');
     const html = `
       <div style="text-align:center;font-weight:900;font-size:13pt;margin-bottom:4pt;">${_escHtml(MPO_INSTITUTION_NAME)}</div>
-      ${ps.header ? `<div style="text-align:center;font-weight:700;font-size:11pt;margin-bottom:8pt;">${_escHtml(ps.header)}</div>` : ''}
+      ${ps.header ? `<div style="text-align:center;font-weight:700;font-size:11pt;margin-bottom:4pt;">${_escHtml(ps.header)}</div>` : ''}
+      ${showFilterTop ? `<div style="text-align:center;font-weight:700;font-size:10pt;margin-bottom:8pt;">${_escHtml(_ccpcTplFilterMeta.filterSummaryText)}</div>` : '<div style="margin-bottom:4pt;"></div>'}
       <table style="width:100%;border-collapse:collapse;font-size:${ps.font_size}pt;">
         <thead><tr>${cols.map(c => `<th style="border:1px solid #000;padding:2px 4px;width:${ps.column_width}px;">${_escHtml(c.header)}</th>`).join('')}</tr></thead>
         <tbody>${rowsHtml}</tbody>
@@ -33435,11 +33465,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   // ── Template Builder (admin-only create/edit) ──────────────────────────────
+  // Merge source order matters (it's the order values get joined in), and a
+  // native <select multiple>'s own .selectedOptions always comes back in
+  // DOCUMENT order regardless of click order -- so the merge picker below
+  // uses plain checkboxes instead, with _ccpcTplMergePickOrder tracking the
+  // actual order each one was clicked in (append on check, splice on
+  // uncheck), shown back to the admin as "1. X  2. Y  ..." before they
+  // commit it with Add Merge.
+  let _ccpcTplMergePickOrder = [];
+  const CCPC_TPL_DELIM_PRESETS = [[' - ', '- (dash)'], [', ', ', (comma)'], [' ', 'space'], ['\n', 'New line'], ['__custom__', 'Custom…']];
   function _ccpcTplBuilderOpen(editId) {
     const tpl = editId ? _ccpcExportTemplates.find(t => t.id === editId) : null;
     _ccpcTplEditId = tpl ? tpl.id : null;
     _ccpcTplEntries = tpl ? JSON.parse(JSON.stringify(tpl.columns || [])) : [];
     _ccpcTplPrint = Object.assign({ header: '', font_size: 10, column_width: 90, row_height: 24 }, tpl ? (tpl.print_settings || {}) : {});
+    _ccpcTplMergePickOrder = [];
     _ccpcTplBuilderRender(tpl ? tpl.name : '');
   }
   function _ccpcTplBuilderRender(name) {
@@ -33447,28 +33487,35 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const checked = _ccpcTplEntries.some(e => e.type !== 'merge' && e.header === c.header);
       return `<label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-600"><input type="checkbox" data-tpl-field="${_escHtml(c.header)}" ${checked ? 'checked' : ''} onchange="_ccpcTplFieldToggle(this)"> ${_escHtml(c.header)}</label>`;
     }).join('');
-    const mergeOptions = _ccpcTplCols.map(c => `<option value="${_escHtml(c.header)}">${_escHtml(c.header)}</option>`).join('');
-    const mergeChips = _ccpcTplEntries.filter(e => e.type === 'merge').map((e, i) => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 rounded-full text-[10px] font-bold text-slate-700 mr-1 mb-1">${_escHtml(e.label)} (${e.sources.join(e.delimiter === '\n' ? ' ↵ ' : (e.delimiter || ' '))}) <button onclick="_ccpcTplMergeRemove(${i})" class="text-red-500">×</button></span>`).join('');
+    // Chip display always shows order via " -> " regardless of the merge's
+    // real (possibly non-printable, e.g. newline) delimiter.
+    const mergeChips = _ccpcTplEntries.filter(e => e.type === 'merge').map((e, i) => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 rounded-full text-[10px] font-bold text-slate-700 mr-1 mb-1">${_escHtml(e.label)} (${e.sources.map(_escHtml).join(' → ')}) <button onclick="_ccpcTplMergeRemove(${i})" class="text-red-500">×</button></span>`).join('');
+    const mergePicks = _ccpcTplCols.map(c => {
+      const checked = _ccpcTplMergePickOrder.includes(c.header);
+      return `<label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-600"><input type="checkbox" data-merge-pick="${_escHtml(c.header)}" ${checked ? 'checked' : ''} onchange="_ccpcTplMergePickToggle(this)"> ${_escHtml(c.header)}</label>`;
+    }).join('');
+    const orderLine = _ccpcTplMergePickOrder.length
+      ? `<p class="text-[10px] font-bold text-indigo-600 mb-2">Merge order: ${_ccpcTplMergePickOrder.map((h, i) => `${i + 1}. ${_escHtml(h)}`).join('  ')}</p>`
+      : '';
     _diaryShowSimpleModal(_ccpcTplEditId ? 'Edit Template' : 'New Template', `
       <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Template Name</label>
       <input id="ccpcTplName" value="${_escHtml(name || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs mb-3">
 
       <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Columns</p>
-      <div class="grid grid-cols-2 gap-1 max-h-40 overflow-y-auto border border-slate-100 rounded-xl p-2 mb-3">${checks}</div>
+      <input placeholder="Search columns…" oninput="_ccpcTplFilterChecklist('ccpcTplFieldList', this.value)" class="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-1.5">
+      <div id="ccpcTplFieldList" class="grid grid-cols-2 gap-1 max-h-40 overflow-y-auto border border-slate-100 rounded-xl p-2 mb-3">${checks}</div>
 
-      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Merge Columns (combine several into one output column)</p>
+      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Merge Columns (combine several into one output column, in the order you tick them)</p>
       <div class="mb-2">${mergeChips || '<span class="text-[10px] text-slate-400">No merges yet.</span>'}</div>
-      <select id="ccpcTplMergeSources" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] mb-2 h-20">${mergeOptions}</select>
+      <input placeholder="Search columns…" oninput="_ccpcTplFilterChecklist('ccpcTplMergePickList', this.value)" class="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs mb-1.5">
+      <div id="ccpcTplMergePickList" class="grid grid-cols-2 gap-1 max-h-32 overflow-y-auto border border-slate-100 rounded-xl p-2 mb-1">${mergePicks}</div>
+      ${orderLine}
       <div class="flex gap-2 mb-3 flex-wrap items-center">
         <input id="ccpcTplMergeLabel" placeholder="Output column name" class="flex-1 min-w-[120px] px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-        <select id="ccpcTplMergeDelimType" onchange="document.getElementById('ccpcTplMergeDelim').classList.toggle('hidden', this.value !== 'custom')" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-          <option value=" - ">Dash ( - )</option>
-          <option value=", ">Comma (, )</option>
-          <option value=" ">Space</option>
-          <option value="newline">New line</option>
-          <option value="custom">Custom…</option>
+        <select id="ccpcTplMergeDelimPreset" onchange="_ccpcTplMergeDelimPresetChange()" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+          ${CCPC_TPL_DELIM_PRESETS.map(([v, l]) => `<option value="${v === '\n' ? '__newline__' : _escHtml(v)}">${_escHtml(l)}</option>`).join('')}
         </select>
-        <input id="ccpcTplMergeDelim" placeholder="Delimiter" value=" - " class="hidden w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+        <input id="ccpcTplMergeDelimCustom" placeholder="Custom delimiter" class="hidden w-24 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
         <button onclick="_ccpcTplMergeAdd()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Add Merge</button>
       </div>
 
@@ -33483,20 +33530,43 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <button onclick="_ccpcTplSave()" class="w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black transition-all">Save Template</button>
     `);
   }
+  // Plain in-place show/hide, not a re-render -- a full _ccpcTplBuilderRender
+  // on every keystroke would rebuild the search input itself mid-type and
+  // drop focus/cursor position, exactly the scroll/focus-loss bug already
+  // fixed once before for the CSV column picker (see _ccpcCsvPickerToggle).
+  function _ccpcTplFilterChecklist(containerId, term) {
+    const q = term.trim().toLowerCase();
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    container.querySelectorAll('label').forEach(label => {
+      label.classList.toggle('hidden', !!q && !label.textContent.toLowerCase().includes(q));
+    });
+  }
   function _ccpcTplFieldToggle(el) {
     const header = el.dataset.tplField;
     _ccpcTplEntries = _ccpcTplEntries.filter(e => !(e.type !== 'merge' && e.header === header));
     if (el.checked) _ccpcTplEntries.push({ type: 'field', header });
   }
+  function _ccpcTplMergePickToggle(el) {
+    const header = el.dataset.mergePick;
+    if (el.checked) { if (!_ccpcTplMergePickOrder.includes(header)) _ccpcTplMergePickOrder.push(header); }
+    else { _ccpcTplMergePickOrder = _ccpcTplMergePickOrder.filter(h => h !== header); }
+    _ccpcTplBuilderRender(document.getElementById('ccpcTplName').value);
+  }
+  function _ccpcTplMergeDelimPresetChange() {
+    const v = document.getElementById('ccpcTplMergeDelimPreset').value;
+    document.getElementById('ccpcTplMergeDelimCustom').classList.toggle('hidden', v !== '__custom__');
+  }
   function _ccpcTplMergeAdd() {
-    const sel = document.getElementById('ccpcTplMergeSources');
-    const sources = Array.from(sel.selectedOptions).map(o => o.value);
+    const sources = _ccpcTplMergePickOrder.slice();
     const label = document.getElementById('ccpcTplMergeLabel').value.trim();
-    const delimType = document.getElementById('ccpcTplMergeDelimType')?.value;
-    const delimiter = delimType === 'newline' ? '\n' : (delimType === 'custom' ? document.getElementById('ccpcTplMergeDelim').value : (delimType ?? document.getElementById('ccpcTplMergeDelim').value));
-    if (sources.length < 2) { showToast('Pick at least 2 columns to merge', 'error'); return; }
+    const presetVal = document.getElementById('ccpcTplMergeDelimPreset').value;
+    const delimiter = presetVal === '__custom__' ? document.getElementById('ccpcTplMergeDelimCustom').value
+      : presetVal === '__newline__' ? '\n' : presetVal;
+    if (sources.length < 2) { showToast('Tick at least 2 columns, in the order you want them merged', 'error'); return; }
     if (!label) { showToast('Name the merged column first', 'error'); return; }
     _ccpcTplEntries.push({ type: 'merge', label, delimiter, sources });
+    _ccpcTplMergePickOrder = [];
     _ccpcTplBuilderRender(document.getElementById('ccpcTplName').value);
   }
   function _ccpcTplMergeRemove(idx) {
@@ -44142,6 +44212,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="_admOpenExportTemplates()" title="Named, server-saved export templates with column merging and print formatting" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="layout-template" class="h-3.5 w-3.5"></i> Templates
           </button>
+          <label title="Hide active-filter columns and show filter value on top in Print and Export CSV" class="flex items-center gap-1.5 px-3 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl cursor-pointer select-none hover:bg-slate-50 transition-all">
+            <input type="checkbox" id="admHideFilteredColChk" ${_admHideFilteredCol ? 'checked' : ''} onchange="_admToggleHideFilteredCol(this.checked)">
+            <span>Hide Filtered Col</span>
+          </label>
           <button id="adm-columns-btn" onclick="_admAppColumnsToggleEditor()" class="hidden flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="columns" class="h-3.5 w-3.5"></i> Configure Columns
           </button>
@@ -46591,11 +46665,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // it's reused on every later export with no picker shown again --
   // _admExportCsvConfigureColumns (a separate "Columns" button) is the only
   // thing that reopens the picker to change it.
+  let _admHideFilteredCol = true;
+  function _admToggleHideFilteredCol(checked) {
+    _admHideFilteredCol = !!checked;
+  }
   async function _admExportCsv() {
     const data = await _admFetchExportCols();
     if (!data) return;
-    const cols = [..._admExportApplyFilterOmission(data.dataCols), ...data.scanCols];
-    const extraRows = [[MPO_INSTITUTION_NAME], _admExportFilterSummaryRow()];
+    const hide = _admHideFilteredCol;
+    const cols = [...(hide ? _admExportApplyFilterOmission(data.dataCols) : data.dataCols), ...data.scanCols];
+    const extraRows = (hide && _admExportActiveFilterFields().length)
+      ? [[MPO_INSTITUTION_NAME], _admExportFilterSummaryRow()]
+      : [[MPO_INSTITUTION_NAME]];
     _ccpcExportCsvWithColumns({ title: 'Choose columns to export', storageKey: 'admExportCsvCols_applications', filename: 'admission_applications.csv', items: data.items, cols, extraRows });
   }
   // The "Columns" button next to Export CSV -- always reopens the picker
@@ -46604,18 +46685,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   async function _admExportCsvConfigureColumns() {
     const data = await _admFetchExportCols();
     if (!data) return;
-    const cols = [..._admExportApplyFilterOmission(data.dataCols), ...data.scanCols];
-    const extraRows = [[MPO_INSTITUTION_NAME], _admExportFilterSummaryRow()];
+    const hide = _admHideFilteredCol;
+    const cols = [...(hide ? _admExportApplyFilterOmission(data.dataCols) : data.dataCols), ...data.scanCols];
+    const extraRows = (hide && _admExportActiveFilterFields().length)
+      ? [[MPO_INSTITUTION_NAME], _admExportFilterSummaryRow()]
+      : [[MPO_INSTITUTION_NAME]];
     _ccpcExportCsvWithColumns({ title: 'Choose columns to export', storageKey: 'admExportCsvCols_applications', filename: 'admission_applications.csv', items: data.items, cols, extraRows, forceConfigure: true });
   }
   // Opens the shared (Applications + Candidates) named-template manager --
-  // unlike the filter-column omission above (specific to the quick/
-  // remembered export path), a template's columns are the admin's own
-  // explicit, deliberate choice, so nothing is auto-omitted here.
+  // passes current active filter metadata so the modal's top checkmark can
+  // hide/unhide filtered columns and show the filter summary on top.
   async function _admOpenExportTemplates() {
     const data = await _admFetchExportCols();
     if (!data) return;
-    await _ccpcOpenExportTemplatesModal(data.cols, data.items, 'admission_applications.csv');
+    const activeFields = _admExportActiveFilterFields();
+    const filterHeaders = activeFields.map(f => ADM_EXPORT_FILTER_FIELD_COLS[f]);
+    const filterSummaryRow = _admExportFilterSummaryRow();
+    await _ccpcOpenExportTemplatesModal(data.cols, data.items, 'admission_applications.csv', {
+      filterHeaders,
+      filterSummaryRow,
+      filterSummaryText: filterSummaryRow[0] || '',
+    });
   }
   // Prints exactly the rows the Applications tab's current search/filter is
   // showing (_admLastFiltered, set by _admRenderTable on every re-filter),
@@ -46626,16 +46716,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admPrintFilteredApps() {
     const apps = _admLastFiltered;
     if (!apps.length) { showToast('No applications to print', 'error'); return; }
-    const headThs = _admAppColumns.map(col => `<th>${_escHtml(col.label || 'Column')}</th>`).join('') + '<th>Status</th>';
+    const activeFilterFields = _admHideFilteredCol ? _admExportActiveFilterFields() : [];
+    const activeFilterSet = new Set(activeFilterFields);
+    const visibleCols = activeFilterSet.size
+      ? _admAppColumns.filter(col => !(col.fields || []).length || !(col.fields || []).every(fk => activeFilterSet.has(fk)))
+      : _admAppColumns;
+    const showStatusCol = !activeFilterSet.has('status');
+    const filterSummaryText = activeFilterFields.length ? (_admExportFilterSummaryRow()[0] || '') : '';
+    const headThs = visibleCols.map(col => `<th>${_escHtml(col.label || 'Column')}</th>`).join('') + (showStatusCol ? '<th>Status</th>' : '');
     const rows = apps.map((a, idx) => {
-      const dataTds = _admAppColumns.map(col => {
+      const dataTds = visibleCols.map(col => {
         const lines = (col.fields || []).map(fk => _admAppFieldRender(fk, a)).filter(Boolean);
         return `<td>${lines.length ? lines.join('<br>') : ''}</td>`;
       }).join('');
-      return `<tr><td class="sl">${idx + 1}</td>${dataTds}<td>${_escHtml(a.status || '')}</td></tr>`;
+      return `<tr><td class="sl">${idx + 1}</td>${dataTds}${showStatusCol ? `<td>${_escHtml(a.status || '')}</td>` : ''}</tr>`;
     }).join('');
     const body = `
-      <h1 style="font-size:16px;margin:0 0 2px">Applicant List</h1>
+      <h1 style="font-size:16px;margin:0 0 2px">${_escHtml(MPO_INSTITUTION_NAME)} — Applicant List</h1>
+      ${filterSummaryText ? `<p style="font-size:11px;font-weight:700;color:#1e293b;margin:0 0 4px">${_escHtml(filterSummaryText)}</p>` : ''}
       <p style="font-size:10px;color:#6b7280;margin:0 0 10px">${apps.length} record${apps.length > 1 ? 's' : ''} — Printed ${new Date().toLocaleString()}</p>
       <table><thead><tr><th class="sl">SL</th>${headThs}</tr></thead><tbody>${rows}</tbody></table>`;
     const css = `@page { size: A4 landscape; margin: 10mm; }

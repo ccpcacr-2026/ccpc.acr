@@ -529,7 +529,7 @@ const RESERVED = [
   '_admCandScanToggleOptionCreate','_admCandScanOptionBehaviorChange','_admCandScanOptionTagTypeChange',
   '_admCandScanOptionCreate','_admCandScanOptionDelete','_admCandScanOptionEditOpen','_admCandScanOptionEditTagTypeChange','_admCandScanOptionEditSave','_admCandFormFieldAdd','_admCandFormFieldRemove','_admCandFormFieldTypeChanged','_admCandSaveQrValuePattern',
   // Export Templates (shared by Applications + Candidates) -- Part "server-saved templates with column merging + print"
-  '_admOpenExportTemplates','_admCandOpenExportTemplates','_ccpcTplBuilderOpen','_ccpcTplEditSelected','_ccpcTplDownloadCsv','_ccpcTplPrintNow','_ccpcTplDelete','_ccpcTplFieldToggle','_ccpcTplMergeAdd','_ccpcTplMergeRemove','_ccpcTplSave',
+  '_admOpenExportTemplates','_admCandOpenExportTemplates','_admToggleHideFilteredCol','_ccpcTplBuilderOpen','_ccpcTplEditSelected','_ccpcTplDownloadCsv','_ccpcTplPrintNow','_ccpcTplDelete','_ccpcTplFieldToggle','_ccpcTplMergeAdd','_ccpcTplMergeRemove','_ccpcTplSave','_ccpcTplMergePickToggle','_ccpcTplMergeDelimPresetChange','_ccpcTplFilterChecklist','_ccpcTplHideFilteredToggle',
   '_admCandRenderScanDataTable','_admCandScanDataToggleColsPanel','_admCandScanDataToggleCol','_admCandScanDataFieldFilterRender','_admCandScanDataMoveCol',
   '_admCandScanDataFilterChanged','_admCandScanDataGoPage','_admCandScanDataExportCsv','_admCandScanDataPrint',
   '_admCandTagFilterDefChange','_admCandShowTagHistory',
