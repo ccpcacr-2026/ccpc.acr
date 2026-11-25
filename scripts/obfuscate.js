@@ -527,7 +527,7 @@ const RESERVED = [
   '_admCandTagDefTypeChange','_admCandTagDefSave','_admCandTagDefDelete','_admCandScanTagDefChange','_admCandScanLockTag',
   '_admCandMarksFieldSave','_admCandMarksFieldDelete','_admCandSubmitMarksForm','_admCandCancelMarksForm',
   '_admCandScanToggleOptionCreate','_admCandScanOptionBehaviorChange','_admCandScanOptionTagTypeChange',
-  '_admCandScanOptionCreate','_admCandScanOptionDelete','_admCandFormFieldAdd','_admCandFormFieldRemove','_admCandFormFieldTypeChanged','_admCandSaveQrValuePattern',
+  '_admCandScanOptionCreate','_admCandScanOptionDelete','_admCandScanOptionEditOpen','_admCandScanOptionEditTagTypeChange','_admCandScanOptionEditSave','_admCandFormFieldAdd','_admCandFormFieldRemove','_admCandFormFieldTypeChanged','_admCandSaveQrValuePattern',
   '_admCandRenderScanDataTable','_admCandScanDataToggleColsPanel','_admCandScanDataToggleCol','_admCandScanDataFieldFilterRender','_admCandScanDataMoveCol',
   '_admCandScanDataFilterChanged','_admCandScanDataGoPage','_admCandScanDataExportCsv','_admCandScanDataPrint',
   '_admCandTagFilterDefChange','_admCandShowTagHistory',

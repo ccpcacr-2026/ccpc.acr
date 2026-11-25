@@ -33275,12 +33275,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // uses this); the very first export for a screen, or the picker's own
   // "Export CSV" button, both fall through to _ccpcOpenCsvColumnPicker,
   // which is what actually saves a new choice (via _ccpcCsvPickerConfirm).
-  function _ccpcExportCsvWithColumns({ title, storageKey, filename, cols, items, forceConfigure }) {
+  function _ccpcExportCsvWithColumns({ title, storageKey, filename, cols, items, forceConfigure, extraRows }) {
     const headers = cols.map(c => c.header);
     const byHeader = {}; cols.forEach(c => { byHeader[c.header] = c; });
     const doExport = (selectedHeaders) => {
       const useCols = selectedHeaders.map(h => byHeader[h]).filter(Boolean);
-      const csvRows = [useCols.map(c => c.header)];
+      // extraRows (e.g. institution name, active-filter summary) are plain
+      // single-cell rows prepended ahead of the real header/data rows --
+      // deliberately shorter than useCols.length, which is fine for this
+      // tab-delimited format (Excel just shows the rest of that row blank).
+      const csvRows = [...(extraRows || []), useCols.map(c => c.header)];
       items.forEach(a => csvRows.push(useCols.map(c => _ccpcCsvCell(c.get(a), c.isPhone))));
       _ccpcShareOrDownload(filename, 'text/csv;charset=utf-16le', _ccpcBuildUnicodeCsvBlob(csvRows));
     };
@@ -46280,7 +46284,33 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // local time, from the most recent entry in scan_dates[o.key].
       scanCols.push({ header: `${o.label} - Scanned At`, get: a => _ccpcFmtScanDate(_ccpcLastScanDate(a, o.key)) });
     });
-    return { items: full, cols: [...dataCols, ...scanCols] };
+    // Kept separate (not just one combined `cols` array) so a caller can
+    // apply the active-filter column omission to dataCols only -- scan
+    // columns must never be omitted, even if a Scan Option happens to share
+    // a name with a filterable field like "Status".
+    return { items: full, dataCols, scanCols, cols: [...dataCols, ...scanCols] };
+  }
+  // A Set-based Applications-tab filter (class/category/version/status/
+  // source) pins every currently-matching row to the exact same value for
+  // that field -- showing it as its own export column is pure redundant
+  // noise while that filter is active, so it's dropped from the exportable
+  // column list entirely (never just hidden-but-still-picked), and its
+  // active value(s) go into the export's own filter-summary header row
+  // instead. Range filters (scanFrom/scanTo) aren't included here -- rows
+  // can genuinely differ in their own scan date, so there's no single
+  // constant value to summarize/omit for those.
+  const ADM_EXPORT_FILTER_FIELD_COLS = { class: 'class', category: 'category', version: 'version', status: 'status', source: 'source' };
+  function _admExportActiveFilterFields() {
+    return Object.keys(ADM_EXPORT_FILTER_FIELD_COLS).filter(f => _admFilterState[f] instanceof Set && _admFilterState[f].size);
+  }
+  function _admExportFilterSummaryRow() {
+    const values = [];
+    _admExportActiveFilterFields().forEach(f => values.push(...Array.from(_admFilterState[f])));
+    return [values.join('-')];
+  }
+  function _admExportApplyFilterOmission(cols) {
+    const omitHeaders = new Set(_admExportActiveFilterFields().map(f => ADM_EXPORT_FILTER_FIELD_COLS[f]));
+    return omitHeaders.size ? cols.filter(c => !omitHeaders.has(c.header)) : cols;
   }
   // Every real+flattened DB column plus every Scan Option column, letting
   // the admin narrow this down to just what they actually want in THIS
@@ -46294,7 +46324,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   async function _admExportCsv() {
     const data = await _admFetchExportCols();
     if (!data) return;
-    _ccpcExportCsvWithColumns({ title: 'Choose columns to export', storageKey: 'admExportCsvCols_applications', filename: 'admission_applications.csv', ...data });
+    const cols = [..._admExportApplyFilterOmission(data.dataCols), ...data.scanCols];
+    const extraRows = [[MPO_INSTITUTION_NAME], _admExportFilterSummaryRow()];
+    _ccpcExportCsvWithColumns({ title: 'Choose columns to export', storageKey: 'admExportCsvCols_applications', filename: 'admission_applications.csv', items: data.items, cols, extraRows });
   }
   // The "Columns" button next to Export CSV -- always reopens the picker
   // (forceConfigure) regardless of a prior saved choice, so the admin can
@@ -46302,7 +46334,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   async function _admExportCsvConfigureColumns() {
     const data = await _admFetchExportCols();
     if (!data) return;
-    _ccpcExportCsvWithColumns({ title: 'Choose columns to export', storageKey: 'admExportCsvCols_applications', filename: 'admission_applications.csv', ...data, forceConfigure: true });
+    const cols = [..._admExportApplyFilterOmission(data.dataCols), ...data.scanCols];
+    const extraRows = [[MPO_INSTITUTION_NAME], _admExportFilterSummaryRow()];
+    _ccpcExportCsvWithColumns({ title: 'Choose columns to export', storageKey: 'admExportCsvCols_applications', filename: 'admission_applications.csv', items: data.items, cols, extraRows, forceConfigure: true });
   }
   // Prints exactly the rows the Applications tab's current search/filter is
   // showing (_admLastFiltered, set by _admRenderTable on every re-filter),
@@ -51031,6 +51065,54 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       await _admCandLoadScanOptions();
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
+  function _admCandScanOptionEditOpen(id) {
+    const opt = (_admCandScanOptions || []).find(o => o.id === id);
+    if (!opt) return;
+    const cfg = opt.config || {};
+    let extra = '';
+    if (opt.behavior === 'tag') {
+      extra = `
+        <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mt-3 mb-1">Type</label>
+        <select id="admCandScanOptEditTagType" onchange="_admCandScanOptionEditTagTypeChange()" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs mb-2">
+          <option value="toggle" ${cfg.type === 'toggle' ? 'selected' : ''}>Toggle</option>
+          <option value="text" ${cfg.type === 'text' ? 'selected' : ''}>Text</option>
+          <option value="dropdown" ${cfg.type === 'dropdown' ? 'selected' : ''}>Dropdown</option>
+        </select>
+        <div id="admCandScanOptEditTagOptionsWrap" class="${cfg.type === 'dropdown' ? '' : 'hidden'}">
+          <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Options (comma-separated)</label>
+          <input id="admCandScanOptEditTagOptions" value="${_escHtml((cfg.options || []).join(', '))}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs mb-2">
+        </div>`;
+    }
+    _diaryShowSimpleModal('Edit Scan Option', `
+      <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Name</label>
+      <input id="admCandScanOptEditLabel" value="${_escHtml(opt.label)}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs mb-2">
+      ${extra}
+      <button onclick="_admCandScanOptionEditSave(${id})" class="w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black transition-all mt-2">Save</button>
+    `);
+  }
+  function _admCandScanOptionEditTagTypeChange() {
+    const type = document.getElementById('admCandScanOptEditTagType').value;
+    document.getElementById('admCandScanOptEditTagOptionsWrap')?.classList.toggle('hidden', type !== 'dropdown');
+  }
+  async function _admCandScanOptionEditSave(id) {
+    const opt = (_admCandScanOptions || []).find(o => o.id === id);
+    if (!opt) return;
+    const label = document.getElementById('admCandScanOptEditLabel').value.trim();
+    if (!label) { showToast('Name is required', 'error'); return; }
+    let config = opt.config || {};
+    if (opt.behavior === 'tag') {
+      const type = document.getElementById('admCandScanOptEditTagType').value;
+      const options = type === 'dropdown' ? document.getElementById('admCandScanOptEditTagOptions').value.split(',').map(s => s.trim()).filter(Boolean) : [];
+      config = { type, options };
+    }
+    try {
+      const res = await _admCandFetch('saveScanOption', { circular_id: _admCandActiveCircularId, id, label, config });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      _diaryCloseSimpleModal();
+      showToast('Scan option updated', 'success');
+      await _admCandLoadScanOptions();
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
   async function _admCandScanOptionDelete(id) {
     if (!confirm('Delete this scan option? Candidates keep whatever value they already have, but it will no longer be usable for scanning.')) return;
     try {
@@ -51050,7 +51132,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const isAdmin = _admCandMyAccess.is_full_admin;
     if (!opt || (opt.behavior === 'status' && !isAdmin)) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
     panel.classList.remove('hidden');
-    const deleteBtn = isAdmin ? `<button onclick="_admCandScanOptionDelete(${opt.id})" class="px-3 py-1.5 border border-red-200 text-red-500 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Delete this option</button>` : '';
+    const deleteBtn = isAdmin ? `<button onclick="_admCandScanOptionEditOpen(${opt.id})" class="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Edit</button>
+      <button onclick="_admCandScanOptionDelete(${opt.id})" class="px-3 py-1.5 border border-red-200 text-red-500 rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Delete this option</button>` : '';
     if (opt.behavior === 'status') {
       panel.innerHTML = `<div class="flex items-center justify-between flex-wrap gap-2"><p class="text-[10px] uppercase text-slate-400 font-bold">${_escHtml(opt.label)} — scans mark it done instantly</p>${deleteBtn}</div>`;
       return;
