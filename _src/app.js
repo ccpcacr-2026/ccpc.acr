@@ -1,4 +1,4 @@
-﻿let allStaffCache = [];
+let allStaffCache = [];
   let allUsersCache = [];
   window.APP_USER = null; // Holds the logged-in session data
 
@@ -12540,7 +12540,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       // every category can be row-filtered by them, not just ones that do.
       const scopableHere = SCOPABLE_COLUMNS;
       filterWrap.innerHTML = `
-        <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5">Filter by value (leave a row unchecked = any value)</p>
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+          <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Filter by value (leave a row unchecked = any value)</p>
+          <label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 cursor-pointer">
+            <input type="checkbox" id="dlIncludeFilteredCols" checked>Include filtered column(s) in CSV
+          </label>
+        </div>
         <div class="flex flex-col gap-1.5">
           ${scopableHere.map(col => {
             const vals = (_scopeColumnValues && _scopeColumnValues[col]) || [];
@@ -12749,19 +12754,31 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function downloadByCategoryAdmin() {
     const category_name = document.getElementById('dlCategorySelect').value;
     if (!category_name) { showToast('Select a category', 'error'); return; }
-    const extra_columns = Array.from(document.querySelectorAll('.dl-extra-col:checked')).map(c => c.value);
+    const extraColsSet = new Set(Array.from(document.querySelectorAll('.dl-extra-col:checked')).map(c => c.value));
     const extra_filter = {};
     document.querySelectorAll('.dl-filter-value:checked').forEach(cb => {
       (extra_filter[cb.dataset.col] = extra_filter[cb.dataset.col] || []).push(cb.value);
     });
+    const stuId = document.getElementById('stuSearchId').value.trim();
+    const stuClass = document.getElementById('stuSearchClass').value.trim();
+    const stuSection = document.getElementById('stuSearchSection').value.trim();
+    const stuRoll = document.getElementById('stuSearchRoll').value.trim();
+    const stuGroup = document.getElementById('stuSearchGroup').value.trim();
+    if (document.getElementById('dlIncludeFilteredCols')?.checked) {
+      Object.keys(extra_filter).forEach(col => extraColsSet.add(col));
+      if (stuClass) extraColsSet.add('class');
+      if (stuSection) extraColsSet.add('section');
+      if (stuRoll) extraColsSet.add('roll');
+      if (stuGroup) extraColsSet.add('group');
+    }
     const payload = {
       category_name,
-      student_id: document.getElementById('stuSearchId').value.trim(),
-      class: document.getElementById('stuSearchClass').value.trim(),
-      section: document.getElementById('stuSearchSection').value.trim(),
-      roll: document.getElementById('stuSearchRoll').value.trim(),
-      group: document.getElementById('stuSearchGroup').value.trim(),
-      extra_columns,
+      student_id: stuId,
+      class: stuClass,
+      section: stuSection,
+      roll: stuRoll,
+      group: stuGroup,
+      extra_columns: [...extraColsSet],
       extra_filter,
     };
     _adminFetch('download_students_by_category', payload).then(res => {
@@ -44104,6 +44121,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="_admExportCsvConfigureColumns()" title="Choose which columns Export CSV includes" class="flex items-center gap-1.5 px-3 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="sliders-horizontal" class="h-3.5 w-3.5"></i> Columns
           </button>
+          <label title="Include active filter columns (class, category, version, status, source) in Export CSV" class="flex items-center gap-1.5 px-2.5 py-2 bg-white border border-slate-200 text-slate-600 text-[10px] font-bold rounded-xl cursor-pointer select-none">
+            <input type="checkbox" id="admExportIncludeFilteredCols" class="rounded border-slate-300">
+            <span>Include filtered col</span>
+          </label>
           <button onclick="_admPrintFilteredApps()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="printer" class="h-3.5 w-3.5"></i> Print
           </button>
@@ -46514,6 +46535,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return [values.join('-')];
   }
   function _admExportApplyFilterOmission(cols) {
+    if (document.getElementById('admExportIncludeFilteredCols')?.checked) return cols;
     const omitHeaders = new Set(_admExportActiveFilterFields().map(f => ADM_EXPORT_FILTER_FIELD_COLS[f]));
     return omitHeaders.size ? cols.filter(c => !omitHeaders.has(c.header)) : cols;
   }
