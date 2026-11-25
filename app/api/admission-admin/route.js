@@ -335,6 +335,40 @@ export async function POST(req) {
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Bad request' }, { status: 400 }); }
   const { action, payload = {}, user_id } = body;
   const isFullAdmin = await _isAdmissionAdmin(user_id);
+  // Export templates (shared by this route AND app/api/admission-candidates/
+  // route.js -- one global pool, not circular-scoped, confirmed via
+  // AskUserQuestion) handled up front, before the circular-scoped committee
+  // gating below, since they have no circular_id to resolve at all. Listing
+  // is open to any signed-in user (so a committee member can pick/use an
+  // existing template); creating/editing/deleting one is admin-only.
+  if (action === 'listExportTemplates') {
+    if (!user_id) return _forbidden();
+    const rows = await sbAdmission('export_templates?select=*&order=name.asc');
+    return NextResponse.json({ templates: Array.isArray(rows) ? rows : [] });
+  }
+  if (action === 'saveExportTemplate') {
+    if (!isFullAdmin) return NextResponse.json({ error: 'Only an Admin/Admission Admin can save export templates.' }, { status: 403 });
+    const name = String(payload.name || '').trim();
+    if (!name) return NextResponse.json({ error: 'A template name is required.' });
+    const columns = Array.isArray(payload.columns) ? payload.columns : [];
+    const printSettings = (payload.print_settings && typeof payload.print_settings === 'object') ? payload.print_settings : {};
+    const id = parseInt(payload.id, 10);
+    const data = { name, columns, print_settings: printSettings, updated_at: new Date().toISOString() };
+    if (id) {
+      const res = await sbAdmission(`export_templates?id=eq.${id}`, 'PATCH', data);
+      if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A template with this name already exists.' : res.error });
+      return NextResponse.json({ success: true, id });
+    }
+    data.created_by = user_id;
+    const res = await sbAdmission('export_templates', 'POST', data);
+    if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A template with this name already exists.' : res.error });
+    return NextResponse.json({ success: true, id: res?.[0]?.id });
+  }
+  if (action === 'deleteExportTemplate') {
+    if (!isFullAdmin) return NextResponse.json({ error: 'Only an Admin/Admission Admin can delete export templates.' }, { status: 403 });
+    await sbAdmission(`export_templates?id=eq.${parseInt(payload.id, 10) || 0}`, 'DELETE');
+    return NextResponse.json({ success: true });
+  }
   // Saving/deleting a Custom Count card is admin-only, full stop -- not
   // something a committee member's 'applications' edit grant extends to
   // (unlike regular application edits). Checked before the generic

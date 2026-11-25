@@ -33292,6 +33292,208 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (saved) { doExport(saved); return; }
     _ccpcOpenCsvColumnPicker({ title, storageKey, headers, onConfirm: doExport });
   }
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  SERVER-SAVED EXPORT TEMPLATES -- one global pool shared by both the
+  //  Applications and Candidates screens (confirmed via AskUserQuestion),
+  //  reached via each screen's own _admOpenExportTemplates/
+  //  _admCandOpenExportTemplates, which hand this their own available
+  //  column set. Separate from the simpler per-browser "remembered
+  //  selection" _ccpcExportCsvWithColumns above -- these are named, visible
+  //  to the whole team, support merging several columns into one, and
+  //  offer Print in addition to CSV. saveExportTemplate/deleteExportTemplate
+  //  are admin-only server-side (both route files check isFullAdmin);
+  //  listExportTemplates is open to any signed-in user so a non-admin can
+  //  still pick and use an existing template.
+  // ════════════════════════════════════════════════════════════════════════
+  let _ccpcExportTemplates = [];
+  let _ccpcTplCols = [];
+  let _ccpcTplItems = [];
+  let _ccpcTplFilename = 'export.csv';
+  let _ccpcTplEntries = [];
+  let _ccpcTplEditId = null;
+  let _ccpcTplPrint = { header: '', font_size: 10, column_width: 90, row_height: 24 };
+
+  async function _ccpcOpenExportTemplatesModal(cols, items, filename) {
+    _ccpcTplCols = cols;
+    _ccpcTplItems = items;
+    _ccpcTplFilename = filename;
+    const res = await _admAdminFetch('listExportTemplates', {});
+    _ccpcExportTemplates = (res && res.templates) || [];
+    _ccpcRenderTemplatesModal();
+  }
+  function _ccpcTplIsAdmin() {
+    return (window.USER_ROLES || [window.ACTIVE_ROLE]).some(r => ['Admin', 'Admission Admin'].includes(r));
+  }
+  function _ccpcRenderTemplatesModal() {
+    const isAdmin = _ccpcTplIsAdmin();
+    const options = _ccpcExportTemplates.map(t => `<option value="${t.id}">${_escHtml(t.name)}</option>`).join('');
+    _diaryShowSimpleModal('Export Templates', `
+      <div class="flex gap-2 items-center mb-3 flex-wrap">
+        <select id="ccpcTplSelect" class="flex-1 min-w-[180px] px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+          <option value="">— No template (every available column) —</option>
+          ${options}
+        </select>
+        ${isAdmin ? `<button onclick="_ccpcTplBuilderOpen()" class="px-3 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase whitespace-nowrap">+ New</button>` : ''}
+      </div>
+      ${isAdmin ? `<div class="flex gap-2 mb-3">
+        <button onclick="_ccpcTplEditSelected()" class="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-[10px] font-black uppercase">Edit Template</button>
+        <button onclick="_ccpcTplDelete()" class="flex-1 px-3 py-1.5 border border-red-200 text-red-500 rounded-lg text-[10px] font-black uppercase">Delete Template</button>
+      </div>` : ''}
+      <div class="flex gap-2">
+        <button onclick="_ccpcTplDownloadCsv()" class="flex-1 px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-slate-800 text-white hover:bg-black transition-all">Download CSV</button>
+        <button onclick="_ccpcTplPrintNow()" class="flex-1 px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black transition-all">Print</button>
+      </div>
+    `);
+  }
+  function _ccpcTplSelectedId() {
+    const sel = document.getElementById('ccpcTplSelect');
+    return sel ? (parseInt(sel.value, 10) || null) : null;
+  }
+  function _ccpcTplEditSelected() {
+    const id = _ccpcTplSelectedId();
+    if (!id) { showToast('Pick a template to edit first', 'error'); return; }
+    _ccpcTplBuilderOpen(id);
+  }
+  // Resolves the currently-selected template's saved column/merge list
+  // against THIS screen's own available columns -- a "field" entry whose
+  // header doesn't exist here is silently dropped, and a "merge" entry only
+  // joins whichever of its source headers actually exist, so one shared
+  // template pool degrades gracefully across Applications vs Candidates'
+  // only-partially-overlapping column sets instead of erroring.
+  function _ccpcTplResolvedCols() {
+    const id = _ccpcTplSelectedId();
+    if (!id) return _ccpcTplCols;
+    const tpl = _ccpcExportTemplates.find(t => t.id === id);
+    if (!tpl) return _ccpcTplCols;
+    const byHeader = {}; _ccpcTplCols.forEach(c => { byHeader[c.header] = c; });
+    const out = [];
+    (tpl.columns || []).forEach(entry => {
+      if (entry.type === 'merge') {
+        const sources = (entry.sources || []).filter(h => byHeader[h]);
+        if (!sources.length) return;
+        out.push({
+          header: entry.label || sources.join('+'),
+          isPhone: false,
+          get: a => sources.map(h => _ccpcCsvCell(byHeader[h].get(a), byHeader[h].isPhone)).filter(s => s !== '').join(entry.delimiter ?? ' '),
+        });
+      } else if (byHeader[entry.header]) {
+        out.push(byHeader[entry.header]);
+      }
+    });
+    return out.length ? out : _ccpcTplCols;
+  }
+  function _ccpcTplDownloadCsv() {
+    const cols = _ccpcTplResolvedCols();
+    const csvRows = [[MPO_INSTITUTION_NAME], cols.map(c => c.header)];
+    _ccpcTplItems.forEach(a => csvRows.push(cols.map(c => _ccpcCsvCell(c.get(a), c.isPhone))));
+    _ccpcShareOrDownload(_ccpcTplFilename, 'text/csv;charset=utf-16le', _ccpcBuildUnicodeCsvBlob(csvRows));
+  }
+  function _ccpcTplPrintNow() {
+    const id = _ccpcTplSelectedId();
+    const tpl = id ? _ccpcExportTemplates.find(t => t.id === id) : null;
+    const ps = Object.assign({ header: '', font_size: 10, column_width: 90, row_height: 24 }, (tpl && tpl.print_settings) || {});
+    const cols = _ccpcTplResolvedCols();
+    const rowsHtml = _ccpcTplItems.map(a => `<tr>${cols.map(c => `<td style="height:${ps.row_height}px;">${_escHtml(_ccpcCsvCell(c.get(a), c.isPhone))}</td>`).join('')}</tr>`).join('');
+    const html = `
+      <div style="text-align:center;font-weight:900;font-size:13pt;margin-bottom:4pt;">${_escHtml(MPO_INSTITUTION_NAME)}</div>
+      ${ps.header ? `<div style="text-align:center;font-weight:700;font-size:11pt;margin-bottom:8pt;">${_escHtml(ps.header)}</div>` : ''}
+      <table style="width:100%;border-collapse:collapse;font-size:${ps.font_size}pt;">
+        <thead><tr>${cols.map(c => `<th style="border:1px solid #000;padding:2px 4px;width:${ps.column_width}px;">${_escHtml(c.header)}</th>`).join('')}</tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>`;
+    _gfOpenPrintWindow('Export', html, 'table{border-collapse:collapse;} td,th{border:1px solid #000;}');
+  }
+  async function _ccpcTplDelete() {
+    const id = _ccpcTplSelectedId();
+    if (!id) { showToast('Pick a template first', 'error'); return; }
+    if (!confirm('Delete this template?')) return;
+    await _admAdminFetch('deleteExportTemplate', { id });
+    const res = await _admAdminFetch('listExportTemplates', {});
+    _ccpcExportTemplates = (res && res.templates) || [];
+    _ccpcRenderTemplatesModal();
+  }
+
+  // ── Template Builder (admin-only create/edit) ──────────────────────────────
+  function _ccpcTplBuilderOpen(editId) {
+    const tpl = editId ? _ccpcExportTemplates.find(t => t.id === editId) : null;
+    _ccpcTplEditId = tpl ? tpl.id : null;
+    _ccpcTplEntries = tpl ? JSON.parse(JSON.stringify(tpl.columns || [])) : [];
+    _ccpcTplPrint = Object.assign({ header: '', font_size: 10, column_width: 90, row_height: 24 }, tpl ? (tpl.print_settings || {}) : {});
+    _ccpcTplBuilderRender(tpl ? tpl.name : '');
+  }
+  function _ccpcTplBuilderRender(name) {
+    const checks = _ccpcTplCols.map(c => {
+      const checked = _ccpcTplEntries.some(e => e.type !== 'merge' && e.header === c.header);
+      return `<label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-600"><input type="checkbox" data-tpl-field="${_escHtml(c.header)}" ${checked ? 'checked' : ''} onchange="_ccpcTplFieldToggle(this)"> ${_escHtml(c.header)}</label>`;
+    }).join('');
+    const mergeOptions = _ccpcTplCols.map(c => `<option value="${_escHtml(c.header)}">${_escHtml(c.header)}</option>`).join('');
+    const mergeChips = _ccpcTplEntries.filter(e => e.type === 'merge').map((e, i) => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 rounded-full text-[10px] font-bold text-slate-700 mr-1 mb-1">${_escHtml(e.label)} (${e.sources.join(e.delimiter || ' ')}) <button onclick="_ccpcTplMergeRemove(${i})" class="text-red-500">×</button></span>`).join('');
+    _diaryShowSimpleModal(_ccpcTplEditId ? 'Edit Template' : 'New Template', `
+      <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Template Name</label>
+      <input id="ccpcTplName" value="${_escHtml(name || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs mb-3">
+
+      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Columns</p>
+      <div class="grid grid-cols-2 gap-1 max-h-40 overflow-y-auto border border-slate-100 rounded-xl p-2 mb-3">${checks}</div>
+
+      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Merge Columns (combine several into one output column)</p>
+      <div class="mb-2">${mergeChips || '<span class="text-[10px] text-slate-400">No merges yet.</span>'}</div>
+      <select id="ccpcTplMergeSources" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] mb-2 h-20">${mergeOptions}</select>
+      <div class="flex gap-2 mb-3 flex-wrap">
+        <input id="ccpcTplMergeLabel" placeholder="Output column name" class="flex-1 min-w-[120px] px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+        <input id="ccpcTplMergeDelim" placeholder="Delimiter" value=" - " class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+        <button onclick="_ccpcTplMergeAdd()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Add Merge</button>
+      </div>
+
+      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Print Settings</p>
+      <input id="ccpcTplPrintHeader" placeholder="Header text (optional, shown above the table when printed)" value="${_escHtml(_ccpcTplPrint.header || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs mb-2">
+      <div class="grid grid-cols-3 gap-2 mb-3">
+        <div><label class="text-[9px] text-slate-400 font-bold block">Font (pt)</label><input id="ccpcTplPrintFont" type="number" min="6" max="24" value="${_ccpcTplPrint.font_size}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></div>
+        <div><label class="text-[9px] text-slate-400 font-bold block">Column width (px)</label><input id="ccpcTplPrintColWidth" type="number" min="20" value="${_ccpcTplPrint.column_width}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></div>
+        <div><label class="text-[9px] text-slate-400 font-bold block">Row height (px)</label><input id="ccpcTplPrintRowHeight" type="number" min="10" value="${_ccpcTplPrint.row_height}" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></div>
+      </div>
+
+      <button onclick="_ccpcTplSave()" class="w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black transition-all">Save Template</button>
+    `);
+  }
+  function _ccpcTplFieldToggle(el) {
+    const header = el.dataset.tplField;
+    _ccpcTplEntries = _ccpcTplEntries.filter(e => !(e.type !== 'merge' && e.header === header));
+    if (el.checked) _ccpcTplEntries.push({ type: 'field', header });
+  }
+  function _ccpcTplMergeAdd() {
+    const sel = document.getElementById('ccpcTplMergeSources');
+    const sources = Array.from(sel.selectedOptions).map(o => o.value);
+    const label = document.getElementById('ccpcTplMergeLabel').value.trim();
+    const delimiter = document.getElementById('ccpcTplMergeDelim').value;
+    if (sources.length < 2) { showToast('Pick at least 2 columns to merge', 'error'); return; }
+    if (!label) { showToast('Name the merged column first', 'error'); return; }
+    _ccpcTplEntries.push({ type: 'merge', label, delimiter, sources });
+    _ccpcTplBuilderRender(document.getElementById('ccpcTplName').value);
+  }
+  function _ccpcTplMergeRemove(idx) {
+    const merges = _ccpcTplEntries.filter(e => e.type === 'merge');
+    const target = merges[idx];
+    _ccpcTplEntries = _ccpcTplEntries.filter(e => e !== target);
+    _ccpcTplBuilderRender(document.getElementById('ccpcTplName').value);
+  }
+  async function _ccpcTplSave() {
+    const name = document.getElementById('ccpcTplName').value.trim();
+    if (!name) { showToast('Name the template first', 'error'); return; }
+    const print_settings = {
+      header: document.getElementById('ccpcTplPrintHeader').value.trim(),
+      font_size: parseInt(document.getElementById('ccpcTplPrintFont').value, 10) || 10,
+      column_width: parseInt(document.getElementById('ccpcTplPrintColWidth').value, 10) || 90,
+      row_height: parseInt(document.getElementById('ccpcTplPrintRowHeight').value, 10) || 24,
+    };
+    const res = await _admAdminFetch('saveExportTemplate', { id: _ccpcTplEditId, name, columns: _ccpcTplEntries, print_settings });
+    if (res.error) { showToast(res.error, 'error'); return; }
+    showToast('Template saved', 'success');
+    const listRes = await _admAdminFetch('listExportTemplates', {});
+    _ccpcExportTemplates = (listRes && listRes.templates) || [];
+    _ccpcRenderTemplatesModal();
+  }
+
   // Shared by both the CSV formatter below and import-time normalization
   // (_admCandBuildMappedRows) so a phone/contact value is stored the same
   // clean way it's exported, not just cosmetically reformatted on export.
@@ -43905,6 +44107,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="_admPrintFilteredApps()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="printer" class="h-3.5 w-3.5"></i> Print
           </button>
+          <button onclick="_admOpenExportTemplates()" title="Named, server-saved export templates with column merging and print formatting" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
+            <i data-lucide="layout-template" class="h-3.5 w-3.5"></i> Templates
+          </button>
           <button id="adm-columns-btn" onclick="_admAppColumnsToggleEditor()" class="hidden flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="columns" class="h-3.5 w-3.5"></i> Configure Columns
           </button>
@@ -46338,6 +46543,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const extraRows = [[MPO_INSTITUTION_NAME], _admExportFilterSummaryRow()];
     _ccpcExportCsvWithColumns({ title: 'Choose columns to export', storageKey: 'admExportCsvCols_applications', filename: 'admission_applications.csv', items: data.items, cols, extraRows, forceConfigure: true });
   }
+  // Opens the shared (Applications + Candidates) named-template manager --
+  // unlike the filter-column omission above (specific to the quick/
+  // remembered export path), a template's columns are the admin's own
+  // explicit, deliberate choice, so nothing is auto-omitted here.
+  async function _admOpenExportTemplates() {
+    const data = await _admFetchExportCols();
+    if (!data) return;
+    await _ccpcOpenExportTemplatesModal(data.cols, data.items, 'admission_applications.csv');
+  }
   // Prints exactly the rows the Applications tab's current search/filter is
   // showing (_admLastFiltered, set by _admRenderTable on every re-filter),
   // using the same admin-configured columns (_admAppColumns) and cell
@@ -48707,6 +48921,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <select id="admCandListTagValueSelect" onchange="_admCandFilterList()" class="hidden px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold"></select>
           <button onclick="_admCandExportCsv()" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50"><i data-lucide="download" class="h-3.5 w-3.5"></i> Export CSV</button>
           <button onclick="_admCandExportCsvConfigureColumns()" title="Choose which columns Export CSV includes" class="flex items-center gap-1.5 px-3 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50"><i data-lucide="sliders-horizontal" class="h-3.5 w-3.5"></i> Columns</button>
+          <button onclick="_admCandOpenExportTemplates()" title="Named, server-saved export templates with column merging and print formatting" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50"><i data-lucide="layout-template" class="h-3.5 w-3.5"></i> Templates</button>
         </div>
         <div id="admCandBulkBar" class="hidden flex items-center gap-2 bg-rose-50 border border-rose-200 rounded-xl px-4 py-2.5 mb-3">
           <span id="admCandBulkCount" class="text-xs font-bold text-rose-700">0 selected</span>
@@ -50196,6 +50411,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       scanCols.push({ header: `${o.label} - Scanned At`, get: a => _ccpcFmtScanDate(_ccpcLastScanDate(a, o.key)) });
     });
     _ccpcExportCsvWithColumns({ title: 'Choose columns to export', storageKey: 'admExportCsvCols_candidates', filename: 'candidates.csv', cols: [...dataCols, ...scanCols], items: rows, forceConfigure: true });
+  }
+  // Opens the shared (Applications + Candidates) named-template manager
+  // against THIS screen's own available columns -- same dataCols+scanCols
+  // building as the two functions just above, just handed to the generic
+  // template modal instead of the one-off column picker.
+  async function _admCandOpenExportTemplates() {
+    const rows = _admCandAllCandidates;
+    if (!rows.length) { showToast('Nothing to export', 'error'); return; }
+    const dataCols = _ccpcCsvColumnsFromRows(rows, _admCandFormFieldDefs);
+    const trackingCol = dataCols.find(c => c.header === 'tracking_id');
+    if (trackingCol) trackingCol.get = a => a.tracking_id || a.token || a.external_key || '';
+    const scanCols = [];
+    (_admCandScanOptions || []).forEach(o => {
+      if (o.behavior === 'form') {
+        (o.config?.fields || []).forEach(f => scanCols.push({ header: `${o.label} - ${f.label}`, get: a => ((a.scan_values || {})[o.key] || {})[f.key] ?? '' }));
+      } else {
+        scanCols.push({ header: o.label, get: a => { const v = (a.scan_values || {})[o.key]; if (o.behavior === 'status') return v && v.done ? 'Done' : ''; return v === true ? 'Yes' : (v ?? ''); } });
+      }
+      scanCols.push({ header: `${o.label} - Scanned At`, get: a => _ccpcFmtScanDate(_ccpcLastScanDate(a, o.key)) });
+    });
+    await _ccpcOpenExportTemplatesModal([...dataCols, ...scanCols], rows, 'candidates.csv');
   }
   async function _admCandDeleteCandidate(id) {
     if (!confirm('Delete this candidate?')) return;

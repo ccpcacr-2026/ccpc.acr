@@ -232,6 +232,18 @@ export async function POST(req) {
     return NextResponse.json({ is_full_admin: isFullAdmin, circulars });
   }
 
+  // Export templates -- shared global pool with app/api/admission-admin/
+  // route.js's own identical copy (same table, same shape; this repo's
+  // established no-shared-lib convention means the logic is duplicated per
+  // route rather than imported). Not circular-scoped, so handled here
+  // before any circular_id resolution -- listing is open to any signed-in
+  // user, saving/deleting is admin-only (ADMIN_ONLY_ACTIONS below).
+  if (action === 'listExportTemplates') {
+    if (!user_id) return NextResponse.json({ error: 'Not signed in.' }, { status: 403 });
+    const rows = await sbAdmission('export_templates?select=*&order=name.asc');
+    return NextResponse.json({ templates: Array.isArray(rows) ? rows : [] });
+  }
+
   // Session/circular management + committee management itself + tag-
   // *definition* authoring stay full-admin-only -- a committee member must
   // never configure the circular, manage the committee, or create new scan
@@ -239,11 +251,33 @@ export async function POST(req) {
   const ADMIN_ONLY_ACTIONS = new Set([
     'listSessions', 'createSession', 'updateSession', 'deleteSession', 'createCircular', 'updateCircular', 'getStudentFieldValues',
     'saveScanOption', 'deleteScanOption', 'addFormField', 'removeFormField', 'saveQrValuePattern',
+    'saveExportTemplate', 'deleteExportTemplate',
     'listStaffForCommittee', 'listCommitteeMembers', 'saveCommitteeMember', 'removeCommitteeMember', 'listOrgCommittees', 'pullCommitteeMembers',
     'getVortibdCredentials', 'saveVortibdCredentials', 'listVortibdCirculars', 'getVortibdSyncConfig', 'saveVortibdSyncConfig', 'saveVortibdCircularLink', 'vortibdPullFile', 'syncVortibdNow',
   ]);
   if (ADMIN_ONLY_ACTIONS.has(action) && !isFullAdmin) {
     return NextResponse.json({ error: 'Admission Admin access required.' }, { status: 403 });
+  }
+  if (action === 'saveExportTemplate') {
+    const name = String(payload.name || '').trim();
+    if (!name) return NextResponse.json({ error: 'A template name is required.' });
+    const columns = Array.isArray(payload.columns) ? payload.columns : [];
+    const printSettings = (payload.print_settings && typeof payload.print_settings === 'object') ? payload.print_settings : {};
+    const id = parseInt(payload.id, 10);
+    const data = { name, columns, print_settings: printSettings, updated_at: new Date().toISOString() };
+    if (id) {
+      const res = await sbAdmission(`export_templates?id=eq.${id}`, 'PATCH', data);
+      if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A template with this name already exists.' : res.error });
+      return NextResponse.json({ success: true, id });
+    }
+    data.created_by = user_id;
+    const res = await sbAdmission('export_templates', 'POST', data);
+    if (res?.error) return NextResponse.json({ error: res.error.includes('duplicate') ? 'A template with this name already exists.' : res.error });
+    return NextResponse.json({ success: true, id: res?.[0]?.id });
+  }
+  if (action === 'deleteExportTemplate') {
+    await sbAdmission(`export_templates?id=eq.${parseInt(payload.id, 10) || 0}`, 'DELETE');
+    return NextResponse.json({ success: true });
   }
   // Reusable Excel-mapping templates aren't circular-scoped and aren't
   // sensitive candidate data -- any committee member (of any circular) may
