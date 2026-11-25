@@ -33844,6 +33844,523 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _ccpcRenderTemplatesModal();
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  //  LOTTERY TOKEN DESIGNER & GRID PRINT (Applicant List)
+  // ══════════════════════════════════════════════════════════════════════════
+  let _admTokenTemplates = [];
+  let _admTokenCols = [];
+  let _admTokenItems = [];
+  let _admTokenEditId = null;
+  let _admTokenDraft = null; // { id, name, canvas_w, canvas_h, border_w, border_style, border_color, border_radius, bg_color, elements: [] }
+  let _admTokenSelectedElId = null;
+  let _admTokenMergePickOrder = [];
+  let _admTokenDragState = null;
+
+  function ensureQRCodeGen() {
+    if (window.qrcode) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const sc = document.createElement('script');
+      sc.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js';
+      sc.onload = resolve;
+      sc.onerror = () => reject(new Error('Could not load QR generator — check connection and retry.'));
+      document.head.appendChild(sc);
+    });
+  }
+  function _admTokenMakeQrSvg(text, pxSize) {
+    const val = String(text || '').trim() || 'EMPTY';
+    if (window.qrcode) {
+      const qr = window.qrcode(0, 'M');
+      qr.addData(val);
+      qr.make();
+      const count = qr.getModuleCount();
+      const cell = Math.max(1, Math.floor(pxSize / count));
+      let rects = '';
+      for (let r = 0; r < count; r++) {
+        for (let c = 0; c < count; c++) {
+          if (qr.isDark(r, c)) rects += `<rect x="${c * cell}" y="${r * cell}" width="${cell}" height="${cell}" fill="#000"/>`;
+        }
+      }
+      const dim = count * cell;
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${dim} ${dim}" width="${pxSize}" height="${pxSize}" style="display:block;background:#fff;">${rects}</svg>`;
+    }
+    return `<div style="width:${pxSize}px;height:${pxSize}px;border:1px dashed #94a3b8;display:flex;align-items:center;justify-content:center;font-size:8px;color:#64748b;">QR</div>`;
+  }
+  async function _admOpenTokenDesignerModal() {
+    const data = await _admFetchExportCols();
+    if (!data) return;
+    _admTokenCols = data.cols || [];
+    _admTokenItems = data.items || [];
+    const res = await _admAdminFetch('getSettings', {});
+    const raw = res && res.settings && res.settings.lottery_token_templates;
+    _admTokenTemplates = Array.isArray(raw) ? raw : [];
+    ensureQRCodeGen().catch(() => {});
+    _admTokenRenderSelectModal();
+  }
+  function _admTokenRenderSelectModal() {
+    const modal = document.getElementById('diarySimpleModal');
+    const card = modal && modal.firstElementChild;
+    if (card) { card.classList.remove('max-w-5xl'); card.classList.add('max-w-lg'); }
+    const isAdmin = _ccpcTplIsAdmin();
+    const opts = _admTokenTemplates.map(t => `<option value="${_escHtml(t.id)}">${_escHtml(t.name)}</option>`).join('');
+    _diaryShowSimpleModal('Lottery Token Designer & Print', `
+      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Token Template (${_admTokenItems.length} applicants)</p>
+      <div class="flex gap-2 items-center mb-3 flex-wrap">
+        <select id="admTokSelect" class="flex-1 min-w-[180px] px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+          ${_admTokenTemplates.length ? opts : '<option value="">— No token templates yet —</option>'}
+        </select>
+        ${isAdmin ? `<button onclick="_admTokenBuilderOpen()" class="px-3 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase whitespace-nowrap">+ New</button>` : ''}
+      </div>
+      ${isAdmin ? `<div class="flex gap-2 mb-3">
+        <button onclick="_admTokenEditSelected()" class="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-[10px] font-black uppercase">Edit Token</button>
+        <button onclick="_admTokenDeleteSelected()" class="flex-1 px-3 py-1.5 border border-red-200 text-red-500 rounded-lg text-[10px] font-black uppercase">Delete Token</button>
+      </div>` : ''}
+
+      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Page &amp; Grid Auto-Resize</p>
+      <div class="grid grid-cols-2 gap-2 mb-2">
+        <div>
+          <label class="text-[9px] text-slate-400 font-bold block">Paper Size</label>
+          <select id="admTokPaper" onchange="_admTokenPaperChanged()" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+            <option value="a4_p">A4 Portrait (210 × 297 mm)</option>
+            <option value="a4_l">A4 Landscape (297 × 210 mm)</option>
+            <option value="legal_p">Legal Portrait (216 × 356 mm)</option>
+            <option value="legal_l">Legal Landscape (356 × 216 mm)</option>
+            <option value="letter_p">Letter Portrait (216 × 279 mm)</option>
+            <option value="letter_l">Letter Landscape (279 × 216 mm)</option>
+            <option value="custom">Custom (mm)</option>
+          </select>
+        </div>
+        <div class="grid grid-cols-2 gap-1.5">
+          <div><label class="text-[9px] text-slate-400 font-bold block">Cols / Page</label><input id="admTokCols" type="number" min="1" max="12" value="3" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></div>
+          <div><label class="text-[9px] text-slate-400 font-bold block">Rows / Page</label><input id="admTokRows" type="number" min="1" max="24" value="6" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></div>
+        </div>
+      </div>
+      <div id="admTokCustomPaperRow" class="hidden grid grid-cols-2 gap-2 mb-2">
+        <div><label class="text-[9px] text-slate-400 font-bold block">Paper Width (mm)</label><input id="admTokPaperW" type="number" min="40" value="210" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></div>
+        <div><label class="text-[9px] text-slate-400 font-bold block">Paper Height (mm)</label><input id="admTokPaperH" type="number" min="40" value="297" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></div>
+      </div>
+      <div class="grid grid-cols-2 gap-2 mb-4">
+        <div><label class="text-[9px] text-slate-400 font-bold block">Page Margin (mm)</label><input id="admTokMargin" type="number" min="0" max="40" value="8" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></div>
+        <div><label class="text-[9px] text-slate-400 font-bold block">Token Gap (mm)</label><input id="admTokGap" type="number" min="0" max="25" value="3" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></div>
+      </div>
+      <button onclick="_admTokenPrintAll()" class="w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black transition-all">Print Lottery Tokens</button>
+    `);
+  }
+  function _admTokenPaperChanged() {
+    const v = document.getElementById('admTokPaper')?.value;
+    document.getElementById('admTokCustomPaperRow')?.classList.toggle('hidden', v !== 'custom');
+  }
+  function _admTokenEditSelected() {
+    const id = document.getElementById('admTokSelect')?.value;
+    if (!id) { showToast('Pick a token template first', 'error'); return; }
+    _admTokenBuilderOpen(id);
+  }
+  async function _admTokenDeleteSelected() {
+    const id = document.getElementById('admTokSelect')?.value;
+    if (!id) { showToast('Pick a token template first', 'error'); return; }
+    if (!confirm('Delete this token template?')) return;
+    _admTokenTemplates = _admTokenTemplates.filter(t => String(t.id) !== String(id));
+    await _admAdminFetch('saveSettings', { key: 'lottery_token_templates', value: _admTokenTemplates });
+    showToast('Deleted', 'success');
+    _admTokenRenderSelectModal();
+  }
+  function _admTokenBuilderOpen(editId) {
+    const tpl = editId ? _admTokenTemplates.find(t => String(t.id) === String(editId)) : null;
+    _admTokenEditId = tpl ? tpl.id : null;
+    _admTokenDraft = tpl
+      ? JSON.parse(JSON.stringify(tpl))
+      : {
+          id: 'tok_' + Date.now(),
+          name: '',
+          canvas_w: 320,
+          canvas_h: 180,
+          border_w: 2,
+          border_style: 'solid',
+          border_color: '#0f172a',
+          border_radius: 6,
+          bg_color: '#ffffff',
+          elements: [],
+        };
+    _admTokenSelectedElId = _admTokenDraft.elements[0]?.id || null;
+    _admTokenMergePickOrder = [];
+    _admTokenRenderBuilder();
+  }
+  function _admTokenEvalElement(el, row) {
+    const byHeader = {}; _admTokenCols.forEach(c => { byHeader[c.header] = c; });
+    if (el.type === 'text') return el.text || '';
+    if (el.type === 'field') {
+      const col = byHeader[el.header];
+      const val = col && row ? _ccpcPlainCell(col.get(row), col.isPhone) : `[${el.header}]`;
+      return el.show_label ? `${el.header}: ${val}` : val;
+    }
+    if (el.type === 'merge') {
+      const joined = (el.sources || []).map(h => {
+        const col = byHeader[h];
+        return col && row ? _ccpcPlainCell(col.get(row), col.isPhone) : `[${h}]`;
+      }).filter(Boolean).join(el.delimiter ?? ' ');
+      return el.show_label && el.label ? `${el.label}: ${joined}` : joined;
+    }
+    if (el.type === 'qr') {
+      const pat = el.pattern || '';
+      return pat.replace(/\{([^}]+)\}/g, (_, h) => {
+        const col = byHeader[h];
+        return col && row ? _ccpcPlainCell(col.get(row), col.isPhone) : '';
+      });
+    }
+    return '';
+  }
+  function _admTokenRenderBuilder() {
+    const d = _admTokenDraft;
+    const sampleRow = _admTokenItems[0] || null;
+    const colOpts = _admTokenCols.map(c => `<option value="${_escHtml(c.header)}">${_escHtml(c.header)}</option>`).join('');
+    const mergePicks = _admTokenCols.map(c => {
+      const checked = _admTokenMergePickOrder.includes(c.header);
+      return `<label class="flex items-center gap-1 text-[10px] font-bold text-slate-600"><input type="checkbox" data-tok-merge-pick="${_escHtml(c.header)}" ${checked ? 'checked' : ''} onchange="_admTokenMergePickToggle(this)"> ${_escHtml(c.header)}</label>`;
+    }).join('');
+    const qrChips = _admTokenCols.slice(0, 18).map(c =>
+      `<button type="button" onclick="_admTokenInsertQrToken('${_escHtml(c.header).replace(/'/g, "\\'")}')" class="px-1.5 py-0.5 bg-slate-100 hover:bg-indigo-100 text-slate-700 rounded text-[9px] font-bold">{${_escHtml(c.header)}}</button>`
+    ).join('');
+
+    _diaryShowSimpleModal(_admTokenEditId ? 'Edit Lottery Token Template' : 'New Lottery Token Template', `
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-3">
+        <!-- Left controls -->
+        <div class="lg:col-span-5 space-y-2.5 max-h-[70vh] overflow-y-auto pr-1">
+          <div>
+            <label class="text-[9px] font-black text-slate-400 uppercase block mb-0.5">Template Name</label>
+            <input id="admTokName" value="${_escHtml(d.name || '')}" oninput="_admTokenDraft.name=this.value" placeholder="e.g. Lottery Token 2027" class="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold">
+          </div>
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
+            <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Canvas &amp; Custom Border</p>
+            <div class="grid grid-cols-3 gap-1.5 mb-1.5">
+              <div><label class="text-[9px] text-slate-500 block">Width (px)</label><input type="number" min="100" max="900" value="${d.canvas_w}" oninput="_admTokenCanvasProp('canvas_w', +this.value||320)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+              <div><label class="text-[9px] text-slate-500 block">Height (px)</label><input type="number" min="60" max="900" value="${d.canvas_h}" oninput="_admTokenCanvasProp('canvas_h', +this.value||180)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+              <div><label class="text-[9px] text-slate-500 block">Radius (px)</label><input type="number" min="0" max="40" value="${d.border_radius}" oninput="_admTokenCanvasProp('border_radius', +this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+            </div>
+            <div class="grid grid-cols-4 gap-1.5">
+              <div><label class="text-[9px] text-slate-500 block">Border (px)</label><input type="number" min="0" max="20" value="${d.border_w}" oninput="_admTokenCanvasProp('border_w', Math.max(0,+this.value||0))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+              <div>
+                <label class="text-[9px] text-slate-500 block">Style</label>
+                <select onchange="_admTokenCanvasProp('border_style', this.value)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-[11px]">
+                  ${['solid', 'dashed', 'dotted', 'double'].map(s => `<option value="${s}" ${d.border_style === s ? 'selected' : ''}>${s}</option>`).join('')}
+                </select>
+              </div>
+              <div><label class="text-[9px] text-slate-500 block">Border</label><input type="color" value="${_escHtml(d.border_color || '#0f172a')}" oninput="_admTokenCanvasProp('border_color', this.value)" class="w-full h-7 p-0 border border-slate-200 rounded"></div>
+              <div><label class="text-[9px] text-slate-500 block">BG</label><input type="color" value="${_escHtml(d.bg_color || '#ffffff')}" oninput="_admTokenCanvasProp('bg_color', this.value)" class="w-full h-7 p-0 border border-slate-200 rounded"></div>
+            </div>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
+            <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Add Single Column</p>
+            <div class="flex gap-1.5">
+              <select id="admTokFieldPick" class="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs">${colOpts}</select>
+              <button type="button" onclick="_admTokenAddField()" class="px-2.5 py-1 bg-indigo-600 text-white rounded text-[10px] font-black uppercase">+ Field</button>
+            </div>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
+            <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Add Merged Column (click order)</p>
+            <input placeholder="Search columns…" oninput="_ccpcTplFilterChecklist('admTokMergePickList', this.value)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded text-[11px] mb-1">
+            <div id="admTokMergePickList" class="grid grid-cols-2 gap-1 max-h-24 overflow-y-auto bg-white border border-slate-200 rounded p-1.5 mb-1">${mergePicks}</div>
+            <div id="admTokMergeOrderTxt" class="text-[9px] font-bold text-indigo-600 mb-1">${_admTokenMergePickOrder.length ? 'Order: ' + _admTokenMergePickOrder.map((h, i) => `${i + 1}. ${_escHtml(h)}`).join(' ') : ''}</div>
+            <div class="flex gap-1 flex-wrap items-center">
+              <input id="admTokMergeLabel" placeholder="Label (optional)" class="flex-1 min-w-[90px] px-2 py-1 bg-white border border-slate-200 rounded text-[11px]">
+              <select id="admTokMergeDelimPreset" onchange="document.getElementById('admTokMergeDelimCustom').classList.toggle('hidden', this.value!=='__custom__')" class="px-1.5 py-1 bg-white border border-slate-200 rounded text-[11px]">
+                ${CCPC_TPL_DELIM_PRESETS.map(([v, l]) => `<option value="${v === '\n' ? '__newline__' : _escHtml(v)}">${_escHtml(l)}</option>`).join('')}
+              </select>
+              <input id="admTokMergeDelimCustom" placeholder="Custom" class="hidden w-16 px-1.5 py-1 bg-white border border-slate-200 rounded text-[11px]">
+              <button type="button" onclick="_admTokenAddMerge()" class="px-2.5 py-1 bg-blue-600 text-white rounded text-[10px] font-black uppercase">+ Merge</button>
+            </div>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
+            <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Add Static Text</p>
+            <div class="flex gap-1.5">
+              <input id="admTokStaticTxt" placeholder="e.g. LOTTERY TOKEN 2027" class="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs">
+              <button type="button" onclick="_admTokenAddText()" class="px-2.5 py-1 bg-slate-700 text-white rounded text-[10px] font-black uppercase">+ Text</button>
+            </div>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
+            <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Add QR Code (Text + Column Values)</p>
+            <div class="flex gap-1.5 mb-1">
+              <input id="admTokQrPattern" placeholder="e.g. CCPC-{tracking_id}-{name_en}" class="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs">
+              <input id="admTokQrSize" type="number" min="24" max="240" value="64" title="QR size px" class="w-14 px-1.5 py-1 bg-white border border-slate-200 rounded text-xs">
+              <button type="button" onclick="_admTokenAddQr()" class="px-2.5 py-1 bg-emerald-600 text-white rounded text-[10px] font-black uppercase">+ QR</button>
+            </div>
+            <div class="flex flex-wrap gap-1">${qrChips}</div>
+          </div>
+        </div>
+
+        <!-- Right: Drag & Drop Canvas + Element Inspector -->
+        <div class="lg:col-span-7 flex flex-col gap-2">
+          <div class="flex items-center justify-between">
+            <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Drag &amp; Drop Canvas (${d.canvas_w} × ${d.canvas_h} px)</span>
+            <span class="text-[10px] text-slate-400">Drag items to position · Click to style</span>
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl bg-slate-100 p-4 flex items-center justify-center min-h-[240px]">
+            <div id="admTokCanvas" style="position:relative;overflow:hidden;flex-shrink:0;width:${d.canvas_w}px;height:${d.canvas_h}px;background:${_escHtml(d.bg_color || '#ffffff')};border:${d.border_w}px ${d.border_style || 'solid'} ${_escHtml(d.border_color || '#0f172a')};border-radius:${d.border_radius || 0}px;"></div>
+          </div>
+          <div id="admTokInspector" class="bg-slate-50 border border-slate-200 rounded-xl p-2.5"></div>
+          <div class="flex gap-2">
+            <button type="button" onclick="_admTokenRenderSelectModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-xs font-black uppercase text-slate-600">Back</button>
+            <button type="button" onclick="_admTokenSave()" class="flex-1 px-4 py-2 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black transition-all">Save Token Template</button>
+          </div>
+        </div>
+      </div>
+    `);
+    const modal = document.getElementById('diarySimpleModal');
+    const card = modal && modal.firstElementChild;
+    if (card) { card.classList.remove('max-w-lg'); card.classList.add('max-w-5xl'); }
+    _admTokenRedrawCanvas();
+    _admTokenRenderInspector();
+  }
+  function _admTokenCanvasProp(prop, val) {
+    _admTokenDraft[prop] = val;
+    const c = document.getElementById('admTokCanvas');
+    if (!c) return;
+    c.style.width = (_admTokenDraft.canvas_w || 320) + 'px';
+    c.style.height = (_admTokenDraft.canvas_h || 180) + 'px';
+    c.style.background = _admTokenDraft.bg_color || '#ffffff';
+    c.style.border = `${_admTokenDraft.border_w || 0}px ${_admTokenDraft.border_style || 'solid'} ${_admTokenDraft.border_color || '#0f172a'}`;
+    c.style.borderRadius = (_admTokenDraft.border_radius || 0) + 'px';
+  }
+  function _admTokenRedrawCanvas() {
+    const canvas = document.getElementById('admTokCanvas');
+    if (!canvas || !_admTokenDraft) return;
+    const sampleRow = _admTokenItems[0] || null;
+    canvas.innerHTML = _admTokenDraft.elements.map(el => {
+      const sel = el.id === _admTokenSelectedElId ? 'outline:2px solid #4f46e5;outline-offset:1px;' : 'outline:1px dashed rgba(148,163,184,0.6);';
+      if (el.type === 'qr') {
+        const qrText = _admTokenEvalElement(el, sampleRow);
+        const svg = _admTokenMakeQrSvg(qrText, el.size || 64);
+        return `<div data-tok-el="${el.id}" onpointerdown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;cursor:move;user-select:none;${sel}">${svg}</div>`;
+      }
+      const txt = _escHtml(_admTokenEvalElement(el, sampleRow)).replace(/\r\n|\r|\n/g, '<br>');
+      const wStyle = el.width ? `width:${el.width}px;` : 'white-space:nowrap;';
+      return `<div data-tok-el="${el.id}" onpointerdown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;${wStyle}font-size:${el.font_size || 10}pt;font-weight:${el.bold ? 700 : 400};font-style:${el.italic ? 'italic' : 'normal'};text-align:${el.align || 'left'};color:${_escHtml(el.color || '#0f172a')};line-height:1.25;cursor:move;user-select:none;${sel}">${txt || '&nbsp;'}</div>`;
+    }).join('');
+  }
+  function _admTokenStartDrag(evt, elId) {
+    evt.preventDefault();
+    _admTokenSelectedElId = elId;
+    const el = _admTokenDraft.elements.find(e => e.id === elId);
+    const canvas = document.getElementById('admTokCanvas');
+    if (!el || !canvas) return;
+    _admTokenRenderInspector();
+    _admTokenRedrawCanvas();
+    const startX = evt.clientX, startY = evt.clientY;
+    const origX = el.x, origY = el.y;
+    const onMove = (e2) => {
+      el.x = Math.max(0, Math.min((_admTokenDraft.canvas_w || 320) - 16, Math.round(origX + (e2.clientX - startX))));
+      el.y = Math.max(0, Math.min((_admTokenDraft.canvas_h || 180) - 12, Math.round(origY + (e2.clientY - startY))));
+      const domEl = canvas.querySelector(`[data-tok-el="${elId}"]`);
+      if (domEl) { domEl.style.left = el.x + 'px'; domEl.style.top = el.y + 'px'; }
+      const xIn = document.getElementById('admTokInspX'); if (xIn) xIn.value = el.x;
+      const yIn = document.getElementById('admTokInspY'); if (yIn) yIn.value = el.y;
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }
+  function _admTokenRenderInspector() {
+    const box = document.getElementById('admTokInspector');
+    if (!box) return;
+    const el = _admTokenDraft && _admTokenDraft.elements.find(e => e.id === _admTokenSelectedElId);
+    if (!el) {
+      box.innerHTML = '<p class="text-[10px] text-slate-400 text-center">Click an element on the canvas to edit its font, size, color, or position.</p>';
+      return;
+    }
+    if (el.type === 'qr') {
+      box.innerHTML = `
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-[10px] font-black text-indigo-700 uppercase">Selected: QR Code</span>
+          <button type="button" onclick="_admTokenDeleteEl('${el.id}')" class="px-2 py-0.5 text-[10px] font-black text-red-500 border border-red-200 rounded">Delete</button>
+        </div>
+        <div class="grid grid-cols-4 gap-1.5">
+          <div><label class="text-[9px] text-slate-500 block">X (px)</label><input id="admTokInspX" type="number" value="${el.x}" oninput="_admTokenUpdateEl('${el.id}','x',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Y (px)</label><input id="admTokInspY" type="number" value="${el.y}" oninput="_admTokenUpdateEl('${el.id}','y',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">QR Size (px)</label><input type="number" min="20" max="240" value="${el.size || 64}" oninput="_admTokenUpdateEl('${el.id}','size',Math.max(20,+this.value||64))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div class="col-span-4"><label class="text-[9px] text-slate-500 block">QR Pattern</label><input value="${_escHtml(el.pattern || '')}" oninput="_admTokenUpdateEl('${el.id}','pattern',this.value)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        </div>`;
+      return;
+    }
+    const title = el.type === 'text' ? 'Static Text' : (el.type === 'merge' ? `Merged: ${el.label || 'Merged'}` : `Field: ${el.header}`);
+    box.innerHTML = `
+      <div class="flex items-center justify-between mb-1.5">
+        <span class="text-[10px] font-black text-indigo-700 uppercase truncate">${_escHtml(title)}</span>
+        <button type="button" onclick="_admTokenDeleteEl('${el.id}')" class="px-2 py-0.5 text-[10px] font-black text-red-500 border border-red-200 rounded">Delete</button>
+      </div>
+      <div class="grid grid-cols-6 gap-1.5 items-end">
+        <div><label class="text-[9px] text-slate-500 block">X (px)</label><input id="admTokInspX" type="number" value="${el.x}" oninput="_admTokenUpdateEl('${el.id}','x',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        <div><label class="text-[9px] text-slate-500 block">Y (px)</label><input id="admTokInspY" type="number" value="${el.y}" oninput="_admTokenUpdateEl('${el.id}','y',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        <div><label class="text-[9px] text-slate-500 block">Width (px)</label><input type="number" min="0" placeholder="auto" value="${el.width || ''}" oninput="_admTokenUpdateEl('${el.id}','width',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        <div><label class="text-[9px] text-slate-500 block">Font (pt)</label><input type="number" min="6" max="36" value="${el.font_size || 10}" oninput="_admTokenUpdateEl('${el.id}','font_size',+this.value||10)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        <div>
+          <label class="text-[9px] text-slate-500 block">Align</label>
+          <select onchange="_admTokenUpdateEl('${el.id}','align',this.value)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-[11px]">
+            ${['left', 'center', 'right'].map(a => `<option value="${a}" ${el.align === a ? 'selected' : ''}>${a}</option>`).join('')}
+          </select>
+        </div>
+        <div><label class="text-[9px] text-slate-500 block">Color</label><input type="color" value="${_escHtml(el.color || '#0f172a')}" oninput="_admTokenUpdateEl('${el.id}','color',this.value)" class="w-full h-7 p-0 border border-slate-200 rounded"></div>
+      </div>
+      <div class="flex gap-3 mt-1.5 items-center flex-wrap">
+        <label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.bold ? 'checked' : ''} onchange="_admTokenUpdateEl('${el.id}','bold',this.checked)"> Bold</label>
+        <label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.italic ? 'checked' : ''} onchange="_admTokenUpdateEl('${el.id}','italic',this.checked)"> Italic</label>
+        ${el.type !== 'text' ? `<label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.show_label ? 'checked' : ''} onchange="_admTokenUpdateEl('${el.id}','show_label',this.checked)"> Show Label</label>` : ''}
+        ${el.type === 'text' ? `<input value="${_escHtml(el.text || '')}" oninput="_admTokenUpdateEl('${el.id}','text',this.value)" class="flex-1 min-w-[140px] px-2 py-0.5 bg-white border border-slate-200 rounded text-xs">` : ''}
+      </div>`;
+  }
+  function _admTokenUpdateEl(elId, prop, val) {
+    const el = _admTokenDraft && _admTokenDraft.elements.find(e => e.id === elId);
+    if (!el) return;
+    el[prop] = val;
+    _admTokenRedrawCanvas();
+  }
+  function _admTokenDeleteEl(elId) {
+    if (!_admTokenDraft) return;
+    _admTokenDraft.elements = _admTokenDraft.elements.filter(e => e.id !== elId);
+    _admTokenSelectedElId = _admTokenDraft.elements[0]?.id || null;
+    _admTokenRedrawCanvas();
+    _admTokenRenderInspector();
+  }
+  function _admTokenAddField() {
+    const header = document.getElementById('admTokFieldPick')?.value;
+    if (!header) return;
+    const el = { id: 'el_' + Date.now(), type: 'field', header, x: 12, y: 12 + (_admTokenDraft.elements.length * 16) % 100, width: 0, font_size: 10, bold: false, italic: false, align: 'left', color: '#0f172a', show_label: true };
+    _admTokenDraft.elements.push(el);
+    _admTokenSelectedElId = el.id;
+    _admTokenRedrawCanvas();
+    _admTokenRenderInspector();
+  }
+  function _admTokenMergePickToggle(el) {
+    const h = el.dataset.tokMergePick;
+    if (el.checked) { if (!_admTokenMergePickOrder.includes(h)) _admTokenMergePickOrder.push(h); }
+    else { _admTokenMergePickOrder = _admTokenMergePickOrder.filter(x => x !== h); }
+    const txt = document.getElementById('admTokMergeOrderTxt');
+    if (txt) txt.textContent = _admTokenMergePickOrder.length ? 'Order: ' + _admTokenMergePickOrder.map((v, i) => `${i + 1}. ${v}`).join('  ') : '';
+  }
+  function _admTokenAddMerge() {
+    const sources = _admTokenMergePickOrder.slice();
+    if (sources.length < 2) { showToast('Tick at least 2 columns in order', 'error'); return; }
+    const label = document.getElementById('admTokMergeLabel')?.value.trim() || '';
+    const presetVal = document.getElementById('admTokMergeDelimPreset')?.value || ' - ';
+    const delimiter = presetVal === '__custom__' ? (document.getElementById('admTokMergeDelimCustom')?.value || '')
+      : presetVal === '__newline__' ? '\n' : presetVal;
+    const el = { id: 'el_' + Date.now(), type: 'merge', label, delimiter, sources, x: 12, y: 12 + (_admTokenDraft.elements.length * 16) % 100, width: 0, font_size: 10, bold: false, italic: false, align: 'left', color: '#0f172a', show_label: !!label };
+    _admTokenDraft.elements.push(el);
+    _admTokenMergePickOrder = [];
+    document.querySelectorAll('#admTokMergePickList input[type="checkbox"]').forEach(c => { c.checked = false; });
+    const txt = document.getElementById('admTokMergeOrderTxt'); if (txt) txt.textContent = '';
+    _admTokenSelectedElId = el.id;
+    _admTokenRedrawCanvas();
+    _admTokenRenderInspector();
+  }
+  function _admTokenAddText() {
+    const text = document.getElementById('admTokStaticTxt')?.value.trim();
+    if (!text) { showToast('Enter static text first', 'error'); return; }
+    const el = { id: 'el_' + Date.now(), type: 'text', text, x: 12, y: 10, width: 0, font_size: 11, bold: true, italic: false, align: 'left', color: '#0f172a' };
+    _admTokenDraft.elements.push(el);
+    document.getElementById('admTokStaticTxt').value = '';
+    _admTokenSelectedElId = el.id;
+    _admTokenRedrawCanvas();
+    _admTokenRenderInspector();
+  }
+  function _admTokenInsertQrToken(header) {
+    const inp = document.getElementById('admTokQrPattern');
+    if (!inp) return;
+    inp.value = (inp.value || '') + `{${header}}`;
+    inp.focus();
+  }
+  function _admTokenAddQr() {
+    const pattern = document.getElementById('admTokQrPattern')?.value.trim();
+    if (!pattern) { showToast('Enter a QR pattern (text + {column})', 'error'); return; }
+    const size = Math.max(24, parseInt(document.getElementById('admTokQrSize')?.value, 10) || 64);
+    const el = { id: 'el_' + Date.now(), type: 'qr', pattern, size, x: Math.max(8, (_admTokenDraft.canvas_w || 320) - size - 10), y: 10 };
+    _admTokenDraft.elements.push(el);
+    _admTokenSelectedElId = el.id;
+    _admTokenRedrawCanvas();
+    _admTokenRenderInspector();
+  }
+  async function _admTokenSave() {
+    const name = (document.getElementById('admTokName')?.value || _admTokenDraft.name || '').trim();
+    if (!name) { showToast('Enter a template name', 'error'); return; }
+    _admTokenDraft.name = name;
+    const idx = _admTokenTemplates.findIndex(t => String(t.id) === String(_admTokenDraft.id));
+    if (idx >= 0) _admTokenTemplates[idx] = _admTokenDraft;
+    else _admTokenTemplates.push(_admTokenDraft);
+    const res = await _admAdminFetch('saveSettings', { key: 'lottery_token_templates', value: _admTokenTemplates });
+    if (res && res.error) { showToast(res.error, 'error'); return; }
+    showToast('Token template saved', 'success');
+    _admTokenRenderSelectModal();
+    const sel = document.getElementById('admTokSelect');
+    if (sel) sel.value = _admTokenDraft.id;
+  }
+  async function _admTokenPrintAll() {
+    const id = document.getElementById('admTokSelect')?.value;
+    const tpl = _admTokenTemplates.find(t => String(t.id) === String(id));
+    if (!tpl) { showToast('Select or create a token template first', 'error'); return; }
+    if (!_admTokenItems.length) { showToast('No applicants to print', 'error'); return; }
+    try { await ensureQRCodeGen(); } catch (_) {}
+
+    const paperKey = document.getElementById('admTokPaper')?.value || 'a4_p';
+    const paperMap = {
+      a4_p: [210, 297], a4_l: [297, 210],
+      legal_p: [216, 356], legal_l: [356, 216],
+      letter_p: [216, 279], letter_l: [279, 216],
+    };
+    const [paperW, paperH] = paperKey === 'custom'
+      ? [Math.max(40, +document.getElementById('admTokPaperW')?.value || 210), Math.max(40, +document.getElementById('admTokPaperH')?.value || 297)]
+      : (paperMap[paperKey] || [210, 297]);
+
+    const cols = Math.max(1, parseInt(document.getElementById('admTokCols')?.value, 10) || 3);
+    const rows = Math.max(1, parseInt(document.getElementById('admTokRows')?.value, 10) || 6);
+    const margin = Math.max(0, parseFloat(document.getElementById('admTokMargin')?.value) || 8);
+    const gap = Math.max(0, parseFloat(document.getElementById('admTokGap')?.value) || 3);
+
+    const availW = Math.max(10, paperW - margin * 2 - (cols - 1) * gap);
+    const availH = Math.max(10, paperH - margin * 2 - (rows - 1) * gap);
+    const cellW_mm = availW / cols;
+    const cellH_mm = availH / rows;
+    const pxPerMm = 96 / 25.4;
+    const cw = tpl.canvas_w || 320;
+    const ch = tpl.canvas_h || 180;
+    const scale = Math.min((cellW_mm * pxPerMm) / cw, (cellH_mm * pxPerMm) / ch);
+    const scaledW_mm = (cw * scale) / pxPerMm;
+    const scaledH_mm = (ch * scale) / pxPerMm;
+
+    const renderToken = (row) => {
+      const inner = (tpl.elements || []).map(el => {
+        if (el.type === 'qr') {
+          const svg = _admTokenMakeQrSvg(_admTokenEvalElement(el, row), el.size || 64);
+          return `<div style="position:absolute;left:${el.x}px;top:${el.y}px;">${svg}</div>`;
+        }
+        const txt = _escHtml(_admTokenEvalElement(el, row)).replace(/\r\n|\r|\n/g, '<br>');
+        const wStyle = el.width ? `width:${el.width}px;` : 'white-space:nowrap;';
+        return `<div style="position:absolute;left:${el.x}px;top:${el.y}px;${wStyle}font-size:${el.font_size || 10}pt;font-weight:${el.bold ? 700 : 400};font-style:${el.italic ? 'italic' : 'normal'};text-align:${el.align || 'left'};color:${_escHtml(el.color || '#0f172a')};line-height:1.25;">${txt}</div>`;
+      }).join('');
+      return `
+        <div style="width:${cellW_mm.toFixed(2)}mm;height:${cellH_mm.toFixed(2)}mm;display:flex;align-items:center;justify-content:center;overflow:hidden;">
+          <div style="width:${scaledW_mm.toFixed(2)}mm;height:${scaledH_mm.toFixed(2)}mm;position:relative;overflow:hidden;">
+            <div style="position:absolute;left:0;top:0;width:${cw}px;height:${ch}px;transform:scale(${scale.toFixed(5)});transform-origin:top left;background:${_escHtml(tpl.bg_color || '#ffffff')};border:${tpl.border_w || 0}px ${tpl.border_style || 'solid'} ${_escHtml(tpl.border_color || '#0f172a')};border-radius:${tpl.border_radius || 0}px;box-sizing:border-box;">
+              ${inner}
+            </div>
+          </div>
+        </div>`;
+    };
+
+    const perPage = cols * rows;
+    let pagesHtml = '';
+    for (let i = 0; i < _admTokenItems.length; i += perPage) {
+      const slice = _admTokenItems.slice(i, i + perPage);
+      const isLast = i + perPage >= _admTokenItems.length;
+      pagesHtml += `<div style="display:grid;grid-template-columns:repeat(${cols},${cellW_mm.toFixed(2)}mm);gap:${gap}mm;${isLast ? '' : 'page-break-after:always;'}">${slice.map(renderToken).join('')}</div>`;
+    }
+    const css = `@page { size: ${paperW}mm ${paperH}mm; margin: ${margin}mm; } body { margin: 0; font-family: Arial, sans-serif; } * { box-sizing: border-box; }`;
+    _gfOpenPrintWindow('Lottery Tokens', pagesHtml, css);
+  }
+
   // Shared by both the CSV formatter below and import-time normalization
   // (_admCandBuildMappedRows) so a phone/contact value is stored the same
   // clean way it's exported, not just cosmetically reformatted on export.
@@ -44473,6 +44990,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </button>
           <button onclick="_admOpenExportTemplates()" title="Named, server-saved export templates with column merging and print formatting" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="layout-template" class="h-3.5 w-3.5"></i> Templates
+          </button>
+          <button onclick="_admOpenTokenDesignerModal()" title="Drag-and-drop lottery token designer with custom borders, QR codes, and auto-fit page grid" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
+            <i data-lucide="ticket" class="h-3.5 w-3.5"></i> Lottery Tokens
           </button>
           <label title="Hide active-filter columns and show filter value on top in Print and Export CSV" class="flex items-center gap-1.5 px-3 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl cursor-pointer select-none hover:bg-slate-50 transition-all">
             <input type="checkbox" id="admHideFilteredColChk" ${_admHideFilteredCol ? 'checked' : ''} onchange="_admToggleHideFilteredCol(this.checked)">
