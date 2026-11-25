@@ -45635,13 +45635,38 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // _admCandFormFieldDefs, which the Candidates module's Import & Mapping
   // tab already loads via getFormFields -- this view just has to make sure
   // that same cache is loaded too (see _admCandEnterCircular).
+  function _admScanOptionCatalog() {
+    const opts = (_admCandScanOptions || []).filter(o => o && o.key);
+    const out = [];
+    opts.forEach(opt => {
+      out.push({
+        key: 'scanval:' + opt.key,
+        label: opt.label + ' (Value)',
+        render: a => {
+          const v = (a.scan_values || {})[opt.key];
+          if (v === undefined || v === null || v === '') return '';
+          const txt = _admScanOptionValueText(opt, v);
+          return txt ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-bold whitespace-nowrap">${_escHtml(txt)}</span>` : '';
+        },
+      });
+      out.push({
+        key: 'scantime:' + opt.key,
+        label: opt.label + ' (Timestamp)',
+        render: a => {
+          const datesText = _admFormatScanDates((a.scan_dates || {})[opt.key]);
+          return datesText ? `<p class="text-[11px] text-slate-500 whitespace-nowrap">${_escHtml(datesText)}</p>` : '';
+        },
+      });
+    });
+    return out;
+  }
   function _admAppFieldCatalog() {
     const customs = (_admCandFormFieldDefs || []).filter(f => !f.built_in).map(f => ({
       key: 'extra:' + f.key,
       label: f.label,
       render: a => { const v = (a.extra_fields || {})[f.key]; return (v !== undefined && v !== null && v !== '') ? `<p class="text-xs text-slate-600">${_escHtml(String(v))}</p>` : ''; },
     }));
-    return ADM_APP_FIELD_CATALOG_BUILTIN.concat(_admAppFieldAutoCatalog()).concat(customs);
+    return ADM_APP_FIELD_CATALOG_BUILTIN.concat(_admAppFieldAutoCatalog()).concat(_admScanOptionCatalog()).concat(customs);
   }
   function _admAppFieldLabel(key) { const f = _admAppFieldCatalog().find(x => x.key === key); return f ? f.label : key; }
   function _admAppFieldRender(key, a) { const f = _admAppFieldCatalog().find(x => x.key === key); return f ? (f.render(a) || '') : ''; }
@@ -45709,6 +45734,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                    together, unlabeled. Custom (mapped) fields stay their own group since those
                    are genuinely something the admin themselves created, not an internal distinction. -->
               ${ADM_APP_FIELD_CATALOG_BUILTIN.concat(_admAppFieldAutoCatalog()).map(f => `<option value="${f.key}">${_escHtml(f.label)}</option>`).join('')}
+              ${(_admCandScanOptions || []).length ? `<optgroup label="Scan Options (Value / Timestamp)">${_admScanOptionCatalog().map(f => `<option value="${_escHtml(f.key)}">${_escHtml(f.label)}</option>`).join('')}</optgroup>` : ''}
               ${_admCandFormFieldDefs.some(f => !f.built_in) ? `<optgroup label="Custom (mapped)">${_admCandFormFieldDefs.filter(f => !f.built_in).map(f => `<option value="extra:${_escHtml(f.key)}">${_escHtml(f.label)}</option>`).join('')}</optgroup>` : ''}
             </select>
           </div>`).join('')}
@@ -46343,6 +46369,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // shown. Returns [{label, shown}], already filtered to populated keys.
   // scanDates (the parallel scan_dates column) carries every scan timestamp
   // per option, not just the current value's own scanned_at.
+  function _admScanOptionValueText(opt, v) {
+    if (opt && opt.behavior === 'status') return (v && v.done ? 'Done' : 'Pending');
+    if (opt && opt.behavior === 'form') return Object.entries(v || {}).map(([fk, fv]) => { const f = (opt.config?.fields || []).find(x => x.key === fk); return `${f ? f.label : fk}: ${fv}`; }).join(', ') || '—';
+    return v === true ? 'Yes' : String(v);
+  }
   function _admScanValuesCompact(scanValues, scanDates) {
     const values = scanValues || {};
     const dates = scanDates || {};
@@ -46352,10 +46383,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const label = opt ? opt.label : k;
       const v = values[k];
       const datesText = _admFormatScanDates(dates[k]);
+      const valText = _admScanOptionValueText(opt, v);
       let shown;
-      if (opt && opt.behavior === 'status') shown = (v && v.done ? 'Done' : 'Pending') + (v && v.done && datesText ? ' — ' + datesText : '');
-      else if (opt && opt.behavior === 'form') shown = (Object.entries(v || {}).map(([fk, fv]) => { const f = (opt.config?.fields || []).find(x => x.key === fk); return `${f ? f.label : fk}: ${fv}`; }).join(', ') || '—') + (datesText ? ' (' + datesText + ')' : '');
-      else shown = (v === true ? 'Yes' : String(v)) + (datesText ? ' — ' + datesText : '');
+      if (opt && opt.behavior === 'status') shown = valText + (v && v.done && datesText ? ' — ' + datesText : '');
+      else if (opt && opt.behavior === 'form') shown = valText + (datesText ? ' (' + datesText + ')' : '');
+      else shown = valText + (datesText ? ' — ' + datesText : '');
       return { label, shown };
     });
   }
