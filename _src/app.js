@@ -33117,8 +33117,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // (a free-typed address, say) is replaced with a space instead, since TSV
   // has no quoting convention to escape them with.
   function _ccpcBuildUnicodeCsvBlob(rows) {
-    const sanitizeCell = v => String(v ?? '').replace(/\r\n|\r|\n/g, ' ').replace(/\t/g, ' ');
-    const text = '﻿' + rows.map(r => r.map(sanitizeCell).join('\t')).join('\r\n');
+    const sanitizeCell = v => {
+      const s = String(v ?? '');
+      return /[\r\n\t]/.test(s) ? '"' + s.replace(/"/g, '""').replace(/\r\n|\r/g, '\n') + '"' : s;
+    };
+    const text = '\ufeff' + rows.map(r => r.map(sanitizeCell).join('\t')).join('\r\n');
     const bytes = new Uint8Array(text.length * 2);
     for (let i = 0; i < text.length; i++) {
       const code = text.charCodeAt(i);
@@ -33411,7 +33414,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const tpl = id ? _ccpcExportTemplates.find(t => t.id === id) : null;
     const ps = Object.assign({ header: '', font_size: 10, column_width: 90, row_height: 24 }, (tpl && tpl.print_settings) || {});
     const cols = _ccpcTplResolvedCols();
-    const rowsHtml = _ccpcTplItems.map(a => `<tr>${cols.map(c => `<td style="height:${ps.row_height}px;">${_escHtml(_ccpcCsvCell(c.get(a), c.isPhone))}</td>`).join('')}</tr>`).join('');
+    const rowsHtml = _ccpcTplItems.map(a => `<tr>${cols.map(c => `<td style="height:${ps.row_height}px;">${_escHtml(_ccpcCsvCell(c.get(a), c.isPhone)).replace(/\r\n|\r|\n/g, '<br>')}</td>`).join('')}</tr>`).join('');
     const html = `
       <div style="text-align:center;font-weight:900;font-size:13pt;margin-bottom:4pt;">${_escHtml(MPO_INSTITUTION_NAME)}</div>
       ${ps.header ? `<div style="text-align:center;font-weight:700;font-size:11pt;margin-bottom:8pt;">${_escHtml(ps.header)}</div>` : ''}
@@ -33445,7 +33448,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return `<label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-600"><input type="checkbox" data-tpl-field="${_escHtml(c.header)}" ${checked ? 'checked' : ''} onchange="_ccpcTplFieldToggle(this)"> ${_escHtml(c.header)}</label>`;
     }).join('');
     const mergeOptions = _ccpcTplCols.map(c => `<option value="${_escHtml(c.header)}">${_escHtml(c.header)}</option>`).join('');
-    const mergeChips = _ccpcTplEntries.filter(e => e.type === 'merge').map((e, i) => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 rounded-full text-[10px] font-bold text-slate-700 mr-1 mb-1">${_escHtml(e.label)} (${e.sources.join(e.delimiter || ' ')}) <button onclick="_ccpcTplMergeRemove(${i})" class="text-red-500">×</button></span>`).join('');
+    const mergeChips = _ccpcTplEntries.filter(e => e.type === 'merge').map((e, i) => `<span class="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 rounded-full text-[10px] font-bold text-slate-700 mr-1 mb-1">${_escHtml(e.label)} (${e.sources.join(e.delimiter === '\n' ? ' ↵ ' : (e.delimiter || ' '))}) <button onclick="_ccpcTplMergeRemove(${i})" class="text-red-500">×</button></span>`).join('');
     _diaryShowSimpleModal(_ccpcTplEditId ? 'Edit Template' : 'New Template', `
       <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">Template Name</label>
       <input id="ccpcTplName" value="${_escHtml(name || '')}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs mb-3">
@@ -33456,9 +33459,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Merge Columns (combine several into one output column)</p>
       <div class="mb-2">${mergeChips || '<span class="text-[10px] text-slate-400">No merges yet.</span>'}</div>
       <select id="ccpcTplMergeSources" multiple class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] mb-2 h-20">${mergeOptions}</select>
-      <div class="flex gap-2 mb-3 flex-wrap">
+      <div class="flex gap-2 mb-3 flex-wrap items-center">
         <input id="ccpcTplMergeLabel" placeholder="Output column name" class="flex-1 min-w-[120px] px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-        <input id="ccpcTplMergeDelim" placeholder="Delimiter" value=" - " class="w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+        <select id="ccpcTplMergeDelimType" onchange="document.getElementById('ccpcTplMergeDelim').classList.toggle('hidden', this.value !== 'custom')" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+          <option value=" - ">Dash ( - )</option>
+          <option value=", ">Comma (, )</option>
+          <option value=" ">Space</option>
+          <option value="newline">New line</option>
+          <option value="custom">Custom…</option>
+        </select>
+        <input id="ccpcTplMergeDelim" placeholder="Delimiter" value=" - " class="hidden w-20 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
         <button onclick="_ccpcTplMergeAdd()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase whitespace-nowrap">Add Merge</button>
       </div>
 
@@ -33482,7 +33492,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const sel = document.getElementById('ccpcTplMergeSources');
     const sources = Array.from(sel.selectedOptions).map(o => o.value);
     const label = document.getElementById('ccpcTplMergeLabel').value.trim();
-    const delimiter = document.getElementById('ccpcTplMergeDelim').value;
+    const delimType = document.getElementById('ccpcTplMergeDelimType')?.value;
+    const delimiter = delimType === 'newline' ? '\n' : (delimType === 'custom' ? document.getElementById('ccpcTplMergeDelim').value : (delimType ?? document.getElementById('ccpcTplMergeDelim').value));
     if (sources.length < 2) { showToast('Pick at least 2 columns to merge', 'error'); return; }
     if (!label) { showToast('Name the merged column first', 'error'); return; }
     _ccpcTplEntries.push({ type: 'merge', label, delimiter, sources });
