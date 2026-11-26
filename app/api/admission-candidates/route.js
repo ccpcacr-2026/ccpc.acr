@@ -566,6 +566,10 @@ export async function POST(req) {
     if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
     if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'import', 'edit')) return _forbidden();
     const rows = Array.isArray(payload.rows) ? payload.rows : [];
+    if (payload.fetch_vortibd_photos) {
+      await _populateVortibdPhotos(rows, '_vortibd_photo_id', circularId);
+    }
+    rows.forEach(r => { if (r && typeof r === 'object') delete r._vortibd_photo_id; });
     const result = await _upsertMappedRows(circularId, rows, {
       template_id: payload.template_id, file_name: payload.file_name,
       mapping_used: payload.mapping_used, primary_key_field: payload.primary_key_field,
@@ -1288,6 +1292,53 @@ export async function POST(req) {
   // and the saved mapping template to auto-apply are per-circular columns
   // on exam_circulars.
   const VORTIBD_API = 'https://vortibdliveapi.cloudcampus24.com';
+  async function _vortibdFetchAdmitcardPhoto(trackingId) {
+    const id = String(trackingId || '').trim();
+    if (!id) return '';
+    try {
+      const res = await fetch(`${VORTIBD_API}/api/v1/Profile/admitcard/${encodeURIComponent(id)}`, {
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return '';
+      const json = await res.json().catch(() => null);
+      const raw = json && json.data && json.data.PhotoPathS;
+      return raw ? String(raw).trim().replace(/\\/g, '/') : '';
+    } catch { return ''; }
+  }
+  async function _populateVortibdPhotos(rows, trackingField, circularId) {
+    if (!Array.isArray(rows) || !rows.length) return;
+    const existingPhotos = new Map();
+    const keys = [...new Set(rows.map(r => String((r && r.external_key) || '').trim()).filter(Boolean))];
+    for (const part of chunk(keys, 150)) {
+      const q = `admission_applications?circular_id=eq.${circularId}&external_key=in.(${part.map(k => encodeURIComponent(k)).join(',')})&select=external_key,student_photo`;
+      const res = await sbAdmission(q);
+      if (Array.isArray(res)) res.forEach(x => { if (x.student_photo) existingPhotos.set(x.external_key, x.student_photo); });
+    }
+    const cache = new Map();
+    const toFetch = [];
+    rows.forEach(r => {
+      if (!r || typeof r !== 'object') return;
+      if (r.student_photo) return;
+      const extKey = String(r.external_key || '').trim();
+      if (extKey && existingPhotos.has(extKey)) {
+        r.student_photo = existingPhotos.get(extKey);
+        return;
+      }
+      const tid = String(r[trackingField] || r.token || r.tracking_id || r.external_key || '').trim();
+      if (tid && !cache.has(tid)) { cache.set(tid, null); toFetch.push(tid); }
+    });
+    for (const part of chunk(toFetch, 10)) {
+      const results = await Promise.all(part.map(async tid => [tid, await _vortibdFetchAdmitcardPhoto(tid)]));
+      results.forEach(([tid, url]) => cache.set(tid, url));
+    }
+    rows.forEach(r => {
+      if (!r || typeof r !== 'object') return;
+      if (!r.student_photo) {
+        const tid = String(r[trackingField] || r.token || r.tracking_id || r.external_key || '').trim();
+        r.student_photo = (tid && cache.get(tid)) || '';
+      }
+    });
+  }
   // Every external VortiBD call goes through this so a timeout/network
   // failure says WHICH step it was (login vs. circular list vs. export vs.
   // file download) -- previously all four shared one generic "The operation
@@ -1463,7 +1514,7 @@ export async function POST(req) {
   // the integration's behavior -- enabled, schedule, date range) is ONE
   // system-wide config, not repeated per circular. The only thing that
   // genuinely varies per circular is which VortiBD circular feeds it.
-  const VORTIBD_SYNC_CONFIG_DEFAULT = { enabled: false, schedule: [{ start: '00:00', end: '24:00', interval_minutes: 360 }], start_date: null, end_date: null, mapping_template_id: null };
+  const VORTIBD_SYNC_CONFIG_DEFAULT = { enabled: false, fetch_photos: false, schedule: [{ start: '00:00', end: '24:00', interval_minutes: 360 }], start_date: null, end_date: null, mapping_template_id: null };
   // One-time upgrade path: these settings used to live per-circular on
   // exam_circulars. The first time the new global row is read and doesn't
   // exist yet, seed it from whichever circular had actually been
@@ -1509,6 +1560,9 @@ export async function POST(req) {
       const template = Array.isArray(tplRows) && tplRows[0];
       if (!template) throw new Error('The saved mapping template no longer exists — re-map via "Pull Now & Map".');
       const mapped = _applyTemplateMapping(headers, dataRows, template);
+      if (config.fetch_photos) {
+        await _populateVortibdPhotos(mapped, 'external_key', circularId);
+      }
       const result = await _upsertMappedRows(circularId, mapped, {
         template_id: template.id, file_name: 'vortibd-auto-sync.xlsx',
         mapping_used: template.mapping, primary_key_field: template.primary_key_field,
@@ -1563,6 +1617,7 @@ export async function POST(req) {
     const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
     const config = {
       enabled: !!payload.enabled,
+      fetch_photos: !!payload.fetch_photos,
       schedule,
       start_date: DATE_RE.test(payload.start_date || '') ? payload.start_date : null,
       end_date: DATE_RE.test(payload.end_date || '') ? payload.end_date : null,

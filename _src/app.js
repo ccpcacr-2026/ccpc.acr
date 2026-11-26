@@ -50086,6 +50086,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex gap-2 items-center flex-wrap mb-2">
             <select id="admCandVortibdTemplateSelect" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:200px"><option value="">— Mapping to auto-apply —</option></select>
             <label class="flex items-center gap-1.5 px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer whitespace-nowrap"><input type="checkbox" id="admCandVortibdEnabled"> Auto-sync enabled</label>
+            <label class="flex items-center gap-1.5 px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold cursor-pointer whitespace-nowrap"><input type="checkbox" id="admCandVortibdFetchPhotos"> Fetch applicant photos from VortiBD API</label>
           </div>
           <div class="flex gap-2 items-center flex-wrap mb-2">
             <label class="text-[10px] text-slate-400 font-bold whitespace-nowrap">Active only from</label>
@@ -50134,6 +50135,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <input type="text" id="admCandTemplateName" placeholder="Name this mapping to save it" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:220px">
               <button onclick="_admCandSaveMappingTemplate()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">Save mapping</button>
               <button onclick="_admCandPreviewImport()" class="ml-auto px-4 py-2.5 bg-white border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase">Preview</button>
+            </div>
+            <div class="flex items-center gap-2 mt-2 flex-wrap bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+              <label class="flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer">
+                <input type="checkbox" id="admCandImportVortibdPhotos" onchange="document.getElementById('admCandImportVortibdPhotoCol').classList.toggle('hidden', !this.checked)">
+                Import photo from VortiBD API
+              </label>
+              <select id="admCandImportVortibdPhotoCol" class="hidden px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+                <option value="">— Select Tracking ID column —</option>
+              </select>
             </div>
           </div>
           <div id="admCandPreviewSection" class="hidden mt-3">
@@ -50903,6 +50913,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('admCandPreviewSection')?.classList.add('hidden');
     document.getElementById('admCandResultSection')?.classList.add('hidden');
     _admCandPopulateAddFieldSelect();
+    const photoColSel = document.getElementById('admCandImportVortibdPhotoCol');
+    if (photoColSel) {
+      const guessIdx = _admCandExcelHeaders.findIndex(h => /tracking|applicant.?id|token/i.test(h));
+      photoColSel.innerHTML = '<option value="">— Select Tracking ID column —</option>' +
+        _admCandExcelHeaders.map((h, i) => `<option value="${i}" ${i === guessIdx ? 'selected' : ''}>${_escHtml(h || '(blank header)')}</option>`).join('');
+    }
     lucide.createIcons();
   }
   // Excel headers not yet claimed by any mapped row -- backs the
@@ -51150,6 +51166,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const { mapping, primaryKeyRowId } = _admCandGetMapping();
     if (!primaryKeyRowId || mapping[primaryKeyRowId] === undefined) { showToast('Pick a primary key column first', 'error'); return; }
     const rows = _admCandBuildMappedRows();
+    const fetchVortibdPhotos = !!document.getElementById('admCandImportVortibdPhotos')?.checked;
+    const photoTrackColRaw = document.getElementById('admCandImportVortibdPhotoCol')?.value;
+    const photoTrackColIdx = (photoTrackColRaw !== '' && photoTrackColRaw !== undefined) ? parseInt(photoTrackColRaw, 10) : -1;
+    if (fetchVortibdPhotos) {
+      if (photoTrackColIdx < 0) { showToast('Select the Tracking ID column for VortiBD photos', 'error'); return; }
+      rows.forEach((row, idx) => {
+        row._vortibd_photo_id = String((_admCandExcelRows[idx] && _admCandExcelRows[idx][photoTrackColIdx]) ?? '').trim();
+      });
+    }
     const mappingUsed = {};
     Object.keys(mapping).forEach(rowId => { mappingUsed[rowId] = _admCandExcelHeaders[mapping[rowId]]; });
     const chunks = _admCandChunkRowsForUpload(rows);
@@ -51164,6 +51189,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           rows: chunks[i], template_id: _admCandAppliedTemplateId || null,
           mapping_used: mappingUsed, primary_key_field: primaryKeyRowId,
           file_name: _admCandImportFileName || null,
+          fetch_vortibd_photos: fetchVortibdPhotos,
         });
         if (res.error) {
           showToast(res.error, 'error');
@@ -51211,6 +51237,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const cfgRes = await _admCandFetch('getVortibdSyncConfig', {});
       const cfg = cfgRes.config || {};
       const enEl = document.getElementById('admCandVortibdEnabled'); if (enEl) enEl.checked = !!cfg.enabled;
+      const fpEl = document.getElementById('admCandVortibdFetchPhotos'); if (fpEl) fpEl.checked = !!cfg.fetch_photos;
       const startEl = document.getElementById('admCandVortibdStartDate'); if (startEl) startEl.value = cfg.start_date || '';
       const endEl = document.getElementById('admCandVortibdEndDate'); if (endEl) endEl.value = cfg.end_date || '';
       _admCandVortibdSchedule = (Array.isArray(cfg.schedule) && cfg.schedule.length)
@@ -51302,12 +51329,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   async function _admCandSaveVortibdSyncConfig() {
     const enabled = !!document.getElementById('admCandVortibdEnabled')?.checked;
+    const fetch_photos = !!document.getElementById('admCandVortibdFetchPhotos')?.checked;
     const mapping_template_id = document.getElementById('admCandVortibdTemplateSelect')?.value || '';
     const start_date = document.getElementById('admCandVortibdStartDate')?.value || '';
     const end_date = document.getElementById('admCandVortibdEndDate')?.value || '';
     const schedule = _admCandVortibdSchedule.map(w => ({ start: w.start, end: w.end === '23:59' ? '24:00' : w.end, interval_minutes: w.interval_minutes }));
     try {
-      const res = await _admCandFetch('saveVortibdSyncConfig', { enabled, schedule, start_date, end_date, mapping_template_id });
+      const res = await _admCandFetch('saveVortibdSyncConfig', { enabled, fetch_photos, schedule, start_date, end_date, mapping_template_id });
       if (res.error) { showToast(res.error, 'error'); return; }
       showToast('Sync settings saved — these apply to every linked circular', 'success');
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
