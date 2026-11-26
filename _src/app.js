@@ -34633,42 +34633,60 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
     const cols = Math.max(1, parseInt(document.getElementById('admTokCols')?.value, 10) || 3);
     const rows = Math.max(1, parseInt(document.getElementById('admTokRows')?.value, 10) || 6);
-    const margin = Math.max(0, parseFloat(document.getElementById('admTokMargin')?.value) || 8);
-    const gap = Math.max(0, parseFloat(document.getElementById('admTokGap')?.value) || 3);
+    const marginRaw = document.getElementById('admTokMargin')?.value;
+    const margin = (marginRaw === '' || marginRaw === undefined || Number.isNaN(parseFloat(marginRaw))) ? 8 : Math.max(0, parseFloat(marginRaw));
+    const gapRaw = document.getElementById('admTokGap')?.value;
+    const gap = (gapRaw === '' || gapRaw === undefined || Number.isNaN(parseFloat(gapRaw))) ? 3 : Math.max(0, parseFloat(gapRaw));
 
-    const availW = Math.max(10, paperW - margin * 2 - (cols - 1) * gap);
-    const availH = Math.max(10, paperH - margin * 2 - (rows - 1) * gap);
-    const cellW_mm = availW / cols;
-    const cellH_mm = availH / rows;
-    const pxPerMm = 96 / 25.4;
+    const pageInnerW = Math.max(10, paperW - margin * 2 - 0.4);
+    const pageInnerH = Math.max(10, paperH - margin * 2 - 0.4);
+    const cellW_mm = Math.max(5, (pageInnerW - (cols - 1) * gap) / cols);
+    const cellH_mm = Math.max(5, (pageInnerH - (rows - 1) * gap) / rows);
     const cw = tpl.canvas_w || 4200;
     const ch = tpl.canvas_h || 2550;
-    const scale = Math.min((cellW_mm * pxPerMm) / cw, (cellH_mm * pxPerMm) / ch);
-    const scaledW_mm = (cw * scale) / pxPerMm;
-    const scaledH_mm = (ch * scale) / pxPerMm;
+    const sx = cellW_mm / cw;
+    const sy = cellH_mm / ch;
+    const sMin = Math.min(sx, sy);
+    const ptScale = sMin * (96 / 25.4);
+
+    const printTextCss = (el) => {
+      const wStyle = el.width ? `width:${(el.width * sx).toFixed(2)}mm;white-space:normal;word-break:break-word;` : 'white-space:nowrap;';
+      const ff = el.font_family ? `font-family:${el.font_family};` : '';
+      const ls = el.letter_spacing ? `letter-spacing:${(el.letter_spacing * sMin).toFixed(2)}mm;` : '';
+      const bg = el.bg_color ? `background:${_escHtml(el.bg_color)};` : '';
+      const pad = el.padding ? `padding:${(el.padding * sMin).toFixed(2)}mm;` : '';
+      const bdr = el.border_w ? `border:${Math.max(0.15, el.border_w * sMin).toFixed(2)}mm solid ${_escHtml(el.border_color || '#0f172a')};` : '';
+      const rad = el.border_radius ? `border-radius:${(el.border_radius * sMin).toFixed(2)}mm;` : '';
+      const fSize = Math.max(4, (el.font_size || 10) * ptScale).toFixed(2);
+      return `position:absolute;left:${(el.x * sx).toFixed(2)}mm;top:${(el.y * sy).toFixed(2)}mm;${wStyle}${ff}font-size:${fSize}pt;font-weight:${el.bold ? 700 : 400};font-style:${el.italic ? 'italic' : 'normal'};text-decoration:${el.underline ? 'underline' : 'none'};text-transform:${el.uppercase ? 'uppercase' : 'none'};text-align:${el.align || 'left'};color:${_escHtml(el.color || '#0f172a')};line-height:${el.line_height || 1.25};${ls}${bg}${pad}${bdr}${rad}box-sizing:border-box;`;
+    };
+
+    const cardBorderW = tpl.border_w ? Math.max(0.2, tpl.border_w * sMin).toFixed(2) : '0';
+    const cardRadius = ((tpl.border_radius || 0) * sMin).toFixed(2);
 
     const renderToken = (row) => {
       const inner = (tpl.elements || []).map(el => {
         if (el.type === 'qr') {
-          const svg = _admTokenMakeQrSvg(_admTokenEvalElement(el, row), el.size || 64);
-          return `<div style="position:absolute;left:${el.x}px;top:${el.y}px;">${svg}</div>`;
+          const qrPx = el.size || 64;
+          const qrMm = (qrPx * sMin).toFixed(2);
+          const svg = _admTokenMakeQrSvg(_admTokenEvalElement(el, row), 256);
+          return `<div class="tok-qr" style="position:absolute;left:${(el.x * sx).toFixed(2)}mm;top:${(el.y * sy).toFixed(2)}mm;width:${qrMm}mm;height:${qrMm}mm;">${svg}</div>`;
         }
         if (el.type === 'photo_field' || el.type === 'image') {
           const src = _admTokenEvalElement(el, row);
           if (!src) return '';
-          const w = el.width || 56, h = el.height || 64, rad = el.radius || 0, fit = el.fit || 'cover';
-          return `<img src="${_escHtml(src)}" style="position:absolute;left:${el.x}px;top:${el.y}px;width:${w}px;height:${h}px;object-fit:${fit};border-radius:${rad}px;">`;
+          const wMm = ((el.width || 56) * sx).toFixed(2);
+          const hMm = ((el.height || 64) * sy).toFixed(2);
+          const radMm = ((el.radius || 0) * sMin).toFixed(2);
+          const fit = el.fit || 'cover';
+          return `<img src="${_escHtml(src)}" style="position:absolute;left:${(el.x * sx).toFixed(2)}mm;top:${(el.y * sy).toFixed(2)}mm;width:${wMm}mm;height:${hMm}mm;object-fit:${fit};border-radius:${radMm}mm;">`;
         }
         const txt = _escHtml(_admTokenEvalElement(el, row)).replace(/\r\n|\r|\n/g, '<br>');
-        return `<div style="${_admTokenTextCss(el)}">${txt}</div>`;
+        return `<div style="${printTextCss(el)}">${txt}</div>`;
       }).join('');
       return `
-        <div style="width:${cellW_mm.toFixed(2)}mm;height:${cellH_mm.toFixed(2)}mm;display:flex;align-items:center;justify-content:center;overflow:hidden;">
-          <div style="width:${scaledW_mm.toFixed(2)}mm;height:${scaledH_mm.toFixed(2)}mm;position:relative;overflow:hidden;">
-            <div style="position:absolute;left:0;top:0;width:${cw}px;height:${ch}px;transform:scale(${scale.toFixed(5)});transform-origin:top left;background:${_escHtml(tpl.bg_color || '#ffffff')};border:${tpl.border_w || 0}px ${tpl.border_style || 'solid'} ${_escHtml(tpl.border_color || '#0f172a')};border-radius:${tpl.border_radius || 0}px;box-sizing:border-box;">
-              ${inner}
-            </div>
-          </div>
+        <div style="width:${cellW_mm.toFixed(2)}mm;height:${cellH_mm.toFixed(2)}mm;position:relative;overflow:hidden;background:${_escHtml(tpl.bg_color || '#ffffff')};border:${cardBorderW}mm ${tpl.border_style || 'solid'} ${_escHtml(tpl.border_color || '#0f172a')};border-radius:${cardRadius}mm;box-sizing:border-box;">
+          ${inner}
         </div>`;
     };
 
@@ -34677,9 +34695,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     for (let i = 0; i < _admTokenItems.length; i += perPage) {
       const slice = _admTokenItems.slice(i, i + perPage);
       const isLast = i + perPage >= _admTokenItems.length;
-      pagesHtml += `<div style="display:grid;grid-template-columns:repeat(${cols},${cellW_mm.toFixed(2)}mm);gap:${gap}mm;${isLast ? '' : 'page-break-after:always;'}">${slice.map(renderToken).join('')}</div>`;
+      pagesHtml += `<div class="tok-page" style="width:${pageInnerW.toFixed(2)}mm;height:${pageInnerH.toFixed(2)}mm;display:grid;grid-template-columns:repeat(${cols},${cellW_mm.toFixed(2)}mm);grid-template-rows:repeat(${rows},${cellH_mm.toFixed(2)}mm);gap:${gap}mm;overflow:hidden;${isLast ? '' : 'break-after:page;page-break-after:always;'}">${slice.map(renderToken).join('')}</div>`;
     }
-    const css = `@page { size: ${paperW}mm ${paperH}mm; margin: ${margin}mm; } body { margin: 0; font-family: Arial, sans-serif; } * { box-sizing: border-box; }`;
+    const css = `
+      @page { size: ${paperW}mm ${paperH}mm; margin: ${margin}mm; }
+      html, body { margin: 0; padding: 0; width: 100%; font-family: Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      @media screen { body { padding: 8mm; background: #f1f5f9; } .tok-page { background: #fff; margin: 0 auto 8mm; box-shadow: 0 2px 10px rgba(0,0,0,0.12); } }
+      @media print { html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; } .tok-page { margin: 0 !important; box-shadow: none !important; } }
+      * { box-sizing: border-box; }
+      .tok-qr svg { width: 100%; height: 100%; display: block; }`;
     _gfOpenPrintWindow('Lottery Tokens', pagesHtml, css);
   }
 
