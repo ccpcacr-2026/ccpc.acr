@@ -33977,6 +33977,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     showToast('Deleted', 'success');
     _admTokenRenderSelectModal();
   }
+  function _admTokenScaleFactor() {
+    return Math.max(1, ((_admTokenDraft && _admTokenDraft.canvas_w) || 4200) / 320);
+  }
   function _admTokenBuilderOpen(editId) {
     const tpl = editId ? _admTokenTemplates.find(t => String(t.id) === String(editId)) : null;
     _admTokenEditId = tpl ? tpl.id : null;
@@ -33985,15 +33988,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       : {
           id: 'tok_' + Date.now(),
           name: '',
-          canvas_w: 320,
-          canvas_h: 180,
-          border_w: 2,
+          canvas_w: 4200,
+          canvas_h: 2550,
+          border_w: 10,
           border_style: 'solid',
           border_color: '#0f172a',
-          border_radius: 6,
+          border_radius: 24,
           bg_color: '#ffffff',
           elements: [],
         };
+    _admTokenZoom = (_admTokenDraft.canvas_w || 0) >= 1500 ? 0.25 : 1.5;
     _admTokenSelectedElId = _admTokenDraft.elements[0]?.id || null;
     _admTokenMergePickOrder = [];
     _admTokenRenderBuilder();
@@ -34030,19 +34034,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return '';
   }
   function _admTokenSetZoom(z) {
-    _admTokenZoom = Math.max(0.5, Math.min(3, Number(z) || 1.5));
+    _admTokenZoom = Math.max(0.1, Math.min(3, Number(z) || 0.25));
     const scaler = document.getElementById('admTokCanvasScaler');
     const canvas = document.getElementById('admTokCanvas');
     const lbl = document.getElementById('admTokZoomLbl');
     if (scaler && _admTokenDraft) {
-      scaler.style.width = Math.round((_admTokenDraft.canvas_w || 320) * _admTokenZoom) + 'px';
-      scaler.style.height = Math.round((_admTokenDraft.canvas_h || 180) * _admTokenZoom) + 'px';
+      scaler.style.width = Math.round((_admTokenDraft.canvas_w || 4200) * _admTokenZoom) + 'px';
+      scaler.style.height = Math.round((_admTokenDraft.canvas_h || 2550) * _admTokenZoom) + 'px';
     }
     if (canvas) {
       canvas.style.transform = `scale(${_admTokenZoom})`;
       canvas.style.transformOrigin = 'top left';
     }
     if (lbl) lbl.textContent = Math.round(_admTokenZoom * 100) + '%';
+    _admTokenRedrawCanvas();
   }
   function _admTokenColDragStart(evt, header) {
     if (!evt.dataTransfer) return;
@@ -34055,12 +34060,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const canvas = document.getElementById('admTokCanvas');
     if (!header || !canvas || !_admTokenDraft) return;
     const rect = canvas.getBoundingClientRect();
-    const x = Math.max(0, Math.min((_admTokenDraft.canvas_w || 320) - 20, Math.round((evt.clientX - rect.left) / _admTokenZoom)));
-    const y = Math.max(0, Math.min((_admTokenDraft.canvas_h || 180) - 16, Math.round((evt.clientY - rect.top) / _admTokenZoom)));
+    const k = _admTokenScaleFactor();
+    const x = Math.max(0, Math.min((_admTokenDraft.canvas_w || 4200) - Math.round(20 * k), Math.round((evt.clientX - rect.left) / _admTokenZoom)));
+    const y = Math.max(0, Math.min((_admTokenDraft.canvas_h || 2550) - Math.round(16 * k), Math.round((evt.clientY - rect.top) / _admTokenZoom)));
     const isPhotoCol = /photo|avatar|image/i.test(header);
     const el = isPhotoCol
-      ? { id: 'el_' + Date.now(), type: 'photo_field', header, x, y, width: 56, height: 64, radius: 4, fit: 'cover' }
-      : { id: 'el_' + Date.now(), type: 'field', header, x, y, width: 0, font_size: 10, bold: false, italic: false, align: 'left', color: '#0f172a', show_label: false };
+      ? { id: 'el_' + Date.now(), type: 'photo_field', header, x, y, width: Math.round(56 * k), height: Math.round(64 * k), radius: Math.round(4 * k), fit: 'cover' }
+      : { id: 'el_' + Date.now(), type: 'field', header, x, y, width: 0, font_size: Math.round(10 * k), bold: false, italic: false, align: 'left', color: '#0f172a', show_label: false };
     _admTokenDraft.elements.push(el);
     _admTokenSelectedElId = el.id;
     _admTokenRedrawCanvas();
@@ -34093,12 +34099,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
             <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Canvas &amp; Custom Border</p>
             <div class="grid grid-cols-3 gap-1.5 mb-1.5">
-              <div><label class="text-[9px] text-slate-500 block">Width (px)</label><input type="number" min="100" max="900" value="${d.canvas_w}" oninput="_admTokenCanvasProp('canvas_w', +this.value||320)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
-              <div><label class="text-[9px] text-slate-500 block">Height (px)</label><input type="number" min="60" max="900" value="${d.canvas_h}" oninput="_admTokenCanvasProp('canvas_h', +this.value||180)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
-              <div><label class="text-[9px] text-slate-500 block">Radius (px)</label><input type="number" min="0" max="40" value="${d.border_radius}" oninput="_admTokenCanvasProp('border_radius', +this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+              <div><label class="text-[9px] text-slate-500 block">Width (px)</label><input type="number" min="100" max="10000" value="${d.canvas_w}" oninput="_admTokenCanvasProp('canvas_w', +this.value||4200)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+              <div><label class="text-[9px] text-slate-500 block">Height (px)</label><input type="number" min="60" max="10000" value="${d.canvas_h}" oninput="_admTokenCanvasProp('canvas_h', +this.value||2550)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+              <div><label class="text-[9px] text-slate-500 block">Radius (px)</label><input type="number" min="0" max="400" value="${d.border_radius}" oninput="_admTokenCanvasProp('border_radius', +this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
             </div>
             <div class="grid grid-cols-4 gap-1.5">
-              <div><label class="text-[9px] text-slate-500 block">Border (px)</label><input type="number" min="0" max="20" value="${d.border_w}" oninput="_admTokenCanvasProp('border_w', Math.max(0,+this.value||0))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+              <div><label class="text-[9px] text-slate-500 block">Border (px)</label><input type="number" min="0" max="200" value="${d.border_w}" oninput="_admTokenCanvasProp('border_w', Math.max(0,+this.value||0))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
               <div>
                 <label class="text-[9px] text-slate-500 block">Style</label>
                 <select onchange="_admTokenCanvasProp('border_style', this.value)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-[11px]">
@@ -34161,7 +34167,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Add QR Code (Text + Column Values)</p>
             <div class="flex gap-1.5 mb-1">
               <input id="admTokQrPattern" placeholder="e.g. CCPC-{tracking_id}-{name_en}" class="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs">
-              <input id="admTokQrSize" type="number" min="24" max="240" value="64" title="QR size px" class="w-14 px-1.5 py-1 bg-white border border-slate-200 rounded text-xs">
+              <input id="admTokQrSize" type="number" min="24" max="2500" value="${Math.round(64 * _admTokenScaleFactor())}" title="QR size px" class="w-16 px-1.5 py-1 bg-white border border-slate-200 rounded text-xs">
               <button type="button" onclick="_admTokenAddQr()" class="px-2.5 py-1 bg-emerald-600 text-white rounded text-[10px] font-black uppercase">+ QR</button>
             </div>
             <div class="flex flex-wrap gap-1">${qrChips}</div>
@@ -34171,13 +34177,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <!-- Right: Zoomable Drag & Drop Canvas + Element Inspector -->
         <div class="lg:col-span-8 flex flex-col gap-2">
           <div class="flex items-center justify-between flex-wrap gap-2">
-            <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Canvas (${d.canvas_w} × ${d.canvas_h} px) · Zoom <span id="admTokZoomLbl" class="text-indigo-600">${Math.round(_admTokenZoom * 100)}%</span></span>
-            <div class="flex items-center gap-1">
-              ${[1, 1.5, 2, 2.5].map(z => `<button type="button" onclick="_admTokenSetZoom(${z})" class="px-2 py-0.5 border border-slate-200 bg-white hover:bg-indigo-50 rounded text-[10px] font-black">${Math.round(z * 100)}%</button>`).join('')}
+            <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Canvas (<span id="admTokDimLbl">${d.canvas_w} × ${d.canvas_h} px</span>) · Zoom <span id="admTokZoomLbl" class="text-indigo-600">${Math.round(_admTokenZoom * 100)}%</span></span>
+            <div class="flex items-center gap-1 flex-wrap">
+              ${[0.25, 0.5, 1, 1.5, 2, 2.5].map(z => `<button type="button" onclick="_admTokenSetZoom(${z})" class="px-2 py-0.5 border border-slate-200 bg-white hover:bg-indigo-50 rounded text-[10px] font-black">${Math.round(z * 100)}%</button>`).join('')}
             </div>
           </div>
-          <div class="overflow-auto border border-slate-200 rounded-xl bg-slate-100 p-4 flex items-center justify-center min-h-[400px] max-h-[58vh]">
-            <div id="admTokCanvasScaler" style="position:relative;flex-shrink:0;width:${Math.round(d.canvas_w * _admTokenZoom)}px;height:${Math.round(d.canvas_h * _admTokenZoom)}px;">
+          <div class="overflow-auto border border-slate-200 rounded-xl bg-slate-100 p-4 min-h-[400px] max-h-[58vh]">
+            <div id="admTokCanvasScaler" style="position:relative;margin:0 auto;flex-shrink:0;width:${Math.round(d.canvas_w * _admTokenZoom)}px;height:${Math.round(d.canvas_h * _admTokenZoom)}px;">
               <div id="admTokCanvas" ondragover="event.preventDefault()" ondrop="_admTokenCanvasDrop(event)" style="position:absolute;left:0;top:0;overflow:hidden;width:${d.canvas_w}px;height:${d.canvas_h}px;transform:scale(${_admTokenZoom});transform-origin:top left;background:${_escHtml(d.bg_color || '#ffffff')};border:${d.border_w}px ${d.border_style || 'solid'} ${_escHtml(d.border_color || '#0f172a')};border-radius:${d.border_radius || 0}px;"></div>
             </div>
           </div>
@@ -34212,10 +34218,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     });
   }
   function _admTokenQuickAddCol(header) {
+    const k = _admTokenScaleFactor();
     const isPhotoCol = /photo|avatar|image/i.test(header);
+    const ch = _admTokenDraft.canvas_h || 2550;
+    const step = Math.round(16 * k);
+    const pad = Math.round(12 * k);
     const el = isPhotoCol
-      ? { id: 'el_' + Date.now(), type: 'photo_field', header, x: 12, y: 12, width: 56, height: 64, radius: 4, fit: 'cover' }
-      : { id: 'el_' + Date.now(), type: 'field', header, x: 12, y: 12 + (_admTokenDraft.elements.length * 16) % Math.max(40, (_admTokenDraft.canvas_h || 180) - 24), width: 0, font_size: 10, bold: false, italic: false, align: 'left', color: '#0f172a', show_label: false };
+      ? { id: 'el_' + Date.now(), type: 'photo_field', header, x: pad, y: pad, width: Math.round(56 * k), height: Math.round(64 * k), radius: Math.round(4 * k), fit: 'cover' }
+      : { id: 'el_' + Date.now(), type: 'field', header, x: pad, y: pad + (_admTokenDraft.elements.length * step) % Math.max(step * 2, ch - pad * 2), width: 0, font_size: Math.round(10 * k), bold: false, italic: false, align: 'left', color: '#0f172a', show_label: false };
     _admTokenDraft.elements.push(el);
     _admTokenSelectedElId = el.id;
     _admTokenRedrawCanvas();
@@ -34225,13 +34235,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admTokenDraft[prop] = val;
     const c = document.getElementById('admTokCanvas');
     const scaler = document.getElementById('admTokCanvasScaler');
+    const dimLbl = document.getElementById('admTokDimLbl');
+    const cw = _admTokenDraft.canvas_w || 4200;
+    const ch = _admTokenDraft.canvas_h || 2550;
     if (scaler) {
-      scaler.style.width = Math.round((_admTokenDraft.canvas_w || 320) * _admTokenZoom) + 'px';
-      scaler.style.height = Math.round((_admTokenDraft.canvas_h || 180) * _admTokenZoom) + 'px';
+      scaler.style.width = Math.round(cw * _admTokenZoom) + 'px';
+      scaler.style.height = Math.round(ch * _admTokenZoom) + 'px';
     }
+    if (dimLbl) dimLbl.textContent = `${cw} × ${ch} px`;
     if (!c) return;
-    c.style.width = (_admTokenDraft.canvas_w || 320) + 'px';
-    c.style.height = (_admTokenDraft.canvas_h || 180) + 'px';
+    c.style.width = cw + 'px';
+    c.style.height = ch + 'px';
     c.style.background = _admTokenDraft.bg_color || '#ffffff';
     c.style.border = `${_admTokenDraft.border_w || 0}px ${_admTokenDraft.border_style || 'solid'} ${_admTokenDraft.border_color || '#0f172a'}`;
     c.style.borderRadius = (_admTokenDraft.border_radius || 0) + 'px';
@@ -34250,10 +34264,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const canvas = document.getElementById('admTokCanvas');
     if (!canvas || !_admTokenDraft) return;
     const sampleRow = _admTokenItems[0] || null;
+    const ow = Math.max(1, Math.round(2 / _admTokenZoom));
+    const dw = Math.max(1, Math.round(1 / _admTokenZoom));
+    const hs = Math.max(9, Math.round(10 / _admTokenZoom));
+    const half = Math.round(hs / 2);
     canvas.innerHTML = _admTokenDraft.elements.map(el => {
       const isSel = el.id === _admTokenSelectedElId;
-      const sel = isSel ? 'outline:2px solid #4f46e5;outline-offset:1px;' : 'outline:1px dashed rgba(148,163,184,0.6);';
-      const handle = isSel ? `<div onmousedown="_admTokenStartResize(event,'${el.id}')" title="Drag to resize" style="position:absolute;right:-4px;bottom:-4px;width:9px;height:9px;background:#4f46e5;border:1.5px solid #fff;border-radius:2px;cursor:nwse-resize;z-index:10;"></div>` : '';
+      const sel = isSel ? `outline:${ow}px solid #4f46e5;outline-offset:${dw}px;` : `outline:${dw}px dashed rgba(148,163,184,0.6);`;
+      const handle = isSel ? `<div onmousedown="_admTokenStartResize(event,'${el.id}')" title="Drag to resize" style="position:absolute;right:-${half}px;bottom:-${half}px;width:${hs}px;height:${hs}px;background:#4f46e5;border:${dw}px solid #fff;border-radius:2px;cursor:nwse-resize;z-index:10;"></div>` : '';
       if (el.type === 'qr') {
         const qrText = _admTokenEvalElement(el, sampleRow);
         const svg = _admTokenMakeQrSvg(qrText, el.size || 64);
@@ -34287,14 +34305,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const dx = Math.round((e2.clientX - startX) / _admTokenZoom);
       const dy = Math.round((e2.clientY - startY) / _admTokenZoom);
       if (el.type === 'qr') {
-        el.size = Math.max(20, Math.min(240, origSize + Math.max(dx, dy)));
+        el.size = Math.max(20, Math.min(2500, origSize + Math.max(dx, dy)));
       } else if (el.type === 'photo_field' || el.type === 'image') {
-        el.width = Math.max(16, Math.min(400, origW + dx));
-        el.height = Math.max(16, Math.min(400, origH + dy));
+        el.width = Math.max(16, Math.min(5000, origW + dx));
+        el.height = Math.max(16, Math.min(5000, origH + dy));
         domEl.style.width = el.width + 'px';
         domEl.style.height = el.height + 'px';
       } else {
-        el.width = Math.max(24, Math.min((_admTokenDraft.canvas_w || 320) - el.x, origW + dx));
+        el.width = Math.max(24, Math.min((_admTokenDraft.canvas_w || 4200) - el.x, origW + dx));
         domEl.style.width = el.width + 'px';
         domEl.style.whiteSpace = 'normal';
         domEl.style.wordBreak = 'break-word';
@@ -34316,19 +34334,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const el = _admTokenDraft.elements.find(e => e.id === elId);
     const canvas = document.getElementById('admTokCanvas');
     if (!el || !canvas) return;
+    const ow = Math.max(1, Math.round(2 / _admTokenZoom));
+    const dw = Math.max(1, Math.round(1 / _admTokenZoom));
     // Update selection outline in-place without wiping canvas.innerHTML so drag never aborts
     canvas.querySelectorAll('[data-tok-el]').forEach(node => {
       const active = node.getAttribute('data-tok-el') === elId;
-      node.style.outline = active ? '2px solid #4f46e5' : '1px dashed rgba(148,163,184,0.6)';
-      node.style.outlineOffset = active ? '1px' : '0px';
+      node.style.outline = active ? `${ow}px solid #4f46e5` : `${dw}px dashed rgba(148,163,184,0.6)`;
+      node.style.outlineOffset = active ? `${dw}px` : '0px';
     });
     _admTokenRenderInspector();
     const startX = evt.clientX, startY = evt.clientY;
     const origX = el.x, origY = el.y;
     const domEl = canvas.querySelector(`[data-tok-el="${elId}"]`);
     const onMove = (e2) => {
-      el.x = Math.max(0, Math.min((_admTokenDraft.canvas_w || 320) - 16, Math.round(origX + (e2.clientX - startX) / _admTokenZoom)));
-      el.y = Math.max(0, Math.min((_admTokenDraft.canvas_h || 180) - 12, Math.round(origY + (e2.clientY - startY) / _admTokenZoom)));
+      el.x = Math.max(0, Math.min((_admTokenDraft.canvas_w || 4200) - 16, Math.round(origX + (e2.clientX - startX) / _admTokenZoom)));
+      el.y = Math.max(0, Math.min((_admTokenDraft.canvas_h || 2550) - 12, Math.round(origY + (e2.clientY - startY) / _admTokenZoom)));
       if (domEl) { domEl.style.left = el.x + 'px'; domEl.style.top = el.y + 'px'; }
       const xIn = document.getElementById('admTokInspX'); if (xIn) xIn.value = el.x;
       const yIn = document.getElementById('admTokInspY'); if (yIn) yIn.value = el.y;
@@ -34358,7 +34378,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="grid grid-cols-4 gap-1.5">
           <div><label class="text-[9px] text-slate-500 block">X (px)</label><input id="admTokInspX" type="number" value="${el.x}" oninput="_admTokenUpdateEl('${el.id}','x',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
           <div><label class="text-[9px] text-slate-500 block">Y (px)</label><input id="admTokInspY" type="number" value="${el.y}" oninput="_admTokenUpdateEl('${el.id}','y',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
-          <div><label class="text-[9px] text-slate-500 block">QR Size (px)</label><input type="number" min="20" max="240" value="${el.size || 64}" oninput="_admTokenUpdateEl('${el.id}','size',Math.max(20,+this.value||64))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">QR Size (px)</label><input type="number" min="20" max="2500" value="${el.size || 64}" oninput="_admTokenUpdateEl('${el.id}','size',Math.max(20,+this.value||64))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
           <div class="col-span-4"><label class="text-[9px] text-slate-500 block">QR Pattern</label><input value="${_escHtml(el.pattern || '')}" oninput="_admTokenUpdateEl('${el.id}','pattern',this.value)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs"></div>
         </div>`;
       return;
@@ -34372,9 +34392,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="grid grid-cols-6 gap-1.5 items-end">
           <div><label class="text-[9px] text-slate-500 block">X (px)</label><input id="admTokInspX" type="number" value="${el.x}" oninput="_admTokenUpdateEl('${el.id}','x',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
           <div><label class="text-[9px] text-slate-500 block">Y (px)</label><input id="admTokInspY" type="number" value="${el.y}" oninput="_admTokenUpdateEl('${el.id}','y',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
-          <div><label class="text-[9px] text-slate-500 block">Width (px)</label><input type="number" min="16" max="400" value="${el.width || 56}" oninput="_admTokenUpdateEl('${el.id}','width',Math.max(16,+this.value||56))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
-          <div><label class="text-[9px] text-slate-500 block">Height (px)</label><input type="number" min="16" max="400" value="${el.height || 64}" oninput="_admTokenUpdateEl('${el.id}','height',Math.max(16,+this.value||64))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
-          <div><label class="text-[9px] text-slate-500 block">Radius (px)</label><input type="number" min="0" max="200" value="${el.radius || 0}" oninput="_admTokenUpdateEl('${el.id}','radius',Math.max(0,+this.value||0))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Width (px)</label><input type="number" min="16" max="5000" value="${el.width || 56}" oninput="_admTokenUpdateEl('${el.id}','width',Math.max(16,+this.value||56))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Height (px)</label><input type="number" min="16" max="5000" value="${el.height || 64}" oninput="_admTokenUpdateEl('${el.id}','height',Math.max(16,+this.value||64))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Radius (px)</label><input type="number" min="0" max="1000" value="${el.radius || 0}" oninput="_admTokenUpdateEl('${el.id}','radius',Math.max(0,+this.value||0))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
           <div>
             <label class="text-[9px] text-slate-500 block">Fit</label>
             <select onchange="_admTokenUpdateEl('${el.id}','fit',this.value)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-[11px]">
@@ -34406,7 +34426,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <label class="text-[9px] text-slate-500 block">Font (pt)</label>
           <div class="flex items-center gap-0.5">
             <button type="button" onclick="_admTokenStepFont('${el.id}',-1)" class="px-1.5 py-1 bg-white border border-slate-200 rounded text-xs font-black">-</button>
-            <input id="admTokInspFont" type="number" min="5" max="72" value="${el.font_size || 10}" oninput="_admTokenUpdateEl('${el.id}','font_size',Math.max(5,+this.value||10))" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs text-center">
+            <input id="admTokInspFont" type="number" min="5" max="500" value="${el.font_size || 10}" oninput="_admTokenUpdateEl('${el.id}','font_size',Math.max(5,+this.value||10))" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs text-center">
             <button type="button" onclick="_admTokenStepFont('${el.id}',1)" class="px-1.5 py-1 bg-white border border-slate-200 rounded text-xs font-black">+</button>
           </div>
         </div>
@@ -34433,9 +34453,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
         <div><label class="text-[9px] text-slate-500 block">Line Ht</label><input type="number" step="0.05" min="0.8" max="3" value="${el.line_height || 1.25}" oninput="_admTokenUpdateEl('${el.id}','line_height',Math.max(0.8,+this.value||1.25))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
-        <div><label class="text-[9px] text-slate-500 block">Spacing</label><input type="number" step="0.5" min="-2" max="12" value="${el.letter_spacing || 0}" oninput="_admTokenUpdateEl('${el.id}','letter_spacing',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
-        <div><label class="text-[9px] text-slate-500 block">Border (px)</label><input type="number" min="0" max="10" value="${el.border_w || 0}" oninput="_admTokenUpdateEl('${el.id}','border_w',Math.max(0,+this.value||0))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
-        <div><label class="text-[9px] text-slate-500 block">Pad (px)</label><input type="number" min="0" max="24" value="${el.padding || 0}" oninput="_admTokenUpdateEl('${el.id}','padding',Math.max(0,+this.value||0))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        <div><label class="text-[9px] text-slate-500 block">Spacing</label><input type="number" step="0.5" min="-5" max="80" value="${el.letter_spacing || 0}" oninput="_admTokenUpdateEl('${el.id}','letter_spacing',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        <div><label class="text-[9px] text-slate-500 block">Border (px)</label><input type="number" min="0" max="60" value="${el.border_w || 0}" oninput="_admTokenUpdateEl('${el.id}','border_w',Math.max(0,+this.value||0))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        <div><label class="text-[9px] text-slate-500 block">Pad (px)</label><input type="number" min="0" max="200" value="${el.padding || 0}" oninput="_admTokenUpdateEl('${el.id}','padding',Math.max(0,+this.value||0))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
       </div>
       <div class="flex gap-3 mt-1.5 items-center flex-wrap">
         <label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.bold ? 'checked' : ''} onchange="_admTokenUpdateEl('${el.id}','bold',this.checked)"> Bold</label>
@@ -34449,7 +34469,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admTokenStepFont(elId, delta) {
     const el = _admTokenDraft && _admTokenDraft.elements.find(e => e.id === elId);
     if (!el) return;
-    el.font_size = Math.max(5, Math.min(72, (el.font_size || 10) + delta));
+    const step = delta * Math.max(1, Math.round(_admTokenScaleFactor() / 3));
+    el.font_size = Math.max(5, Math.min(500, (el.font_size || 10) + step));
     const inp = document.getElementById('admTokInspFont');
     if (inp) inp.value = el.font_size;
     _admTokenRedrawCanvas();
@@ -34470,7 +34491,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admTokenAddField() {
     const header = document.getElementById('admTokFieldPick')?.value;
     if (!header) return;
-    const el = { id: 'el_' + Date.now(), type: 'field', header, x: 12, y: 12 + (_admTokenDraft.elements.length * 16) % 100, width: 0, font_size: 10, bold: false, italic: false, align: 'left', color: '#0f172a', show_label: false };
+    const k = _admTokenScaleFactor();
+    const ch = _admTokenDraft.canvas_h || 2550;
+    const step = Math.round(16 * k);
+    const pad = Math.round(12 * k);
+    const el = { id: 'el_' + Date.now(), type: 'field', header, x: pad, y: pad + (_admTokenDraft.elements.length * step) % Math.max(step * 2, ch - pad * 2), width: 0, font_size: Math.round(10 * k), bold: false, italic: false, align: 'left', color: '#0f172a', show_label: false };
     _admTokenDraft.elements.push(el);
     _admTokenSelectedElId = el.id;
     _admTokenRedrawCanvas();
@@ -34490,7 +34515,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const presetVal = document.getElementById('admTokMergeDelimPreset')?.value || ' - ';
     const delimiter = presetVal === '__custom__' ? (document.getElementById('admTokMergeDelimCustom')?.value || '')
       : presetVal === '__newline__' ? '\n' : presetVal;
-    const el = { id: 'el_' + Date.now(), type: 'merge', label, delimiter, sources, x: 12, y: 12 + (_admTokenDraft.elements.length * 16) % 100, width: 0, font_size: 10, bold: false, italic: false, align: 'left', color: '#0f172a', show_label: false };
+    const k = _admTokenScaleFactor();
+    const ch = _admTokenDraft.canvas_h || 2550;
+    const step = Math.round(16 * k);
+    const pad = Math.round(12 * k);
+    const el = { id: 'el_' + Date.now(), type: 'merge', label, delimiter, sources, x: pad, y: pad + (_admTokenDraft.elements.length * step) % Math.max(step * 2, ch - pad * 2), width: 0, font_size: Math.round(10 * k), bold: false, italic: false, align: 'left', color: '#0f172a', show_label: false };
     _admTokenDraft.elements.push(el);
     _admTokenMergePickOrder = [];
     document.querySelectorAll('#admTokMergePickList input[type="checkbox"]').forEach(c => { c.checked = false; });
@@ -34502,7 +34531,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admTokenAddText() {
     const text = document.getElementById('admTokStaticTxt')?.value.trim();
     if (!text) { showToast('Enter static text first', 'error'); return; }
-    const el = { id: 'el_' + Date.now(), type: 'text', text, x: 12, y: 10, width: 0, font_size: 11, bold: true, italic: false, align: 'left', color: '#0f172a' };
+    const k = _admTokenScaleFactor();
+    const el = { id: 'el_' + Date.now(), type: 'text', text, x: Math.round(12 * k), y: Math.round(10 * k), width: 0, font_size: Math.round(11 * k), bold: true, italic: false, align: 'left', color: '#0f172a' };
     _admTokenDraft.elements.push(el);
     document.getElementById('admTokStaticTxt').value = '';
     _admTokenSelectedElId = el.id;
@@ -34518,8 +34548,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admTokenAddQr() {
     const pattern = document.getElementById('admTokQrPattern')?.value.trim();
     if (!pattern) { showToast('Enter a QR pattern (text + {column})', 'error'); return; }
-    const size = Math.max(24, parseInt(document.getElementById('admTokQrSize')?.value, 10) || 64);
-    const el = { id: 'el_' + Date.now(), type: 'qr', pattern, size, x: Math.max(8, (_admTokenDraft.canvas_w || 320) - size - 10), y: 10 };
+    const k = _admTokenScaleFactor();
+    const size = Math.max(24, parseInt(document.getElementById('admTokQrSize')?.value, 10) || Math.round(64 * k));
+    const el = { id: 'el_' + Date.now(), type: 'qr', pattern, size, x: Math.max(Math.round(8 * k), (_admTokenDraft.canvas_w || 4200) - size - Math.round(10 * k)), y: Math.round(10 * k) };
     _admTokenDraft.elements.push(el);
     _admTokenSelectedElId = el.id;
     _admTokenRedrawCanvas();
@@ -34528,14 +34559,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admTokenAddPhotoField() {
     const header = document.getElementById('admTokPhotoPick')?.value;
     if (!header) return;
-    const el = { id: 'el_' + Date.now(), type: 'photo_field', header, x: 10, y: 10, width: 56, height: 64, radius: 4, fit: 'cover' };
+    const k = _admTokenScaleFactor();
+    const el = { id: 'el_' + Date.now(), type: 'photo_field', header, x: Math.round(10 * k), y: Math.round(10 * k), width: Math.round(56 * k), height: Math.round(64 * k), radius: Math.round(4 * k), fit: 'cover' };
     _admTokenDraft.elements.push(el);
     _admTokenSelectedElId = el.id;
     _admTokenRedrawCanvas();
     _admTokenRenderInspector();
   }
   function _admTokenAddLogo() {
-    const el = { id: 'el_' + Date.now(), type: 'image', src: window.location.origin + '/logo.jpg', x: 10, y: 10, width: 44, height: 44, radius: 4, fit: 'contain' };
+    const k = _admTokenScaleFactor();
+    const el = { id: 'el_' + Date.now(), type: 'image', src: window.location.origin + '/logo.jpg', x: Math.round(10 * k), y: Math.round(10 * k), width: Math.round(44 * k), height: Math.round(44 * k), radius: Math.round(4 * k), fit: 'contain' };
     _admTokenDraft.elements.push(el);
     _admTokenSelectedElId = el.id;
     _admTokenRedrawCanvas();
@@ -34548,14 +34581,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     reader.onload = (ev) => {
       const img = new Image();
       img.onload = () => {
-        const maxDim = 320;
+        const maxDim = 1200;
         const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
         const c = document.createElement('canvas');
         c.width = Math.max(1, Math.round(img.width * scale));
         c.height = Math.max(1, Math.round(img.height * scale));
         c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
         const dataUrl = c.toDataURL('image/png');
-        const el = { id: 'el_' + Date.now(), type: 'image', src: dataUrl, x: 12, y: 12, width: 56, height: 56, radius: 4, fit: 'contain' };
+        const k = _admTokenScaleFactor();
+        const el = { id: 'el_' + Date.now(), type: 'image', src: dataUrl, x: Math.round(12 * k), y: Math.round(12 * k), width: Math.round(56 * k), height: Math.round(56 * k), radius: Math.round(4 * k), fit: 'contain' };
         _admTokenDraft.elements.push(el);
         _admTokenSelectedElId = el.id;
         _admTokenRedrawCanvas();
@@ -34607,8 +34641,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const cellW_mm = availW / cols;
     const cellH_mm = availH / rows;
     const pxPerMm = 96 / 25.4;
-    const cw = tpl.canvas_w || 320;
-    const ch = tpl.canvas_h || 180;
+    const cw = tpl.canvas_w || 4200;
+    const ch = tpl.canvas_h || 2550;
     const scale = Math.min((cellW_mm * pxPerMm) / cw, (cellH_mm * pxPerMm) / ch);
     const scaledW_mm = (cw * scale) / pxPerMm;
     const scaledH_mm = (ch * scale) / pxPerMm;
