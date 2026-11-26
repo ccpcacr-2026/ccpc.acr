@@ -34060,7 +34060,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const isPhotoCol = /photo|avatar|image/i.test(header);
     const el = isPhotoCol
       ? { id: 'el_' + Date.now(), type: 'photo_field', header, x, y, width: 56, height: 64, radius: 4, fit: 'cover' }
-      : { id: 'el_' + Date.now(), type: 'field', header, x, y, width: 0, font_size: 10, bold: false, italic: false, align: 'left', color: '#0f172a', show_label: true };
+      : { id: 'el_' + Date.now(), type: 'field', header, x, y, width: 0, font_size: 10, bold: false, italic: false, align: 'left', color: '#0f172a', show_label: false };
     _admTokenDraft.elements.push(el);
     _admTokenSelectedElId = el.id;
     _admTokenRedrawCanvas();
@@ -34215,7 +34215,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const isPhotoCol = /photo|avatar|image/i.test(header);
     const el = isPhotoCol
       ? { id: 'el_' + Date.now(), type: 'photo_field', header, x: 12, y: 12, width: 56, height: 64, radius: 4, fit: 'cover' }
-      : { id: 'el_' + Date.now(), type: 'field', header, x: 12, y: 12 + (_admTokenDraft.elements.length * 16) % Math.max(40, (_admTokenDraft.canvas_h || 180) - 24), width: 0, font_size: 10, bold: false, italic: false, align: 'left', color: '#0f172a', show_label: true };
+      : { id: 'el_' + Date.now(), type: 'field', header, x: 12, y: 12 + (_admTokenDraft.elements.length * 16) % Math.max(40, (_admTokenDraft.canvas_h || 180) - 24), width: 0, font_size: 10, bold: false, italic: false, align: 'left', color: '#0f172a', show_label: false };
     _admTokenDraft.elements.push(el);
     _admTokenSelectedElId = el.id;
     _admTokenRedrawCanvas();
@@ -34236,16 +34236,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     c.style.border = `${_admTokenDraft.border_w || 0}px ${_admTokenDraft.border_style || 'solid'} ${_admTokenDraft.border_color || '#0f172a'}`;
     c.style.borderRadius = (_admTokenDraft.border_radius || 0) + 'px';
   }
+  function _admTokenTextCss(el) {
+    const wStyle = el.width ? `width:${el.width}px;white-space:normal;word-break:break-word;` : 'white-space:nowrap;';
+    const ff = el.font_family ? `font-family:${el.font_family};` : '';
+    const ls = el.letter_spacing ? `letter-spacing:${el.letter_spacing}px;` : '';
+    const bg = el.bg_color ? `background:${_escHtml(el.bg_color)};` : '';
+    const pad = el.padding ? `padding:${el.padding}px;` : '';
+    const bdr = el.border_w ? `border:${el.border_w}px solid ${_escHtml(el.border_color || '#0f172a')};` : '';
+    const rad = el.border_radius ? `border-radius:${el.border_radius}px;` : '';
+    return `position:absolute;left:${el.x}px;top:${el.y}px;${wStyle}${ff}font-size:${el.font_size || 10}pt;font-weight:${el.bold ? 700 : 400};font-style:${el.italic ? 'italic' : 'normal'};text-decoration:${el.underline ? 'underline' : 'none'};text-transform:${el.uppercase ? 'uppercase' : 'none'};text-align:${el.align || 'left'};color:${_escHtml(el.color || '#0f172a')};line-height:${el.line_height || 1.25};${ls}${bg}${pad}${bdr}${rad}box-sizing:border-box;`;
+  }
   function _admTokenRedrawCanvas() {
     const canvas = document.getElementById('admTokCanvas');
     if (!canvas || !_admTokenDraft) return;
     const sampleRow = _admTokenItems[0] || null;
     canvas.innerHTML = _admTokenDraft.elements.map(el => {
-      const sel = el.id === _admTokenSelectedElId ? 'outline:2px solid #4f46e5;outline-offset:1px;' : 'outline:1px dashed rgba(148,163,184,0.6);';
+      const isSel = el.id === _admTokenSelectedElId;
+      const sel = isSel ? 'outline:2px solid #4f46e5;outline-offset:1px;' : 'outline:1px dashed rgba(148,163,184,0.6);';
+      const handle = isSel ? `<div onmousedown="_admTokenStartResize(event,'${el.id}')" title="Drag to resize" style="position:absolute;right:-4px;bottom:-4px;width:9px;height:9px;background:#4f46e5;border:1.5px solid #fff;border-radius:2px;cursor:nwse-resize;z-index:10;"></div>` : '';
       if (el.type === 'qr') {
         const qrText = _admTokenEvalElement(el, sampleRow);
         const svg = _admTokenMakeQrSvg(qrText, el.size || 64);
-        return `<div data-tok-el="${el.id}" onmousedown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;cursor:move;user-select:none;${sel}">${svg}</div>`;
+        return `<div data-tok-el="${el.id}" onmousedown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;cursor:move;user-select:none;${sel}">${svg}${handle}</div>`;
       }
       if (el.type === 'photo_field' || el.type === 'image') {
         const src = _admTokenEvalElement(el, sampleRow);
@@ -34253,12 +34265,49 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const inner = src
           ? `<img src="${_escHtml(src)}" draggable="false" style="width:100%;height:100%;object-fit:${fit};display:block;border-radius:${rad}px;pointer-events:none;">`
           : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#e2e8f0;color:#64748b;font-size:8px;font-weight:700;border-radius:${rad}px;">PHOTO</div>`;
-        return `<div data-tok-el="${el.id}" onmousedown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;width:${w}px;height:${h}px;cursor:move;user-select:none;${sel}">${inner}</div>`;
+        return `<div data-tok-el="${el.id}" onmousedown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;width:${w}px;height:${h}px;cursor:move;user-select:none;${sel}">${inner}${handle}</div>`;
       }
       const txt = _escHtml(_admTokenEvalElement(el, sampleRow)).replace(/\r\n|\r|\n/g, '<br>');
-      const wStyle = el.width ? `width:${el.width}px;` : 'white-space:nowrap;';
-      return `<div data-tok-el="${el.id}" onmousedown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;${wStyle}font-size:${el.font_size || 10}pt;font-weight:${el.bold ? 700 : 400};font-style:${el.italic ? 'italic' : 'normal'};text-align:${el.align || 'left'};color:${_escHtml(el.color || '#0f172a')};line-height:1.25;cursor:move;user-select:none;${sel}">${txt || '&nbsp;'}</div>`;
+      return `<div data-tok-el="${el.id}" onmousedown="_admTokenStartDrag(event,'${el.id}')" style="${_admTokenTextCss(el)}cursor:move;user-select:none;${sel}">${txt || '&nbsp;'}${handle}</div>`;
     }).join('');
+  }
+  function _admTokenStartResize(evt, elId) {
+    evt.preventDefault();
+    evt.stopPropagation();
+    const el = _admTokenDraft && _admTokenDraft.elements.find(e => e.id === elId);
+    const canvas = document.getElementById('admTokCanvas');
+    const domEl = canvas && canvas.querySelector(`[data-tok-el="${elId}"]`);
+    if (!el || !domEl) return;
+    const startX = evt.clientX, startY = evt.clientY;
+    const rect = domEl.getBoundingClientRect();
+    const origW = el.width || Math.round(rect.width / _admTokenZoom) || 60;
+    const origH = el.height || Math.round(rect.height / _admTokenZoom) || 24;
+    const origSize = el.size || 64;
+    const onMove = (e2) => {
+      const dx = Math.round((e2.clientX - startX) / _admTokenZoom);
+      const dy = Math.round((e2.clientY - startY) / _admTokenZoom);
+      if (el.type === 'qr') {
+        el.size = Math.max(20, Math.min(240, origSize + Math.max(dx, dy)));
+      } else if (el.type === 'photo_field' || el.type === 'image') {
+        el.width = Math.max(16, Math.min(400, origW + dx));
+        el.height = Math.max(16, Math.min(400, origH + dy));
+        domEl.style.width = el.width + 'px';
+        domEl.style.height = el.height + 'px';
+      } else {
+        el.width = Math.max(24, Math.min((_admTokenDraft.canvas_w || 320) - el.x, origW + dx));
+        domEl.style.width = el.width + 'px';
+        domEl.style.whiteSpace = 'normal';
+        domEl.style.wordBreak = 'break-word';
+      }
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      _admTokenRedrawCanvas();
+      _admTokenRenderInspector();
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
   }
   function _admTokenStartDrag(evt, elId) {
     evt.preventDefault();
@@ -34287,6 +34336,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const onUp = () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      _admTokenRedrawCanvas();
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
@@ -34336,6 +34386,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return;
     }
     const title = el.type === 'text' ? 'Static Text' : (el.type === 'merge' ? `Merged: ${el.label || 'Merged'}` : `Field: ${el.header}`);
+    const fontOpts = [
+      ['', 'Default (Sans)'],
+      ['Arial, sans-serif', 'Arial'],
+      ["'Times New Roman', serif", 'Times New Roman'],
+      ["'Courier New', monospace", 'Courier New'],
+      ["'Noto Sans Bengali', sans-serif", 'Noto Sans Bengali'],
+    ];
     box.innerHTML = `
       <div class="flex items-center justify-between mb-1.5">
         <span class="text-[10px] font-black text-indigo-700 uppercase truncate">${_escHtml(title)}</span>
@@ -34345,21 +34402,57 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div><label class="text-[9px] text-slate-500 block">X (px)</label><input id="admTokInspX" type="number" value="${el.x}" oninput="_admTokenUpdateEl('${el.id}','x',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
         <div><label class="text-[9px] text-slate-500 block">Y (px)</label><input id="admTokInspY" type="number" value="${el.y}" oninput="_admTokenUpdateEl('${el.id}','y',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
         <div><label class="text-[9px] text-slate-500 block">Width (px)</label><input type="number" min="0" placeholder="auto" value="${el.width || ''}" oninput="_admTokenUpdateEl('${el.id}','width',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
-        <div><label class="text-[9px] text-slate-500 block">Font (pt)</label><input type="number" min="6" max="36" value="${el.font_size || 10}" oninput="_admTokenUpdateEl('${el.id}','font_size',+this.value||10)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        <div>
+          <label class="text-[9px] text-slate-500 block">Font (pt)</label>
+          <div class="flex items-center gap-0.5">
+            <button type="button" onclick="_admTokenStepFont('${el.id}',-1)" class="px-1.5 py-1 bg-white border border-slate-200 rounded text-xs font-black">-</button>
+            <input id="admTokInspFont" type="number" min="5" max="72" value="${el.font_size || 10}" oninput="_admTokenUpdateEl('${el.id}','font_size',Math.max(5,+this.value||10))" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs text-center">
+            <button type="button" onclick="_admTokenStepFont('${el.id}',1)" class="px-1.5 py-1 bg-white border border-slate-200 rounded text-xs font-black">+</button>
+          </div>
+        </div>
+        <div>
+          <label class="text-[9px] text-slate-500 block">Font Family</label>
+          <select onchange="_admTokenUpdateEl('${el.id}','font_family',this.value)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-[11px]">
+            ${fontOpts.map(([v, l]) => `<option value="${_escHtml(v)}" ${(el.font_family || '') === v ? 'selected' : ''}>${_escHtml(l)}</option>`).join('')}
+          </select>
+        </div>
         <div>
           <label class="text-[9px] text-slate-500 block">Align</label>
           <select onchange="_admTokenUpdateEl('${el.id}','align',this.value)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-[11px]">
             ${['left', 'center', 'right'].map(a => `<option value="${a}" ${el.align === a ? 'selected' : ''}>${a}</option>`).join('')}
           </select>
         </div>
-        <div><label class="text-[9px] text-slate-500 block">Color</label><input type="color" value="${_escHtml(el.color || '#0f172a')}" oninput="_admTokenUpdateEl('${el.id}','color',this.value)" class="w-full h-7 p-0 border border-slate-200 rounded"></div>
+      </div>
+      <div class="grid grid-cols-6 gap-1.5 items-end mt-1.5">
+        <div><label class="text-[9px] text-slate-500 block">Text Color</label><input type="color" value="${_escHtml(el.color || '#0f172a')}" oninput="_admTokenUpdateEl('${el.id}','color',this.value)" class="w-full h-7 p-0 border border-slate-200 rounded"></div>
+        <div>
+          <label class="text-[9px] text-slate-500 block">BG Color</label>
+          <div class="flex items-center gap-1">
+            <input type="color" value="${_escHtml(el.bg_color || '#ffffff')}" oninput="_admTokenUpdateEl('${el.id}','bg_color',this.value)" class="w-full h-7 p-0 border border-slate-200 rounded">
+            ${el.bg_color ? `<button type="button" onclick="_admTokenUpdateEl('${el.id}','bg_color','');_admTokenRenderInspector()" title="Clear background" class="px-1 text-[10px] font-black text-slate-400 hover:text-red-500">&times;</button>` : ''}
+          </div>
+        </div>
+        <div><label class="text-[9px] text-slate-500 block">Line Ht</label><input type="number" step="0.05" min="0.8" max="3" value="${el.line_height || 1.25}" oninput="_admTokenUpdateEl('${el.id}','line_height',Math.max(0.8,+this.value||1.25))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        <div><label class="text-[9px] text-slate-500 block">Spacing</label><input type="number" step="0.5" min="-2" max="12" value="${el.letter_spacing || 0}" oninput="_admTokenUpdateEl('${el.id}','letter_spacing',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        <div><label class="text-[9px] text-slate-500 block">Border (px)</label><input type="number" min="0" max="10" value="${el.border_w || 0}" oninput="_admTokenUpdateEl('${el.id}','border_w',Math.max(0,+this.value||0))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        <div><label class="text-[9px] text-slate-500 block">Pad (px)</label><input type="number" min="0" max="24" value="${el.padding || 0}" oninput="_admTokenUpdateEl('${el.id}','padding',Math.max(0,+this.value||0))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
       </div>
       <div class="flex gap-3 mt-1.5 items-center flex-wrap">
         <label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.bold ? 'checked' : ''} onchange="_admTokenUpdateEl('${el.id}','bold',this.checked)"> Bold</label>
         <label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.italic ? 'checked' : ''} onchange="_admTokenUpdateEl('${el.id}','italic',this.checked)"> Italic</label>
+        <label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.underline ? 'checked' : ''} onchange="_admTokenUpdateEl('${el.id}','underline',this.checked)"> Underline</label>
+        <label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.uppercase ? 'checked' : ''} onchange="_admTokenUpdateEl('${el.id}','uppercase',this.checked)"> Uppercase</label>
         ${el.type !== 'text' ? `<label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.show_label ? 'checked' : ''} onchange="_admTokenUpdateEl('${el.id}','show_label',this.checked)"> Show Label</label>` : ''}
         ${el.type === 'text' ? `<input value="${_escHtml(el.text || '')}" oninput="_admTokenUpdateEl('${el.id}','text',this.value)" class="flex-1 min-w-[140px] px-2 py-0.5 bg-white border border-slate-200 rounded text-xs">` : ''}
       </div>`;
+  }
+  function _admTokenStepFont(elId, delta) {
+    const el = _admTokenDraft && _admTokenDraft.elements.find(e => e.id === elId);
+    if (!el) return;
+    el.font_size = Math.max(5, Math.min(72, (el.font_size || 10) + delta));
+    const inp = document.getElementById('admTokInspFont');
+    if (inp) inp.value = el.font_size;
+    _admTokenRedrawCanvas();
   }
   function _admTokenUpdateEl(elId, prop, val) {
     const el = _admTokenDraft && _admTokenDraft.elements.find(e => e.id === elId);
@@ -34377,7 +34470,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admTokenAddField() {
     const header = document.getElementById('admTokFieldPick')?.value;
     if (!header) return;
-    const el = { id: 'el_' + Date.now(), type: 'field', header, x: 12, y: 12 + (_admTokenDraft.elements.length * 16) % 100, width: 0, font_size: 10, bold: false, italic: false, align: 'left', color: '#0f172a', show_label: true };
+    const el = { id: 'el_' + Date.now(), type: 'field', header, x: 12, y: 12 + (_admTokenDraft.elements.length * 16) % 100, width: 0, font_size: 10, bold: false, italic: false, align: 'left', color: '#0f172a', show_label: false };
     _admTokenDraft.elements.push(el);
     _admTokenSelectedElId = el.id;
     _admTokenRedrawCanvas();
@@ -34397,7 +34490,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const presetVal = document.getElementById('admTokMergeDelimPreset')?.value || ' - ';
     const delimiter = presetVal === '__custom__' ? (document.getElementById('admTokMergeDelimCustom')?.value || '')
       : presetVal === '__newline__' ? '\n' : presetVal;
-    const el = { id: 'el_' + Date.now(), type: 'merge', label, delimiter, sources, x: 12, y: 12 + (_admTokenDraft.elements.length * 16) % 100, width: 0, font_size: 10, bold: false, italic: false, align: 'left', color: '#0f172a', show_label: !!label };
+    const el = { id: 'el_' + Date.now(), type: 'merge', label, delimiter, sources, x: 12, y: 12 + (_admTokenDraft.elements.length * 16) % 100, width: 0, font_size: 10, bold: false, italic: false, align: 'left', color: '#0f172a', show_label: false };
     _admTokenDraft.elements.push(el);
     _admTokenMergePickOrder = [];
     document.querySelectorAll('#admTokMergePickList input[type="checkbox"]').forEach(c => { c.checked = false; });
@@ -34533,8 +34626,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           return `<img src="${_escHtml(src)}" style="position:absolute;left:${el.x}px;top:${el.y}px;width:${w}px;height:${h}px;object-fit:${fit};border-radius:${rad}px;">`;
         }
         const txt = _escHtml(_admTokenEvalElement(el, row)).replace(/\r\n|\r|\n/g, '<br>');
-        const wStyle = el.width ? `width:${el.width}px;` : 'white-space:nowrap;';
-        return `<div style="position:absolute;left:${el.x}px;top:${el.y}px;${wStyle}font-size:${el.font_size || 10}pt;font-weight:${el.bold ? 700 : 400};font-style:${el.italic ? 'italic' : 'normal'};text-align:${el.align || 'left'};color:${_escHtml(el.color || '#0f172a')};line-height:1.25;">${txt}</div>`;
+        return `<div style="${_admTokenTextCss(el)}">${txt}</div>`;
       }).join('');
       return `
         <div style="width:${cellW_mm.toFixed(2)}mm;height:${cellH_mm.toFixed(2)}mm;display:flex;align-items:center;justify-content:center;overflow:hidden;">
