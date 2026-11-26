@@ -7943,6 +7943,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('diaryModalTitle').textContent = title;
     document.getElementById('diaryModalBody').innerHTML = bodyHtml;
     const wrap = document.getElementById('diaryModalWrap');
+    const card = wrap && wrap.firstElementChild;
+    if (card) {
+      card.style.width = '';
+      card.style.maxWidth = '';
+      card.style.height = '';
+      card.style.minWidth = '';
+      card.style.minHeight = '';
+      card.style.resize = '';
+      card.style.overflow = '';
+    }
     wrap.classList.remove('hidden'); wrap.classList.add('flex');
     lucide.createIcons();
   }
@@ -34166,7 +34176,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               ${[1, 1.5, 2, 2.5].map(z => `<button type="button" onclick="_admTokenSetZoom(${z})" class="px-2 py-0.5 border border-slate-200 bg-white hover:bg-indigo-50 rounded text-[10px] font-black">${Math.round(z * 100)}%</button>`).join('')}
             </div>
           </div>
-          <div class="overflow-auto border border-slate-200 rounded-xl bg-slate-100 p-4 flex items-center justify-center min-h-[340px] max-h-[48vh]">
+          <div class="overflow-auto border border-slate-200 rounded-xl bg-slate-100 p-4 flex items-center justify-center min-h-[400px] max-h-[58vh]">
             <div id="admTokCanvasScaler" style="position:relative;flex-shrink:0;width:${Math.round(d.canvas_w * _admTokenZoom)}px;height:${Math.round(d.canvas_h * _admTokenZoom)}px;">
               <div id="admTokCanvas" ondragover="event.preventDefault()" ondrop="_admTokenCanvasDrop(event)" style="position:absolute;left:0;top:0;overflow:hidden;width:${d.canvas_w}px;height:${d.canvas_h}px;transform:scale(${_admTokenZoom});transform-origin:top left;background:${_escHtml(d.bg_color || '#ffffff')};border:${d.border_w}px ${d.border_style || 'solid'} ${_escHtml(d.border_color || '#0f172a')};border-radius:${d.border_radius || 0}px;"></div>
             </div>
@@ -34179,9 +34189,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>
     `);
-    const modal = document.getElementById('diarySimpleModal');
+    const modal = document.getElementById('diaryModalWrap');
     const card = modal && modal.firstElementChild;
-    if (card) { card.classList.remove('max-w-lg'); card.classList.add('max-w-7xl', 'w-[96vw]'); }
+    if (card) {
+      card.style.width = '96vw';
+      card.style.maxWidth = '98vw';
+      card.style.height = '92vh';
+      card.style.minWidth = '520px';
+      card.style.minHeight = '420px';
+      card.style.resize = 'both';
+      card.style.overflow = 'auto';
+    }
     _admTokenRedrawCanvas();
     _admTokenRenderInspector();
   }
