@@ -33855,6 +33855,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _admTokenSelectedElId = null;
   let _admTokenMergePickOrder = [];
   let _admTokenDragState = null;
+  let _admTokenZoom = 1.5;
 
   function ensureQRCodeGen() {
     if (window.qrcode) return Promise.resolve();
@@ -33899,7 +33900,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admTokenRenderSelectModal() {
     const modal = document.getElementById('diarySimpleModal');
     const card = modal && modal.firstElementChild;
-    if (card) { card.classList.remove('max-w-5xl'); card.classList.add('max-w-lg'); }
+    if (card) {
+      card.classList.remove('max-w-5xl', 'max-w-7xl', 'w-[96vw]');
+      card.classList.add('max-w-lg');
+    }
     const isAdmin = _ccpcTplIsAdmin();
     const opts = _admTokenTemplates.map(t => `<option value="${_escHtml(t.id)}">${_escHtml(t.name)}</option>`).join('');
     _diaryShowSimpleModal('Lottery Token Designer & Print', `
@@ -34006,12 +34010,60 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         return col && row ? _ccpcPlainCell(col.get(row), col.isPhone) : '';
       });
     }
+    if (el.type === 'photo_field') {
+      const col = byHeader[el.header];
+      return col && row ? String(col.get(row) || '').trim() : '';
+    }
+    if (el.type === 'image') {
+      return el.src || '';
+    }
     return '';
+  }
+  function _admTokenSetZoom(z) {
+    _admTokenZoom = Math.max(0.5, Math.min(3, Number(z) || 1.5));
+    const scaler = document.getElementById('admTokCanvasScaler');
+    const canvas = document.getElementById('admTokCanvas');
+    const lbl = document.getElementById('admTokZoomLbl');
+    if (scaler && _admTokenDraft) {
+      scaler.style.width = Math.round((_admTokenDraft.canvas_w || 320) * _admTokenZoom) + 'px';
+      scaler.style.height = Math.round((_admTokenDraft.canvas_h || 180) * _admTokenZoom) + 'px';
+    }
+    if (canvas) {
+      canvas.style.transform = `scale(${_admTokenZoom})`;
+      canvas.style.transformOrigin = 'top left';
+    }
+    if (lbl) lbl.textContent = Math.round(_admTokenZoom * 100) + '%';
+  }
+  function _admTokenColDragStart(evt, header) {
+    if (!evt.dataTransfer) return;
+    evt.dataTransfer.setData('text/plain', header);
+    evt.dataTransfer.effectAllowed = 'copy';
+  }
+  function _admTokenCanvasDrop(evt) {
+    evt.preventDefault();
+    const header = evt.dataTransfer && evt.dataTransfer.getData('text/plain');
+    const canvas = document.getElementById('admTokCanvas');
+    if (!header || !canvas || !_admTokenDraft) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.max(0, Math.min((_admTokenDraft.canvas_w || 320) - 20, Math.round((evt.clientX - rect.left) / _admTokenZoom)));
+    const y = Math.max(0, Math.min((_admTokenDraft.canvas_h || 180) - 16, Math.round((evt.clientY - rect.top) / _admTokenZoom)));
+    const isPhotoCol = /photo|avatar|image/i.test(header);
+    const el = isPhotoCol
+      ? { id: 'el_' + Date.now(), type: 'photo_field', header, x, y, width: 56, height: 64, radius: 4, fit: 'cover' }
+      : { id: 'el_' + Date.now(), type: 'field', header, x, y, width: 0, font_size: 10, bold: false, italic: false, align: 'left', color: '#0f172a', show_label: true };
+    _admTokenDraft.elements.push(el);
+    _admTokenSelectedElId = el.id;
+    _admTokenRedrawCanvas();
+    _admTokenRenderInspector();
   }
   function _admTokenRenderBuilder() {
     const d = _admTokenDraft;
-    const sampleRow = _admTokenItems[0] || null;
     const colOpts = _admTokenCols.map(c => `<option value="${_escHtml(c.header)}">${_escHtml(c.header)}</option>`).join('');
+    const photoColDefault = (_admTokenCols.find(c => /photo_url|^photo$/i.test(c.header)) || _admTokenCols.find(c => /photo|image|avatar/i.test(c.header)) || _admTokenCols[0] || {}).header || '';
+    const photoColOpts = _admTokenCols.map(c => `<option value="${_escHtml(c.header)}" ${c.header === photoColDefault ? 'selected' : ''}>${_escHtml(c.header)}</option>`).join('');
+    const dragCols = _admTokenCols.map(c =>
+      `<span draggable="true" ondragstart="_admTokenColDragStart(event,'${_escHtml(c.header).replace(/'/g, "\\'")}')" onclick="_admTokenQuickAddCol('${_escHtml(c.header).replace(/'/g, "\\'")}')" title="Drag onto canvas or click to add" class="inline-flex items-center px-2 py-0.5 bg-white border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 text-slate-700 rounded text-[10px] font-bold cursor-grab select-none">${_escHtml(c.header)}</span>`
+    ).join('');
     const mergePicks = _admTokenCols.map(c => {
       const checked = _admTokenMergePickOrder.includes(c.header);
       return `<label class="flex items-center gap-1 text-[10px] font-bold text-slate-600"><input type="checkbox" data-tok-merge-pick="${_escHtml(c.header)}" ${checked ? 'checked' : ''} onchange="_admTokenMergePickToggle(this)"> ${_escHtml(c.header)}</label>`;
@@ -34023,7 +34075,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _diaryShowSimpleModal(_admTokenEditId ? 'Edit Lottery Token Template' : 'New Lottery Token Template', `
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-3">
         <!-- Left controls -->
-        <div class="lg:col-span-5 space-y-2.5 max-h-[70vh] overflow-y-auto pr-1">
+        <div class="lg:col-span-4 space-y-2.5 max-h-[75vh] overflow-y-auto pr-1">
           <div>
             <label class="text-[9px] font-black text-slate-400 uppercase block mb-0.5">Template Name</label>
             <input id="admTokName" value="${_escHtml(d.name || '')}" oninput="_admTokenDraft.name=this.value" placeholder="e.g. Lottery Token 2027" class="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold">
@@ -34049,7 +34101,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
 
           <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
-            <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Add Single Column</p>
+            <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Drag or Click Column to Place</p>
+            <input placeholder="Search columns…" oninput="_admTokenFilterDragCols(this.value)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded text-[11px] mb-1.5">
+            <div id="admTokDragCols" class="flex flex-wrap gap-1 max-h-24 overflow-y-auto mb-1.5">${dragCols}</div>
             <div class="flex gap-1.5">
               <select id="admTokFieldPick" class="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs">${colOpts}</select>
               <button type="button" onclick="_admTokenAddField()" class="px-2.5 py-1 bg-indigo-600 text-white rounded text-[10px] font-black uppercase">+ Field</button>
@@ -34057,9 +34111,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
 
           <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
+            <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Add Photo(s) / Logo to Canvas</p>
+            <div class="flex gap-1.5 mb-1.5">
+              <select id="admTokPhotoPick" class="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs">${photoColOpts}</select>
+              <button type="button" onclick="_admTokenAddPhotoField()" class="px-2.5 py-1 bg-pink-600 text-white rounded text-[10px] font-black uppercase whitespace-nowrap">+ Applicant Photo</button>
+            </div>
+            <div class="flex gap-1.5 flex-wrap">
+              <button type="button" onclick="_admTokenAddLogo()" class="px-2.5 py-1 bg-slate-700 text-white rounded text-[10px] font-black uppercase">+ School Logo</button>
+              <label class="px-2.5 py-1 bg-amber-600 text-white rounded text-[10px] font-black uppercase cursor-pointer">
+                + Upload Photo<input type="file" accept="image/*" class="hidden" onchange="_admTokenUploadImage(this)">
+              </label>
+            </div>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
             <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Add Merged Column (click order)</p>
             <input placeholder="Search columns…" oninput="_ccpcTplFilterChecklist('admTokMergePickList', this.value)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded text-[11px] mb-1">
-            <div id="admTokMergePickList" class="grid grid-cols-2 gap-1 max-h-24 overflow-y-auto bg-white border border-slate-200 rounded p-1.5 mb-1">${mergePicks}</div>
+            <div id="admTokMergePickList" class="grid grid-cols-2 gap-1 max-h-20 overflow-y-auto bg-white border border-slate-200 rounded p-1.5 mb-1">${mergePicks}</div>
             <div id="admTokMergeOrderTxt" class="text-[9px] font-bold text-indigo-600 mb-1">${_admTokenMergePickOrder.length ? 'Order: ' + _admTokenMergePickOrder.map((h, i) => `${i + 1}. ${_escHtml(h)}`).join(' ') : ''}</div>
             <div class="flex gap-1 flex-wrap items-center">
               <input id="admTokMergeLabel" placeholder="Label (optional)" class="flex-1 min-w-[90px] px-2 py-1 bg-white border border-slate-200 rounded text-[11px]">
@@ -34090,14 +34158,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
 
-        <!-- Right: Drag & Drop Canvas + Element Inspector -->
-        <div class="lg:col-span-7 flex flex-col gap-2">
-          <div class="flex items-center justify-between">
-            <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Drag &amp; Drop Canvas (${d.canvas_w} × ${d.canvas_h} px)</span>
-            <span class="text-[10px] text-slate-400">Drag items to position · Click to style</span>
+        <!-- Right: Zoomable Drag & Drop Canvas + Element Inspector -->
+        <div class="lg:col-span-8 flex flex-col gap-2">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Canvas (${d.canvas_w} × ${d.canvas_h} px) · Zoom <span id="admTokZoomLbl" class="text-indigo-600">${Math.round(_admTokenZoom * 100)}%</span></span>
+            <div class="flex items-center gap-1">
+              ${[1, 1.5, 2, 2.5].map(z => `<button type="button" onclick="_admTokenSetZoom(${z})" class="px-2 py-0.5 border border-slate-200 bg-white hover:bg-indigo-50 rounded text-[10px] font-black">${Math.round(z * 100)}%</button>`).join('')}
+            </div>
           </div>
-          <div class="overflow-auto border border-slate-200 rounded-xl bg-slate-100 p-4 flex items-center justify-center min-h-[240px]">
-            <div id="admTokCanvas" style="position:relative;overflow:hidden;flex-shrink:0;width:${d.canvas_w}px;height:${d.canvas_h}px;background:${_escHtml(d.bg_color || '#ffffff')};border:${d.border_w}px ${d.border_style || 'solid'} ${_escHtml(d.border_color || '#0f172a')};border-radius:${d.border_radius || 0}px;"></div>
+          <div class="overflow-auto border border-slate-200 rounded-xl bg-slate-100 p-4 flex items-center justify-center min-h-[340px] max-h-[48vh]">
+            <div id="admTokCanvasScaler" style="position:relative;flex-shrink:0;width:${Math.round(d.canvas_w * _admTokenZoom)}px;height:${Math.round(d.canvas_h * _admTokenZoom)}px;">
+              <div id="admTokCanvas" ondragover="event.preventDefault()" ondrop="_admTokenCanvasDrop(event)" style="position:absolute;left:0;top:0;overflow:hidden;width:${d.canvas_w}px;height:${d.canvas_h}px;transform:scale(${_admTokenZoom});transform-origin:top left;background:${_escHtml(d.bg_color || '#ffffff')};border:${d.border_w}px ${d.border_style || 'solid'} ${_escHtml(d.border_color || '#0f172a')};border-radius:${d.border_radius || 0}px;"></div>
+            </div>
           </div>
           <div id="admTokInspector" class="bg-slate-50 border border-slate-200 rounded-xl p-2.5"></div>
           <div class="flex gap-2">
@@ -34109,13 +34181,36 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     `);
     const modal = document.getElementById('diarySimpleModal');
     const card = modal && modal.firstElementChild;
-    if (card) { card.classList.remove('max-w-lg'); card.classList.add('max-w-5xl'); }
+    if (card) { card.classList.remove('max-w-lg'); card.classList.add('max-w-7xl', 'w-[96vw]'); }
+    _admTokenRedrawCanvas();
+    _admTokenRenderInspector();
+  }
+  function _admTokenFilterDragCols(term) {
+    const q = term.trim().toLowerCase();
+    const box = document.getElementById('admTokDragCols');
+    if (!box) return;
+    box.querySelectorAll('span').forEach(sp => {
+      sp.classList.toggle('hidden', !!q && !sp.textContent.toLowerCase().includes(q));
+    });
+  }
+  function _admTokenQuickAddCol(header) {
+    const isPhotoCol = /photo|avatar|image/i.test(header);
+    const el = isPhotoCol
+      ? { id: 'el_' + Date.now(), type: 'photo_field', header, x: 12, y: 12, width: 56, height: 64, radius: 4, fit: 'cover' }
+      : { id: 'el_' + Date.now(), type: 'field', header, x: 12, y: 12 + (_admTokenDraft.elements.length * 16) % Math.max(40, (_admTokenDraft.canvas_h || 180) - 24), width: 0, font_size: 10, bold: false, italic: false, align: 'left', color: '#0f172a', show_label: true };
+    _admTokenDraft.elements.push(el);
+    _admTokenSelectedElId = el.id;
     _admTokenRedrawCanvas();
     _admTokenRenderInspector();
   }
   function _admTokenCanvasProp(prop, val) {
     _admTokenDraft[prop] = val;
     const c = document.getElementById('admTokCanvas');
+    const scaler = document.getElementById('admTokCanvasScaler');
+    if (scaler) {
+      scaler.style.width = Math.round((_admTokenDraft.canvas_w || 320) * _admTokenZoom) + 'px';
+      scaler.style.height = Math.round((_admTokenDraft.canvas_h || 180) * _admTokenZoom) + 'px';
+    }
     if (!c) return;
     c.style.width = (_admTokenDraft.canvas_w || 320) + 'px';
     c.style.height = (_admTokenDraft.canvas_h || 180) + 'px';
@@ -34132,37 +34227,51 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (el.type === 'qr') {
         const qrText = _admTokenEvalElement(el, sampleRow);
         const svg = _admTokenMakeQrSvg(qrText, el.size || 64);
-        return `<div data-tok-el="${el.id}" onpointerdown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;cursor:move;user-select:none;${sel}">${svg}</div>`;
+        return `<div data-tok-el="${el.id}" onmousedown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;cursor:move;user-select:none;${sel}">${svg}</div>`;
+      }
+      if (el.type === 'photo_field' || el.type === 'image') {
+        const src = _admTokenEvalElement(el, sampleRow);
+        const w = el.width || 56, h = el.height || 64, rad = el.radius || 0, fit = el.fit || 'cover';
+        const inner = src
+          ? `<img src="${_escHtml(src)}" draggable="false" style="width:100%;height:100%;object-fit:${fit};display:block;border-radius:${rad}px;pointer-events:none;">`
+          : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#e2e8f0;color:#64748b;font-size:8px;font-weight:700;border-radius:${rad}px;">PHOTO</div>`;
+        return `<div data-tok-el="${el.id}" onmousedown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;width:${w}px;height:${h}px;cursor:move;user-select:none;${sel}">${inner}</div>`;
       }
       const txt = _escHtml(_admTokenEvalElement(el, sampleRow)).replace(/\r\n|\r|\n/g, '<br>');
       const wStyle = el.width ? `width:${el.width}px;` : 'white-space:nowrap;';
-      return `<div data-tok-el="${el.id}" onpointerdown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;${wStyle}font-size:${el.font_size || 10}pt;font-weight:${el.bold ? 700 : 400};font-style:${el.italic ? 'italic' : 'normal'};text-align:${el.align || 'left'};color:${_escHtml(el.color || '#0f172a')};line-height:1.25;cursor:move;user-select:none;${sel}">${txt || '&nbsp;'}</div>`;
+      return `<div data-tok-el="${el.id}" onmousedown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;${wStyle}font-size:${el.font_size || 10}pt;font-weight:${el.bold ? 700 : 400};font-style:${el.italic ? 'italic' : 'normal'};text-align:${el.align || 'left'};color:${_escHtml(el.color || '#0f172a')};line-height:1.25;cursor:move;user-select:none;${sel}">${txt || '&nbsp;'}</div>`;
     }).join('');
   }
   function _admTokenStartDrag(evt, elId) {
     evt.preventDefault();
+    evt.stopPropagation();
     _admTokenSelectedElId = elId;
     const el = _admTokenDraft.elements.find(e => e.id === elId);
     const canvas = document.getElementById('admTokCanvas');
     if (!el || !canvas) return;
+    // Update selection outline in-place without wiping canvas.innerHTML so drag never aborts
+    canvas.querySelectorAll('[data-tok-el]').forEach(node => {
+      const active = node.getAttribute('data-tok-el') === elId;
+      node.style.outline = active ? '2px solid #4f46e5' : '1px dashed rgba(148,163,184,0.6)';
+      node.style.outlineOffset = active ? '1px' : '0px';
+    });
     _admTokenRenderInspector();
-    _admTokenRedrawCanvas();
     const startX = evt.clientX, startY = evt.clientY;
     const origX = el.x, origY = el.y;
+    const domEl = canvas.querySelector(`[data-tok-el="${elId}"]`);
     const onMove = (e2) => {
-      el.x = Math.max(0, Math.min((_admTokenDraft.canvas_w || 320) - 16, Math.round(origX + (e2.clientX - startX))));
-      el.y = Math.max(0, Math.min((_admTokenDraft.canvas_h || 180) - 12, Math.round(origY + (e2.clientY - startY))));
-      const domEl = canvas.querySelector(`[data-tok-el="${elId}"]`);
+      el.x = Math.max(0, Math.min((_admTokenDraft.canvas_w || 320) - 16, Math.round(origX + (e2.clientX - startX) / _admTokenZoom)));
+      el.y = Math.max(0, Math.min((_admTokenDraft.canvas_h || 180) - 12, Math.round(origY + (e2.clientY - startY) / _admTokenZoom)));
       if (domEl) { domEl.style.left = el.x + 'px'; domEl.style.top = el.y + 'px'; }
       const xIn = document.getElementById('admTokInspX'); if (xIn) xIn.value = el.x;
       const yIn = document.getElementById('admTokInspY'); if (yIn) yIn.value = el.y;
     };
     const onUp = () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
     };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
   }
   function _admTokenRenderInspector() {
     const box = document.getElementById('admTokInspector');
@@ -34183,6 +34292,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div><label class="text-[9px] text-slate-500 block">Y (px)</label><input id="admTokInspY" type="number" value="${el.y}" oninput="_admTokenUpdateEl('${el.id}','y',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
           <div><label class="text-[9px] text-slate-500 block">QR Size (px)</label><input type="number" min="20" max="240" value="${el.size || 64}" oninput="_admTokenUpdateEl('${el.id}','size',Math.max(20,+this.value||64))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
           <div class="col-span-4"><label class="text-[9px] text-slate-500 block">QR Pattern</label><input value="${_escHtml(el.pattern || '')}" oninput="_admTokenUpdateEl('${el.id}','pattern',this.value)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        </div>`;
+      return;
+    }
+    if (el.type === 'photo_field' || el.type === 'image') {
+      box.innerHTML = `
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-[10px] font-black text-pink-700 uppercase">Selected: ${el.type === 'photo_field' ? `Photo (${_escHtml(el.header)})` : 'Custom Photo / Logo'}</span>
+          <button type="button" onclick="_admTokenDeleteEl('${el.id}')" class="px-2 py-0.5 text-[10px] font-black text-red-500 border border-red-200 rounded">Delete</button>
+        </div>
+        <div class="grid grid-cols-6 gap-1.5 items-end">
+          <div><label class="text-[9px] text-slate-500 block">X (px)</label><input id="admTokInspX" type="number" value="${el.x}" oninput="_admTokenUpdateEl('${el.id}','x',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Y (px)</label><input id="admTokInspY" type="number" value="${el.y}" oninput="_admTokenUpdateEl('${el.id}','y',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Width (px)</label><input type="number" min="16" max="400" value="${el.width || 56}" oninput="_admTokenUpdateEl('${el.id}','width',Math.max(16,+this.value||56))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Height (px)</label><input type="number" min="16" max="400" value="${el.height || 64}" oninput="_admTokenUpdateEl('${el.id}','height',Math.max(16,+this.value||64))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Radius (px)</label><input type="number" min="0" max="200" value="${el.radius || 0}" oninput="_admTokenUpdateEl('${el.id}','radius',Math.max(0,+this.value||0))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div>
+            <label class="text-[9px] text-slate-500 block">Fit</label>
+            <select onchange="_admTokenUpdateEl('${el.id}','fit',this.value)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-[11px]">
+              <option value="cover" ${el.fit !== 'contain' ? 'selected' : ''}>cover</option>
+              <option value="contain" ${el.fit === 'contain' ? 'selected' : ''}>contain</option>
+            </select>
+          </div>
         </div>`;
       return;
     }
@@ -34283,6 +34414,47 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admTokenRedrawCanvas();
     _admTokenRenderInspector();
   }
+  function _admTokenAddPhotoField() {
+    const header = document.getElementById('admTokPhotoPick')?.value;
+    if (!header) return;
+    const el = { id: 'el_' + Date.now(), type: 'photo_field', header, x: 10, y: 10, width: 56, height: 64, radius: 4, fit: 'cover' };
+    _admTokenDraft.elements.push(el);
+    _admTokenSelectedElId = el.id;
+    _admTokenRedrawCanvas();
+    _admTokenRenderInspector();
+  }
+  function _admTokenAddLogo() {
+    const el = { id: 'el_' + Date.now(), type: 'image', src: window.location.origin + '/logo.jpg', x: 10, y: 10, width: 44, height: 44, radius: 4, fit: 'contain' };
+    _admTokenDraft.elements.push(el);
+    _admTokenSelectedElId = el.id;
+    _admTokenRedrawCanvas();
+    _admTokenRenderInspector();
+  }
+  function _admTokenUploadImage(inp) {
+    const file = inp && inp.files && inp.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 320;
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.width * scale));
+        c.height = Math.max(1, Math.round(img.height * scale));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        const dataUrl = c.toDataURL('image/png');
+        const el = { id: 'el_' + Date.now(), type: 'image', src: dataUrl, x: 12, y: 12, width: 56, height: 56, radius: 4, fit: 'contain' };
+        _admTokenDraft.elements.push(el);
+        _admTokenSelectedElId = el.id;
+        _admTokenRedrawCanvas();
+        _admTokenRenderInspector();
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+    inp.value = '';
+  }
   async function _admTokenSave() {
     const name = (document.getElementById('admTokName')?.value || _admTokenDraft.name || '').trim();
     if (!name) { showToast('Enter a template name', 'error'); return; }
@@ -34335,6 +34507,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         if (el.type === 'qr') {
           const svg = _admTokenMakeQrSvg(_admTokenEvalElement(el, row), el.size || 64);
           return `<div style="position:absolute;left:${el.x}px;top:${el.y}px;">${svg}</div>`;
+        }
+        if (el.type === 'photo_field' || el.type === 'image') {
+          const src = _admTokenEvalElement(el, row);
+          if (!src) return '';
+          const w = el.width || 56, h = el.height || 64, rad = el.radius || 0, fit = el.fit || 'cover';
+          return `<img src="${_escHtml(src)}" style="position:absolute;left:${el.x}px;top:${el.y}px;width:${w}px;height:${h}px;object-fit:${fit};border-radius:${rad}px;">`;
         }
         const txt = _escHtml(_admTokenEvalElement(el, row)).replace(/\r\n|\r|\n/g, '<br>');
         const wStyle = el.width ? `width:${el.width}px;` : 'white-space:nowrap;';
