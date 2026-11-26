@@ -930,6 +930,108 @@ export async function POST(req) {
     return NextResponse.json({ success: true, succeeded, failed, total: jobs.length });
   }
 
+  if (action === 'listCandidatesForPhotoSync') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    if (!isFullAdmin) {
+      const perms = await _getCommitteePerms(user_id, circularId);
+      if (!_tabOk(false, perms, 'photos', 'edit') && !_tabOk(false, perms, 'import', 'edit')) return _forbidden();
+    }
+    const overwrite = !!payload.overwrite;
+    const rawMatchField = String(payload.match_field || 'auto').trim() || 'auto';
+    let selectCols;
+    let extraKey = '';
+    if (rawMatchField === 'auto') {
+      selectCols = 'id,token,tracking_id,external_key,student_photo';
+    } else if (rawMatchField.startsWith('extra:')) {
+      extraKey = rawMatchField.slice(6);
+      if (!extraKey) return NextResponse.json({ error: 'Invalid tracking ID field.' });
+      selectCols = 'id,extra_fields,student_photo';
+    } else if (CORE_FIELDS.includes(rawMatchField) || rawMatchField === 'external_key' || rawMatchField === 'tracking_id' || BUILTIN_FORM_FIELD_KEYS.has(rawMatchField)) {
+      selectCols = `id,${rawMatchField},student_photo`;
+    } else {
+      return NextResponse.json({ error: 'Invalid tracking ID field.' });
+    }
+
+    const allRows = [];
+    for (let offset = 0; ; offset += 1000) {
+      const page = await sbAdmission(`admission_applications?circular_id=eq.${circularId}&select=${selectCols}&order=id.asc&limit=1000&offset=${offset}`);
+      if (page?.error) return NextResponse.json({ error: page.error });
+      const arr = Array.isArray(page) ? page : [];
+      allRows.push(...arr);
+      if (arr.length < 1000) break;
+    }
+
+    let already_have_photo = 0;
+    let missing_tracking_id = 0;
+    const items = [];
+    for (const r of allRows) {
+      const hasPhoto = String(r.student_photo || '').trim() !== '';
+      if (hasPhoto) already_have_photo++;
+      let tid = '';
+      if (rawMatchField === 'auto') tid = String(r.token || r.tracking_id || r.external_key || '').trim();
+      else if (extraKey) tid = String((r.extra_fields && r.extra_fields[extraKey]) || '').trim();
+      else tid = String(r[rawMatchField] || '').trim();
+      if (!tid) {
+        missing_tracking_id++;
+        continue;
+      }
+      if (overwrite || !hasPhoto) items.push({ id: r.id, tracking_id: tid });
+    }
+
+    return NextResponse.json({
+      success: true,
+      total_candidates: allRows.length,
+      already_have_photo,
+      missing_tracking_id,
+      items,
+    });
+  }
+
+  if (action === 'syncVortibdPhotosBatch') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    if (!isFullAdmin) {
+      const perms = await _getCommitteePerms(user_id, circularId);
+      if (!_tabOk(false, perms, 'photos', 'edit') && !_tabOk(false, perms, 'import', 'edit')) return _forbidden();
+    }
+    const rawItems = Array.isArray(payload.items) ? payload.items.slice(0, 50) : [];
+    const items = rawItems
+      .map(it => ({ id: parseInt(it && it.id, 10), tracking_id: String((it && it.tracking_id) || '').trim() }))
+      .filter(it => it.id && it.tracking_id);
+
+    const uniqueTids = [...new Set(items.map(it => it.tracking_id))];
+    const photoCache = new Map();
+    for (const part of chunk(uniqueTids, 10)) {
+      const fetched = await Promise.all(part.map(async tid => [tid, await _vortibdFetchAdmitcardPhoto(tid)]));
+      fetched.forEach(([tid, url]) => photoCache.set(tid, url));
+    }
+
+    let synced = 0;
+    let not_found = 0;
+    let failed = 0;
+    const toPatch = [];
+    for (const it of items) {
+      const photoUrl = photoCache.get(it.tracking_id) || '';
+      if (!photoUrl) not_found++;
+      else toPatch.push({ id: it.id, photoUrl });
+    }
+
+    const now = new Date().toISOString();
+    for (const part of chunk(toPatch, 10)) {
+      const results = await Promise.all(part.map(async p => {
+        const res = await sbAdmission(`admission_applications?id=eq.${p.id}&circular_id=eq.${circularId}`, 'PATCH', {
+          student_photo: p.photoUrl,
+          updated_at: now,
+        });
+        return !(res && res.error);
+      }));
+      results.forEach(ok => { if (ok) synced++; else failed++; });
+    }
+
+    return NextResponse.json({ success: true, synced, not_found, failed, processed: items.length });
+  }
+
   // ── Printing ─────────────────────────────────────────────────────────────
   if (action === 'getSignatureSheetData') {
     const roomId = parseInt(payload.room_id, 10);

@@ -50112,6 +50112,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex items-center gap-2 flex-wrap">
             <button onclick="_admCandPullVortibdFile()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase whitespace-nowrap">Pull Now &amp; Map</button>
             <button onclick="_admCandSyncVortibdNow()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase whitespace-nowrap">Manual Sync Now</button>
+            <button id="admCandVortibdSyncPhotosBtn" onclick="_admCandSyncVortibdPhotosOnly('import')" class="px-4 py-2.5 border border-emerald-200 bg-emerald-50 text-emerald-700 rounded-xl text-[10px] font-black uppercase whitespace-nowrap">Sync Photos Only</button>
             <span id="admCandVortibdStatus" class="text-xs text-slate-400"></span>
           </div>
         </div>
@@ -50344,6 +50345,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <p class="text-xs text-slate-400">Upload one folder at a time (e.g. a VortiBD photo export's Applicant / Father / Mother / Local Guardian folders, or any batch of your own) — name each file exactly like "&lt;matched value&gt;.jpg". "Match photos by" lists every field from your saved import mappings, not just Tracking ID.</p>
           <p id="admCandPhotoProgress" class="text-xs text-slate-500 mt-2"></p>
+        </div>
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mt-4">
+          <p class="text-[10px] uppercase text-slate-400 font-bold mb-2">Sync Applicant Photos from VortiBD API</p>
+          <div class="flex items-center gap-3 flex-wrap mb-2">
+            <label class="text-[10px] uppercase text-slate-400 font-bold">Tracking ID field</label>
+            <select id="admCandVortibdPhotoField" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold"></select>
+            <label class="flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer">
+              <input type="checkbox" id="admCandVortibdPhotoOverwrite"> Overwrite existing photos
+            </label>
+            <button id="admCandPhotosSyncBtn" onclick="_admCandSyncVortibdPhotosOnly('photos')" class="px-4 py-2.5 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase whitespace-nowrap">Fetch &amp; Sync Photos Only</button>
+          </div>
+          <p id="admCandVortibdPhotoSyncStatus" class="text-xs text-slate-500 mt-1"></p>
         </div>
       </div>
 
@@ -52385,12 +52398,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return options;
   }
   function _admCandPopulatePhotoMatchFieldOptions() {
-    const sel = document.getElementById('admCandPhotoMatchField');
-    if (!sel) return;
-    const current = sel.value;
     const options = _admCandFieldOptionsFromTemplates();
-    sel.innerHTML = options.map(o => `<option value="${_escHtml(o.value)}">${_escHtml(o.label)}</option>`).join('');
-    if (options.some(o => o.value === current)) sel.value = current;
+    const sel = document.getElementById('admCandPhotoMatchField');
+    if (sel) {
+      const current = sel.value;
+      sel.innerHTML = options.map(o => `<option value="${_escHtml(o.value)}">${_escHtml(o.label)}</option>`).join('');
+      if (options.some(o => o.value === current)) sel.value = current;
+    }
+    const vSel = document.getElementById('admCandVortibdPhotoField');
+    if (vSel) {
+      const vCurrent = vSel.value;
+      const vOpts = [{ value: 'auto', label: 'Auto (Tracking ID / Token)' }, ...options];
+      vSel.innerHTML = vOpts.map(o => `<option value="${_escHtml(o.value)}">${_escHtml(o.label)}</option>`).join('');
+      if (vOpts.some(o => o.value === vCurrent)) vSel.value = vCurrent;
+      else vSel.value = vOpts.some(o => o.value === 'token') ? 'token' : 'auto';
+    }
   }
   function _admCandBulkUploadPhotoJobs(jobs, onProgress) {
     const total = jobs.length;
@@ -52426,6 +52448,80 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       showToast(parts.join(', '), failedNames.length ? 'error' : 'success');
       _admCandLoadList();
     });
+  }
+  let _admCandPhotoSyncRunning = false;
+  async function _admCandSyncVortibdPhotosOnly(source) {
+    if (!_admCandRequireCircular()) return;
+    if (_admCandPhotoSyncRunning) { showToast('Photo sync is already running', 'error'); return; }
+    const isPhotosTab = source === 'photos';
+    const matchField = isPhotosTab ? (document.getElementById('admCandVortibdPhotoField')?.value || 'auto') : 'auto';
+    const overwrite = isPhotosTab ? !!document.getElementById('admCandVortibdPhotoOverwrite')?.checked : false;
+    const statusEl = document.getElementById(isPhotosTab ? 'admCandVortibdPhotoSyncStatus' : 'admCandVortibdStatus');
+    const btnEl = document.getElementById(isPhotosTab ? 'admCandPhotosSyncBtn' : 'admCandVortibdSyncPhotosBtn');
+
+    _admCandPhotoSyncRunning = true;
+    const origBtnText = btnEl ? btnEl.textContent : '';
+    if (btnEl) { btnEl.disabled = true; btnEl.textContent = 'Checking…'; }
+    if (statusEl) statusEl.textContent = 'Checking candidates…';
+
+    try {
+      const listRes = await _admCandFetch('listCandidatesForPhotoSync', {
+        circular_id: _admCandActiveCircularId,
+        match_field: matchField,
+        overwrite,
+      });
+      if (listRes.error) {
+        if (statusEl) statusEl.textContent = listRes.error;
+        showToast(listRes.error, 'error');
+        return;
+      }
+      const items = Array.isArray(listRes.items) ? listRes.items : [];
+      if (!items.length) {
+        const msg = listRes.total_candidates
+          ? `Nothing to sync (${listRes.already_have_photo || 0} of ${listRes.total_candidates} already have photos${listRes.missing_tracking_id ? `, ${listRes.missing_tracking_id} missing Tracking ID` : ''}).`
+          : 'No candidates found in this circular.';
+        if (statusEl) statusEl.textContent = msg;
+        showToast(msg, 'success');
+        return;
+      }
+
+      let done = 0;
+      let synced = 0;
+      let notFound = 0;
+      let failed = 0;
+      const BATCH_SIZE = 25;
+      for (let i = 0; i < items.length; i += BATCH_SIZE) {
+        const batch = items.slice(i, i + BATCH_SIZE);
+        if (btnEl) btnEl.textContent = `Syncing ${done}/${items.length}…`;
+        if (statusEl) statusEl.textContent = `Syncing photos… ${done}/${items.length} (${synced} updated, ${notFound} no photo)`;
+        const batchRes = await _admCandFetch('syncVortibdPhotosBatch', {
+          circular_id: _admCandActiveCircularId,
+          items: batch,
+        });
+        if (batchRes.error) {
+          if (statusEl) statusEl.textContent = batchRes.error;
+          showToast(batchRes.error, 'error');
+          return;
+        }
+        done += batch.length;
+        synced += batchRes.synced || 0;
+        notFound += batchRes.not_found || 0;
+        failed += batchRes.failed || 0;
+      }
+
+      const summary = `Photo sync complete: ${synced} updated, ${notFound} no photo on VortiBD${failed ? `, ${failed} failed` : ''}${listRes.already_have_photo && !overwrite ? ` (${listRes.already_have_photo} skipped — already had photo)` : ''}.`;
+      if (statusEl) statusEl.textContent = summary;
+      showToast(summary, failed ? 'error' : 'success');
+      _admCandLoadList();
+      if (typeof _admRefreshApps === 'function') _admRefreshApps(true);
+    } catch (e) {
+      const msg = (typeof _admVortibdFriendlyError === 'function') ? _admVortibdFriendlyError(e) : (e.message || 'Photo sync failed');
+      if (statusEl) statusEl.textContent = msg;
+      showToast(msg, 'error');
+    } finally {
+      _admCandPhotoSyncRunning = false;
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = origBtnText; }
+    }
   }
 
   // ── Part 10: fully dynamic Scan Options -- replaces the old fixed
