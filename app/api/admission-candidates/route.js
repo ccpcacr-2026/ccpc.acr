@@ -26,6 +26,29 @@ export const maxDuration = 300;
 
 const SB_URL = process.env.SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_KEY;
+const VORTIBD_API = 'https://vortibdliveapi.cloudcampus24.com';
+
+async function _vortibdFetchAdmitcardPhotoDetailed(trackingId) {
+  let id = String(trackingId || '').trim();
+  if (!id) return { url: '', error: 'Empty tracking ID' };
+  const urlMatch = /\/admitcard\/([^/?#]+)/i.exec(id);
+  if (urlMatch) id = urlMatch[1].trim();
+  try {
+    const res = await fetch(`${VORTIBD_API}/api/v1/Profile/admitcard/${encodeURIComponent(id)}`, {
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return { url: '', error: `HTTP ${res.status}` };
+    const json = await res.json().catch(() => null);
+    const raw = json && json.data && json.data.PhotoPathS;
+    return { url: raw ? String(raw).trim().replace(/\\/g, '/') : '', error: null };
+  } catch (err) {
+    return { url: '', error: String((err && err.message) || err || 'Fetch failed') };
+  }
+}
+
+async function _vortibdFetchAdmitcardPhoto(trackingId) {
+  return (await _vortibdFetchAdmitcardPhotoDetailed(trackingId)).url;
+}
 
 async function sbAdmission(path, method = 'GET', body = null, extraHeaders = {}) {
   const res = await fetch(`${SB_URL}/rest/v1/${path}`, {
@@ -1003,18 +1026,30 @@ export async function POST(req) {
     const uniqueTids = [...new Set(items.map(it => it.tracking_id))];
     const photoCache = new Map();
     for (const part of chunk(uniqueTids, 10)) {
-      const fetched = await Promise.all(part.map(async tid => [tid, await _vortibdFetchAdmitcardPhoto(tid)]));
-      fetched.forEach(([tid, url]) => photoCache.set(tid, url));
+      const fetched = await Promise.all(part.map(async tid => [tid, await _vortibdFetchAdmitcardPhotoDetailed(tid)]));
+      fetched.forEach(([tid, result]) => photoCache.set(tid, result));
     }
 
     let synced = 0;
     let not_found = 0;
+    let api_errors = 0;
     let failed = 0;
+    let sample_error = null;
+    let sample_tracking_id = null;
     const toPatch = [];
     for (const it of items) {
-      const photoUrl = photoCache.get(it.tracking_id) || '';
-      if (!photoUrl) not_found++;
-      else toPatch.push({ id: it.id, photoUrl });
+      const result = photoCache.get(it.tracking_id) || { url: '', error: null };
+      if (result.error) {
+        api_errors++;
+        if (!sample_error) {
+          sample_error = result.error;
+          sample_tracking_id = it.tracking_id;
+        }
+      } else if (!result.url) {
+        not_found++;
+      } else {
+        toPatch.push({ id: it.id, photoUrl: result.url });
+      }
     }
 
     const now = new Date().toISOString();
@@ -1029,7 +1064,16 @@ export async function POST(req) {
       results.forEach(ok => { if (ok) synced++; else failed++; });
     }
 
-    return NextResponse.json({ success: true, synced, not_found, failed, processed: items.length });
+    return NextResponse.json({
+      success: true,
+      synced,
+      not_found,
+      api_errors,
+      failed,
+      sample_error,
+      sample_tracking_id,
+      processed: items.length,
+    });
   }
 
   // ── Printing ─────────────────────────────────────────────────────────────
@@ -1393,20 +1437,6 @@ export async function POST(req) {
   // which VortiBD circular feeds which of our circulars, the sync interval,
   // and the saved mapping template to auto-apply are per-circular columns
   // on exam_circulars.
-  const VORTIBD_API = 'https://vortibdliveapi.cloudcampus24.com';
-  async function _vortibdFetchAdmitcardPhoto(trackingId) {
-    const id = String(trackingId || '').trim();
-    if (!id) return '';
-    try {
-      const res = await fetch(`${VORTIBD_API}/api/v1/Profile/admitcard/${encodeURIComponent(id)}`, {
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!res.ok) return '';
-      const json = await res.json().catch(() => null);
-      const raw = json && json.data && json.data.PhotoPathS;
-      return raw ? String(raw).trim().replace(/\\/g, '/') : '';
-    } catch { return ''; }
-  }
   async function _populateVortibdPhotos(rows, trackingField, circularId) {
     if (!Array.isArray(rows) || !rows.length) return;
     const existingPhotos = new Map();

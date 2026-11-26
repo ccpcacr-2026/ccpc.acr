@@ -52488,12 +52488,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       let done = 0;
       let synced = 0;
       let notFound = 0;
+      let apiErrors = 0;
       let failed = 0;
+      let firstError = null;
+      let firstSampleTid = null;
       const BATCH_SIZE = 25;
       for (let i = 0; i < items.length; i += BATCH_SIZE) {
         const batch = items.slice(i, i + BATCH_SIZE);
         if (btnEl) btnEl.textContent = `Syncing ${done}/${items.length}…`;
-        if (statusEl) statusEl.textContent = `Syncing photos… ${done}/${items.length} (${synced} updated, ${notFound} no photo)`;
+        if (statusEl) statusEl.textContent = `Syncing photos… ${done}/${items.length} (${synced} updated, ${notFound} no photo${apiErrors ? `, ${apiErrors} API error` : ''})`;
         const batchRes = await _admCandFetch('syncVortibdPhotosBatch', {
           circular_id: _admCandActiveCircularId,
           items: batch,
@@ -52506,12 +52509,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         done += batch.length;
         synced += batchRes.synced || 0;
         notFound += batchRes.not_found || 0;
+        apiErrors += batchRes.api_errors || 0;
         failed += batchRes.failed || 0;
+        if (!firstError && batchRes.sample_error) {
+          firstError = batchRes.sample_error;
+          firstSampleTid = batchRes.sample_tracking_id || null;
+        }
       }
 
-      const summary = `Photo sync complete: ${synced} updated, ${notFound} no photo on VortiBD${failed ? `, ${failed} failed` : ''}${listRes.already_have_photo && !overwrite ? ` (${listRes.already_have_photo} skipped — already had photo)` : ''}.`;
+      const summaryParts = [`${synced} updated`, `${notFound} no photo on VortiBD`];
+      if (apiErrors) summaryParts.push(`${apiErrors} API error(s): ${firstError || 'unknown'}${firstSampleTid ? ` (e.g. ${firstSampleTid})` : ''}`);
+      if (failed) summaryParts.push(`${failed} failed`);
+      const skippedText = listRes.already_have_photo && !overwrite ? ` (${listRes.already_have_photo} skipped — already had photo)` : '';
+      const summary = `Photo sync complete: ${summaryParts.join(', ')}${skippedText}.`;
       if (statusEl) statusEl.textContent = summary;
-      showToast(summary, failed ? 'error' : 'success');
+      showToast(summary, (failed || apiErrors) ? 'error' : 'success');
       _admCandLoadList();
       if (typeof _admRefreshApps === 'function') _admRefreshApps(true);
     } catch (e) {
