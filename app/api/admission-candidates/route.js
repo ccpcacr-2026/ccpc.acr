@@ -1329,6 +1329,116 @@ export async function POST(req) {
     const { scan_values, scan_dates } = await _applyScanValue(candidateId, optionKey, payload.value);
     return NextResponse.json({ success: true, scan_values, scan_dates });
   }
+  if (action === 'bulkUpdateScanOptionValue') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    const optionKey = String(payload.option_key || '').trim();
+    if (!optionKey) return NextResponse.json({ error: 'Pick a scan option first.' });
+    const ids = Array.isArray(payload.ids) ? [...new Set(payload.ids.map(n => parseInt(n, 10)).filter(Boolean))] : [];
+    if (!ids.length) return NextResponse.json({ error: 'No applicants selected.' });
+    if (ids.length > 5000) return NextResponse.json({ error: 'Select 5000 or fewer applicants at a time.' });
+
+    if (!isFullAdmin) {
+      const perms = await _getCommitteePerms(user_id, circularId);
+      const canBulk = _tabOk(false, perms, 'applications', 'edit')
+        || _tabOk(false, perms, 'candidates', 'edit')
+        || (_tabOk(false, perms, 'scan', 'view') && _scanOk(false, perms, optionKey));
+      if (!canBulk) return _forbidden();
+    }
+
+    const optRows = await sbAdmission(`scan_options?circular_id=eq.${circularId}&key=eq.${encodeURIComponent(optionKey)}&select=id,key,label,behavior,config`);
+    const opt = Array.isArray(optRows) && optRows[0];
+    if (!opt) return NextResponse.json({ error: 'Scan option not found.' });
+
+    const clear = !!payload.clear;
+    const mergeFormFields = payload.merge_form_fields !== false;
+    let cleanValue = payload.value;
+
+    if (!clear) {
+      if (opt.behavior === 'form') {
+        const fields = (opt.config && Array.isArray(opt.config.fields)) ? opt.config.fields : [];
+        const obj = (payload.value && typeof payload.value === 'object' && !Array.isArray(payload.value)) ? payload.value : {};
+        const cleaned = {};
+        for (const [k, v] of Object.entries(obj)) {
+          if (v !== undefined && v !== null && String(v).trim() !== '') cleaned[k] = String(v).trim();
+        }
+        if (!Object.keys(cleaned).length) return NextResponse.json({ error: 'Enter at least one field value to update.' });
+        for (const f of fields) {
+          if (f.input_type !== 'number' || !Number.isFinite(f.max_marks)) continue;
+          const raw = cleaned[f.key];
+          if (raw === undefined) continue;
+          const num = parseFloat(raw);
+          if (!Number.isFinite(num) || num > f.max_marks || num < 0) {
+            return NextResponse.json({ error: `${f.label} must be between 0 and ${f.max_marks}.` });
+          }
+        }
+        cleanValue = cleaned;
+      } else if (opt.behavior === 'tag') {
+        if (cleanValue === undefined || cleanValue === null || (typeof cleanValue === 'string' && !cleanValue.trim())) {
+          return NextResponse.json({ error: 'Enter a tag value.' });
+        }
+        if (typeof cleanValue === 'string') cleanValue = cleanValue.trim();
+      }
+    }
+
+    const existingRows = [];
+    for (const part of chunk(ids, 150)) {
+      const rows = await sbAdmission(`admission_applications?circular_id=eq.${circularId}&id=in.(${part.join(',')})&select=id,scan_values,scan_dates`);
+      if (rows?.error) return NextResponse.json({ error: rows.error });
+      if (Array.isArray(rows)) existingRows.push(...rows);
+    }
+    if (!existingRows.length) return NextResponse.json({ error: 'No matching applicants found in this circular.' });
+
+    const now = new Date().toISOString();
+    const historyRows = [];
+    const patches = existingRows.map(row => {
+      const priorValues = (row.scan_values && typeof row.scan_values === 'object') ? row.scan_values : {};
+      const priorDates = (row.scan_dates && typeof row.scan_dates === 'object') ? row.scan_dates : {};
+      const scan_values = { ...priorValues };
+      const scan_dates = { ...priorDates };
+      let patchBody;
+      if (clear) {
+        delete scan_values[optionKey];
+        delete scan_dates[optionKey];
+        patchBody = { scan_values, scan_dates, updated_at: now };
+        historyRows.push({ candidate_id: row.id, option_key: optionKey, value: null });
+      } else {
+        let finalVal;
+        if (opt.behavior === 'status') {
+          finalVal = { done: true, scanned_at: now };
+        } else if (opt.behavior === 'form' && mergeFormFields) {
+          const prevForm = (priorValues[optionKey] && typeof priorValues[optionKey] === 'object' && !Array.isArray(priorValues[optionKey]))
+            ? priorValues[optionKey]
+            : {};
+          finalVal = { ...prevForm, ...cleanValue };
+        } else {
+          finalVal = cleanValue;
+        }
+        scan_values[optionKey] = finalVal;
+        const priorForKey = Array.isArray(priorDates[optionKey]) ? priorDates[optionKey] : [];
+        scan_dates[optionKey] = [...priorForKey, now];
+        patchBody = { scan_values, scan_dates, last_scanned_at: now, updated_at: now };
+        historyRows.push({ candidate_id: row.id, option_key: optionKey, value: finalVal });
+      }
+      return { id: row.id, body: patchBody };
+    });
+
+    for (const part of chunk(historyRows, 200)) {
+      await sbAdmission('scan_option_history', 'POST', part, { Prefer: 'return=minimal' });
+    }
+
+    let updated = 0;
+    let failed = 0;
+    for (const part of chunk(patches, 10)) {
+      const results = await Promise.all(part.map(async p => {
+        const res = await sbAdmission(`admission_applications?id=eq.${p.id}&circular_id=eq.${circularId}`, 'PATCH', p.body);
+        return !(res && res.error);
+      }));
+      results.forEach(ok => { if (ok) updated++; else failed++; });
+    }
+
+    return NextResponse.json({ success: true, updated, failed, option_key: optionKey, cleared: clear });
+  }
   if (action === 'getScanOptionHistory') {
     const candidateId = parseInt(payload.candidate_id, 10);
     const optionKey = String(payload.option_key || '').trim();

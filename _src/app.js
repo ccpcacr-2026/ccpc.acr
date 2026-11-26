@@ -45296,12 +45296,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div id="admFilterPanel" class="hidden mb-3 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
         <div id="admAppColumnsEditor" class="hidden mb-3 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
         <div id="admDupesPanel" class="hidden mb-3 p-4 bg-slate-50 rounded-2xl border border-slate-200"></div>
-        <div id="adm-bulk-action-bar" class="hidden flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 mb-3">
+        <div id="adm-bulk-action-bar" class="hidden flex flex-wrap items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 mb-3">
           <span id="adm-bulk-count" class="text-xs font-bold text-blue-700">0 selected</span>
           <select id="adm-bulk-status-select" class="px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold" style="width:160px">
             ${ADM_STATUSES.map(s => `<option>${s}</option>`).join('')}
           </select>
           <button onclick="_admApplyBulkStatus()" class="px-3 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest">Set status for selected</button>
+          <button onclick="_admOpenBulkScanModal('applications')" class="px-3 py-2 bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest">Update Scan Value</button>
           <button onclick="_admBulkDeleteSelected()" class="px-3 py-2 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase tracking-widest">Delete Selected</button>
           <button onclick="_admClearBulkSelection()" class="px-3 py-2 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black uppercase tracking-widest">Clear</button>
         </div>
@@ -47040,6 +47041,169 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         _admClearBulkSelection(); _admFilterApps(); _admLoadStats();
       } catch (e) { showToast(e.message || 'Failed', 'error'); }
     });
+  }
+
+  let _admBulkScanCtx = null;
+  async function _admOpenBulkScanModal(source) {
+    const ids = source === 'candidates' ? [..._admCandSelectedIds] : [..._admSelectedIds];
+    if (!ids.length) return;
+    if (!Array.isArray(_admCandScanOptions) || !_admCandScanOptions.length) {
+      try {
+        const res = await _admCandFetch('listScanOptions', { circular_id: _admCandActiveCircularId });
+        if (res && Array.isArray(res.options)) _admCandScanOptions = res.options;
+      } catch (_) {}
+    }
+    const opts = Array.isArray(_admCandScanOptions) ? _admCandScanOptions : [];
+    if (!opts.length) { showToast('No scan options configured for this circular', 'error'); return; }
+    _admBulkScanCtx = { source, ids };
+    _diaryShowSimpleModal(`Update Scan Value (${ids.length} selected)`, `
+      <div class="space-y-3">
+        <div>
+          <label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Scan Option</label>
+          <select id="admBulkScanOption" onchange="_admBulkScanRenderInputs()" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold">
+            ${opts.map(o => `<option value="${_escHtml(o.key)}">${_escHtml(o.label)} (${_escHtml(o.behavior || 'tag')})</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="text-[10px] font-black text-slate-400 uppercase block mb-1">Action</label>
+          <select id="admBulkScanMode" onchange="_admBulkScanRenderInputs()" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold">
+            <option value="set">Set / Update value</option>
+            <option value="clear">Clear / Remove scan value</option>
+          </select>
+        </div>
+        <div id="admBulkScanInputs" class="bg-slate-50 border border-slate-200 rounded-xl p-3"></div>
+        <div class="flex gap-2 pt-1">
+          <button type="button" onclick="document.getElementById('diaryModalWrap')?.remove()" class="px-4 py-2.5 border border-slate-200 rounded-xl text-xs font-black uppercase text-slate-600">Cancel</button>
+          <button type="button" id="admBulkScanApplyBtn" onclick="_admBulkScanSubmit()" class="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-black transition-all">Apply to ${ids.length} selected</button>
+        </div>
+      </div>
+    `);
+    _admBulkScanRenderInputs();
+  }
+  function _admBulkScanRenderInputs() {
+    const host = document.getElementById('admBulkScanInputs');
+    const optKey = document.getElementById('admBulkScanOption')?.value;
+    const mode = document.getElementById('admBulkScanMode')?.value || 'set';
+    const opt = (_admCandScanOptions || []).find(o => o.key === optKey);
+    if (!host || !opt) return;
+    if (mode === 'clear') {
+      host.innerHTML = `<p class="text-xs font-bold text-rose-600">This will remove <b>${_escHtml(opt.label)}</b>'s value and scan timestamps from all selected applicants.</p>`;
+      return;
+    }
+    if (opt.behavior === 'status') {
+      host.innerHTML = `<p class="text-xs text-slate-600">This will mark <b>${_escHtml(opt.label)}</b> as <b>Done</b> with the current timestamp for all selected applicants.</p>`;
+      return;
+    }
+    if (opt.behavior === 'form') {
+      const fields = (opt.config && Array.isArray(opt.config.fields)) ? opt.config.fields : [];
+      if (!fields.length) {
+        host.innerHTML = `<p class="text-xs text-amber-600 font-bold">This form scan option has no fields configured yet.</p>`;
+        return;
+      }
+      host.innerHTML = `
+        <p class="text-[10px] text-slate-500 font-bold mb-2">Leave any field blank to keep each applicant's existing value unchanged.</p>
+        <div class="space-y-2">
+          ${fields.map(f => `
+            <div>
+              <label class="text-[10px] font-black text-slate-500 uppercase block mb-0.5">${_escHtml(f.label)}${f.input_type === 'number' && Number.isFinite(f.max_marks) ? ` (max ${f.max_marks})` : ''}</label>
+              <input data-bulk-scan-field="${_escHtml(f.key)}" type="${f.input_type === 'text' ? 'text' : 'number'}" ${f.input_type === 'number' && Number.isFinite(f.max_marks) ? `min="0" max="${f.max_marks}" step="any"` : ''} placeholder="Leave blank = no change" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+            </div>
+          `).join('')}
+        </div>`;
+      return;
+    }
+    const cfg = opt.config || {};
+    if (cfg.type === 'toggle') {
+      host.innerHTML = `
+        <label class="text-[10px] font-black text-slate-500 uppercase block mb-1">${_escHtml(opt.label)}</label>
+        <select id="admBulkScanTagVal" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          <option value="true">Yes</option>
+          <option value="false">No</option>
+        </select>`;
+      return;
+    }
+    if (cfg.type === 'dropdown') {
+      const choices = Array.isArray(cfg.options) ? cfg.options : [];
+      host.innerHTML = `
+        <label class="text-[10px] font-black text-slate-500 uppercase block mb-1">${_escHtml(opt.label)}</label>
+        <select id="admBulkScanTagVal" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          <option value="">— Pick value —</option>
+          ${choices.map(c => `<option value="${_escHtml(c)}">${_escHtml(c)}</option>`).join('')}
+        </select>`;
+      return;
+    }
+    host.innerHTML = `
+      <label class="text-[10px] font-black text-slate-500 uppercase block mb-1">${_escHtml(opt.label)}</label>
+      <input id="admBulkScanTagVal" type="text" placeholder="Enter value…" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold">`;
+  }
+  async function _admBulkScanSubmit() {
+    if (!_admBulkScanCtx || !_admBulkScanCtx.ids.length) return;
+    const optKey = document.getElementById('admBulkScanOption')?.value;
+    const mode = document.getElementById('admBulkScanMode')?.value || 'set';
+    const opt = (_admCandScanOptions || []).find(o => o.key === optKey);
+    if (!opt) return;
+    const clear = mode === 'clear';
+    let value = null;
+    if (!clear) {
+      if (opt.behavior === 'status') {
+        value = { done: true };
+      } else if (opt.behavior === 'form') {
+        const fields = (opt.config && Array.isArray(opt.config.fields)) ? opt.config.fields : [];
+        const obj = {};
+        for (const f of fields) {
+          const inp = document.querySelector(`[data-bulk-scan-field="${CSS.escape(f.key)}"]`);
+          const raw = inp ? inp.value.trim() : '';
+          if (raw === '') continue;
+          if (f.input_type === 'number') {
+            const num = parseFloat(raw);
+            if (!Number.isFinite(num) || num < 0 || (Number.isFinite(f.max_marks) && num > f.max_marks)) {
+              showToast(`${f.label} must be between 0 and ${Number.isFinite(f.max_marks) ? f.max_marks : '∞'}`, 'error');
+              return;
+            }
+          }
+          obj[f.key] = raw;
+        }
+        if (!Object.keys(obj).length) { showToast('Enter at least one field value', 'error'); return; }
+        value = obj;
+      } else {
+        const cfg = opt.config || {};
+        const raw = document.getElementById('admBulkScanTagVal')?.value;
+        if (cfg.type === 'toggle') {
+          value = raw === 'true' ? true : 'No';
+        } else {
+          const trimmed = String(raw || '').trim();
+          if (!trimmed) { showToast('Enter or pick a value', 'error'); return; }
+          value = trimmed;
+        }
+      }
+    }
+
+    const btn = document.getElementById('admBulkScanApplyBtn');
+    const origText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Updating…'; }
+    try {
+      const res = await _admCandFetch('bulkUpdateScanOptionValue', {
+        circular_id: _admCandActiveCircularId,
+        ids: _admBulkScanCtx.ids,
+        option_key: optKey,
+        clear,
+        value,
+        merge_form_fields: true,
+      });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      document.getElementById('diaryModalWrap')?.remove();
+      const count = res.updated || _admBulkScanCtx.ids.length;
+      showToast(`${clear ? 'Cleared' : 'Updated'} "${opt.label}" for ${count} applicant(s)${res.failed ? ` (${res.failed} failed)` : ''}`, res.failed ? 'error' : 'success');
+      if (_admBulkScanCtx.source === 'candidates') _admCandClearSelection();
+      else _admClearBulkSelection();
+      _admBulkScanCtx = null;
+      if (typeof _admRefreshApps === 'function') _admRefreshApps(true);
+      _admCandLoadList();
+    } catch (e) {
+      showToast(e.message || 'Failed', 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = origText; }
+    }
   }
 
   // ── Duplicate value finder ───────────────────────────────────────────────
@@ -50167,9 +50331,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="_admCandExportCsvConfigureColumns()" title="Choose which columns Export CSV includes" class="flex items-center gap-1.5 px-3 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50"><i data-lucide="sliders-horizontal" class="h-3.5 w-3.5"></i> Columns</button>
           <button onclick="_admCandOpenExportTemplates()" title="Named, server-saved export templates with column merging and print formatting" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50"><i data-lucide="layout-template" class="h-3.5 w-3.5"></i> Templates</button>
         </div>
-        <div id="admCandBulkBar" class="hidden flex items-center gap-2 bg-rose-50 border border-rose-200 rounded-xl px-4 py-2.5 mb-3">
+        <div id="admCandBulkBar" class="hidden flex flex-wrap items-center gap-2 bg-rose-50 border border-rose-200 rounded-xl px-4 py-2.5 mb-3">
           <span id="admCandBulkCount" class="text-xs font-bold text-rose-700">0 selected</span>
-          <button onclick="_admCandDeleteSelected()" class="ml-auto px-3 py-2 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase">Delete Selected</button>
+          <button onclick="_admOpenBulkScanModal('candidates')" class="ml-auto px-3 py-2 bg-indigo-600 text-white rounded-lg text-[10px] font-black uppercase">Update Scan Value</button>
+          <button onclick="_admCandDeleteSelected()" class="px-3 py-2 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase">Delete Selected</button>
           <button onclick="_admCandClearSelection()" class="px-3 py-2 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black uppercase">Clear</button>
         </div>
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-x-auto">
