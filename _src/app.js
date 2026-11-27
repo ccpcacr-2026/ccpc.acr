@@ -54908,6 +54908,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _admSpRooms = [];
   let _admSpSchedules = [];
   let _admSpActiveSchedId = null;
+  let _admSpRoomLayouts = {};
+  let _admSpLayoutsDirty = false;
+  let _admSpActiveRoomId = null;
+  let _admSpLayShowAllRooms = false;
+  let _admSpLayMode = 'view'; // 'view' | 'design'
+  let _admSpLaySwapSeat = null;
+  let _admSpLayLabelField = '';
+  let _admSpLayShowName = true;
+  let _admSpLayShowClass = true;
+  let _admSpLayPrintOrient = 'auto'; // 'auto' | 'portrait' | 'landscape'
   let _admSpCustomCols = [];
   let _admSpScanOptions = [];
   let _admSpSmsConfig = { api_key: '', sender_id: '8809617611050', has_api_key: false };
@@ -55201,6 +55211,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admSpRooms = (res.rooms || []).slice().sort((a, b) => String(a.room_name || '').localeCompare(String(b.room_name || ''), undefined, { numeric: true }));
       _admCandRooms = _admSpRooms.slice();
       _admSpSchedules = Array.isArray(res.schedules) ? res.schedules : [];
+      _admSpRoomLayouts = (res.room_layouts && typeof res.room_layouts === 'object') ? res.room_layouts : {};
+      _admSpLayoutsDirty = false;
       _admSpCustomCols = Array.isArray(res.custom_columns) ? res.custom_columns : [];
       _admSpScanOptions = Array.isArray(res.scan_options) ? res.scan_options : [];
       _admSpSmsConfig = res.sms_config || { api_key: '', sender_id: '8809617611050', has_api_key: false };
@@ -55408,6 +55420,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         overbookedRoom: !!rState && roomFreeAfter < 0,
         overCriteria: !!crit && critRemAfter < 0,
       };
+    });
+
+    // Arrange seats inside each room according to its physical Room Layout & Multi-Class Mix mode
+    Object.keys(byRoom).forEach(ridStr => {
+      const rid = parseInt(ridStr, 10);
+      const rs = roomStates[rid];
+      if (!rs) return;
+      const layout = _admSpGetRoomLayout(rid, rs.capacity);
+      const mixCfg = (sched.room_mix && sched.room_mix[rid]) || { mode: 'sequential', col_map: {}, swaps: [] };
+      const arranged = _admSpArrangeRoomEntries(byRoom[rid], layout, mixCfg);
+      byRoom[rid] = arranged.entries;
+      rs.layout = layout;
+      rs.layoutSlots = arranged.slots;
+      rs.slotMap = arranged.slotMap;
+      rs.overflowEntries = arranged.overflowEntries;
+      rs.groupMeta = arranged.groupMeta;
     });
 
     // Building totals summary
@@ -56241,6 +56269,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <td class="px-2 py-1.5 font-mono text-[11px] font-bold text-slate-700 whitespace-nowrap" data-sp-row-idx="${r.idx}">${r.actualCount ? `${_escHtml(r.startIdx)} → ${_escHtml(r.endIdx)}` : '—'}</td>
           <td class="px-2 py-1.5 text-center font-mono text-[11px] whitespace-nowrap" data-sp-row-cleft="${r.idx}">${critLeftBadge}</td>
           <td class="px-2 py-1.5 text-right whitespace-nowrap">
+            ${r.roomId ? `<button type="button" onclick="_admSpLayOpenRoom(${r.roomId})" class="px-1.5 py-0.5 bg-indigo-50 hover:bg-indigo-600 hover:text-white text-indigo-700 rounded text-[10px] font-black mr-1" title="View / Design Room Layout & Mix">🪑</button>` : ''}
             ${_admSpCanEdit ? `
               <button type="button" onclick="_admSpRowMove(${r.idx}, -1)" ${r.idx === 0 ? 'disabled' : ''} class="px-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 text-xs" title="Move up">↑</button>
               <button type="button" onclick="_admSpRowMove(${r.idx}, 1)" ${r.idx === comp.rows.length - 1 ? 'disabled' : ''} class="px-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 text-xs" title="Move down">↓</button>
@@ -56500,7 +56529,25 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
           </div>
 
-          <!-- 7. Written Copy Top Page Coder (Linked to shared Top Page Designer popup) -->
+          <!-- 7. Visual Architectural Room Layout Maps (Room-wise) -->
+          <div class="bg-white rounded-2xl shadow-sm border border-emerald-200 p-5 flex flex-col justify-between gap-3 md:col-span-2 lg:col-span-3">
+            <div class="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[9px] font-black uppercase">Visual Room Layout</span>
+                  <span class="text-[10px] font-bold text-slate-400">Attractive Architectural Floor Plan (1 Page / Room)</span>
+                </div>
+                <h4 class="font-black text-slate-800 text-sm">Room-wise Visual Seat Plan Layout Print</h4>
+                <p class="text-xs text-slate-400 mt-0.5">Prints each room's custom column/row bench layout, aisles, doors, whiteboard, color-coded class/version mix, seat numbers &amp; IDs — ready to hang on exam room doors.</p>
+              </div>
+              <div class="flex items-center gap-2 flex-wrap shrink-0">
+                <button type="button" onclick="_admSpSetSubView('layout')" class="px-4 py-2.5 border border-emerald-300 text-emerald-700 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-50">🪑 Open Layout Designer</button>
+                <button type="button" onclick="_admSpLayPrintRoomMap('ALL')" class="px-5 py-2.5 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all">Print All Room Layouts</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 8. Written Copy Top Page Coder (Linked to shared Top Page Designer popup) -->
           <div class="bg-white rounded-2xl shadow-sm border border-indigo-200 p-5 flex flex-col justify-between gap-3 md:col-span-2 lg:col-span-3">
             <div class="flex items-center justify-between flex-wrap gap-3">
               <div>
@@ -56516,6 +56563,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
       `;
+    } else if (_admSpActiveSubView === 'layout') {
+      bodyHtml = _admSpRenderLayoutDesignerHtml(sched, comp);
     } else if (_admSpActiveSubView === 'sms') {
       bodyHtml = _admSpRenderSmsPanelHtml(sched, comp);
     }
@@ -56609,9 +56658,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div><span class="text-[9px] uppercase font-black text-slate-400 block">Unseated Left</span><span id="admSpKpiRemaining" class="text-base font-black ${comp.totalRemaining === 0 ? 'text-emerald-600' : 'text-amber-600'}">${comp.totalRemaining}</span></div>
             <div><span class="text-[9px] uppercase font-black text-slate-400 block">Rooms Used</span><span id="admSpKpiRooms" class="text-base font-black text-slate-700">${Object.keys(comp.byRoom).length}</span></div>
           </div>
-          <div class="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl">
+          <div class="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl flex-wrap">
             <button type="button" onclick="_admSpSetSubView('planner')" class="px-3 py-1.5 rounded-lg text-[11px] font-black transition-all ${_admSpActiveSubView === 'planner' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}">Live Planner</button>
-            <button type="button" onclick="_admSpSetSubView('outputs')" class="px-3 py-1.5 rounded-lg text-[11px] font-black transition-all ${_admSpActiveSubView === 'outputs' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}">6 Print Sheets &amp; Excel</button>
+            <button type="button" onclick="_admSpSetSubView('layout')" class="px-3 py-1.5 rounded-lg text-[11px] font-black transition-all ${_admSpActiveSubView === 'layout' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}">🪑 Room Layout</button>
+            <button type="button" onclick="_admSpSetSubView('outputs')" class="px-3 py-1.5 rounded-lg text-[11px] font-black transition-all ${_admSpActiveSubView === 'outputs' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}">Print Sheets &amp; Excel</button>
             <button type="button" onclick="_admSpSetSubView('sms')" class="px-3 py-1.5 rounded-lg text-[11px] font-black transition-all ${_admSpActiveSubView === 'sms' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}">Bulk SMS <span class="ml-1 px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[9px]">${smsSentCount}/${seatedCount}</span></button>
           </div>
         </div>
@@ -56619,6 +56669,1035 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
       ${bodyHtml}
     `;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // ROOM SEAT PLAN LAYOUT DESIGNER, MULTI-CLASS MIXER & VISUAL MAP PRINT
+  // ══════════════════════════════════════════════════════════════════════════
+  const ADM_SP_GROUP_PALETTE = [
+    { bg: '#eff6ff', border: '#2563eb', text: '#1e40af', pillBg: '#dbeafe' }, // Blue
+    { bg: '#ecfdf5', border: '#059669', text: '#065f46', pillBg: '#d1fae5' }, // Emerald
+    { bg: '#fffbeb', border: '#d97706', text: '#92400e', pillBg: '#fef3c7' }, // Amber
+    { bg: '#f5f3ff', border: '#7c3aed', text: '#5b21b6', pillBg: '#ede9fe' }, // Purple
+    { bg: '#fff1f2', border: '#e11d48', text: '#9f1239', pillBg: '#ffe4e6' }, // Rose
+    { bg: '#ecfeff', border: '#0891b2', text: '#155e75', pillBg: '#cffafe' }, // Cyan
+    { bg: '#fff7ed', border: '#ea580c', text: '#9a3412', pillBg: '#ffedd5' }, // Orange
+    { bg: '#eef2ff', border: '#4f46e5', text: '#3730a3', pillBg: '#e0e7ff' }, // Indigo
+  ];
+  const ADM_SP_FIXTURE_META = {
+    door:   { icon: '🚪', label: 'Door',          bg: '#fef3c7', border: '#d97706', text: '#92400e' },
+    window: { icon: '🪟', label: 'Window',        bg: '#e0f2fe', border: '#0284c7', text: '#075985' },
+    board:  { icon: '📋', label: 'Whiteboard',    bg: '#1e293b', border: '#0f172a', text: '#ffffff' },
+    desk:   { icon: '🧑‍🏫', label: "Teacher's Desk", bg: '#f1f5f9', border: '#475569', text: '#1e293b' },
+    pillar: { icon: '🏛', label: 'Pillar / Note', bg: '#fce7f3', border: '#db2777', text: '#9d174d' },
+  };
+  const ADM_SP_MIX_MODES = [
+    ['sequential',   'Sequential (Block by Block)'],
+    ['by_column',    'Column by Column (with per-col override)'],
+    ['odd_even',     'Odd / Even Positioner'],
+    ['alternate',    'Alternating / Round-Robin (2, 3, 4+ classes)'],
+    ['checkerboard', '2D Checkerboard (Diagonal Anti-Cheat)'],
+  ];
+  const ADM_SP_FILL_ORDERS = [
+    ['col_tb',    'Column: Top → Bottom'],
+    ['col_snake', 'Column: Zig-Zag (Snake)'],
+    ['row_lr',    'Row: Left → Right'],
+    ['row_snake', 'Row: Zig-Zag (Snake)'],
+  ];
+
+  function _admSpDefaultRoomLayout(capacity) {
+    const cap = Math.max(1, parseInt(capacity, 10) || 30);
+    const numCols = cap <= 24 ? 3 : (cap <= 42 ? 4 : (cap <= 60 ? 5 : 6));
+    const base = Math.floor(cap / numCols);
+    const extra = cap % numCols;
+    const columns = [];
+    for (let c = 0; c < numCols; c++) {
+      const aisleAfter = (numCols === 4 && c === 1) || (numCols === 5 && (c === 1 || c === 3)) || (numCols === 6 && (c === 1 || c === 3));
+      columns.push({ label: `Col ${c + 1}`, rows: Math.max(1, base + (c < extra ? 1 : 0)), aisle_after: aisleAfter });
+    }
+    return {
+      columns,
+      disabled: [],
+      fill_order: 'col_tb',
+      fixtures: [
+        { id: 'fx_board', type: 'board', wall: 'top', pos: 45, label: 'Whiteboard / Front' },
+        { id: 'fx_desk',  type: 'desk',  wall: 'top', pos: 84, label: "Teacher's Desk" },
+        { id: 'fx_door',  type: 'door',  wall: 'left', pos: 14, label: 'Main Door' },
+      ],
+    };
+  }
+  function _admSpGetRoomLayout(roomId, capacity) {
+    const saved = _admSpRoomLayouts && _admSpRoomLayouts[String(roomId)];
+    if (saved && Array.isArray(saved.columns) && saved.columns.length) {
+      return {
+        columns: saved.columns.map((col, i) => ({
+          label: col.label || `Col ${i + 1}`,
+          rows: Math.max(0, parseInt(col.rows, 10) || 0),
+          aisle_after: !!col.aisle_after,
+        })),
+        disabled: Array.isArray(saved.disabled) ? saved.disabled.slice() : [],
+        fill_order: saved.fill_order || 'col_tb',
+        fixtures: Array.isArray(saved.fixtures) ? saved.fixtures.map(f => ({ ...f })) : [],
+      };
+    }
+    return _admSpDefaultRoomLayout(capacity);
+  }
+  function _admSpEnsureEditableLayout(roomId) {
+    const room = _admSpRooms.find(r => r.id === roomId);
+    const key = String(roomId);
+    if (!_admSpRoomLayouts[key] || !Array.isArray(_admSpRoomLayouts[key].columns)) {
+      _admSpRoomLayouts[key] = _admSpDefaultRoomLayout(room ? room.capacity : 30);
+    }
+    return _admSpRoomLayouts[key];
+  }
+  function _admSpEnsureRoomMix(sched, roomId) {
+    if (!sched.room_mix || typeof sched.room_mix !== 'object') sched.room_mix = {};
+    const key = String(roomId);
+    if (!sched.room_mix[key]) sched.room_mix[key] = { mode: 'sequential', col_map: {}, swaps: [] };
+    if (!sched.room_mix[key].col_map) sched.room_mix[key].col_map = {};
+    if (!Array.isArray(sched.room_mix[key].swaps)) sched.room_mix[key].swaps = [];
+    return sched.room_mix[key];
+  }
+  function _admSpGetLayoutSlots(layout) {
+    const cols = layout.columns || [];
+    const dis = new Set(layout.disabled || []);
+    const order = layout.fill_order || 'col_tb';
+    const maxRows = cols.reduce((m, c) => Math.max(m, parseInt(c.rows, 10) || 0), 0);
+    const slots = [];
+    const pushIfActive = (c, r) => {
+      if (r >= (parseInt(cols[c]?.rows, 10) || 0)) return;
+      if (dis.has(`${c}:${r}`)) return;
+      slots.push({ slotIdx: slots.length, seatNo: slots.length + 1, col: c, row: r });
+    };
+    if (order === 'col_tb') {
+      for (let c = 0; c < cols.length; c++) for (let r = 0; r < (cols[c].rows || 0); r++) pushIfActive(c, r);
+    } else if (order === 'col_snake') {
+      for (let c = 0; c < cols.length; c++) {
+        const len = cols[c].rows || 0;
+        if (c % 2 === 0) for (let r = 0; r < len; r++) pushIfActive(c, r);
+        else for (let r = len - 1; r >= 0; r--) pushIfActive(c, r);
+      }
+    } else if (order === 'row_lr') {
+      for (let r = 0; r < maxRows; r++) for (let c = 0; c < cols.length; c++) pushIfActive(c, r);
+    } else if (order === 'row_snake') {
+      for (let r = 0; r < maxRows; r++) {
+        if (r % 2 === 0) for (let c = 0; c < cols.length; c++) pushIfActive(c, r);
+        else for (let c = cols.length - 1; c >= 0; c--) pushIfActive(c, r);
+      }
+    }
+    return slots;
+  }
+
+  // Multi-class / multi-version seating arranger (supports 1, 2, 3, 4+ classes!)
+  function _admSpArrangeRoomEntries(rawEntries, layout, mixCfg) {
+    const slots = _admSpGetLayoutSlots(layout);
+    const groupOrder = [];
+    const groupQueues = {};
+    const groupMeta = [];
+    rawEntries.forEach(e => {
+      if (!groupQueues[e.crit_key]) {
+        const gIdx = groupOrder.length;
+        groupOrder.push(e.crit_key);
+        groupQueues[e.crit_key] = [];
+        groupMeta.push({
+          idx: gIdx,
+          critKey: e.crit_key,
+          label: e.crit_label || _admSpCritLabel(e.cls, e.version, e.category),
+          cls: e.cls, version: e.version, category: e.category,
+          count: 0,
+          firstId: e.display_id,
+          lastId: e.display_id,
+          palette: ADM_SP_GROUP_PALETTE[gIdx % ADM_SP_GROUP_PALETTE.length],
+        });
+      }
+      const gm = groupMeta[groupOrder.indexOf(e.crit_key)];
+      gm.count++;
+      gm.lastId = e.display_id;
+      groupQueues[e.crit_key].push(e);
+    });
+    const M = groupOrder.length;
+    const mode = (mixCfg && mixCfg.mode) || 'sequential';
+    const colMap = (mixCfg && mixCfg.col_map) || {};
+    const queues = groupOrder.map(k => groupQueues[k].slice());
+    const popFrom = (gi) => (gi >= 0 && gi < M && queues[gi].length) ? queues[gi].shift() : null;
+    const popAny = (startIdx) => {
+      for (let step = 0; step < M; step++) {
+        const gi = ((startIdx || 0) + step) % M;
+        if (queues[gi].length) return queues[gi].shift();
+      }
+      return null;
+    };
+
+    const placed = new Array(slots.length).fill(null);
+
+    if (M <= 1 || mode === 'sequential') {
+      const flat = [];
+      queues.forEach(q => flat.push(...q));
+      for (let i = 0; i < slots.length && i < flat.length; i++) placed[i] = flat[i];
+      queues.forEach(q => { q.length = 0; });
+      if (flat.length > slots.length) queues[0] = flat.slice(slots.length);
+    } else if (mode === 'alternate') {
+      let ptr = 0;
+      for (let i = 0; i < slots.length; i++) {
+        const chosen = popAny(ptr);
+        if (!chosen) break;
+        const chosenGi = groupOrder.indexOf(chosen.crit_key);
+        placed[i] = chosen;
+        ptr = (chosenGi + 1) % M;
+      }
+    } else if (mode === 'odd_even') {
+      const oddGroups = [], evenGroups = [];
+      for (let gi = 0; gi < M; gi++) { if (gi % 2 === 0) oddGroups.push(gi); else evenGroups.push(gi); }
+      let oddPtr = 0, evenPtr = 0;
+      const popParity = (arr, isOdd) => {
+        for (let s = 0; s < arr.length; s++) {
+          const p = isOdd ? ((oddPtr + s) % arr.length) : ((evenPtr + s) % arr.length);
+          const item = popFrom(arr[p]);
+          if (item) {
+            if (isOdd) oddPtr = (p + 1) % arr.length; else evenPtr = (p + 1) % arr.length;
+            return item;
+          }
+        }
+        return null;
+      };
+      // Pass 1: honor odd/even slots
+      for (let i = 0; i < slots.length; i++) {
+        const isOdd = (slots[i].seatNo % 2 === 1);
+        const item = popParity(isOdd ? oddGroups : evenGroups, isOdd);
+        if (item) placed[i] = item;
+      }
+      // Pass 2: fill any remaining open slots with leftovers
+      for (let i = 0; i < slots.length; i++) {
+        if (!placed[i]) { const item = popAny(i); if (!item) break; placed[i] = item; }
+      }
+    } else if (mode === 'checkerboard') {
+      // Pass 1: assign each (col, row) its diagonal target group (col + row) % M
+      for (let i = 0; i < slots.length; i++) {
+        const targetGi = (slots[i].col + slots[i].row) % M;
+        const item = popFrom(targetGi);
+        if (item) placed[i] = item;
+      }
+      // Pass 2: fill remaining empty slots avoiding same group as immediate left/top neighbor when possible
+      const gridByCR = {};
+      for (let i = 0; i < slots.length; i++) if (placed[i]) gridByCR[`${slots[i].col}:${slots[i].row}`] = placed[i].crit_key;
+      for (let i = 0; i < slots.length; i++) {
+        if (placed[i]) continue;
+        const leftK = gridByCR[`${slots[i].col - 1}:${slots[i].row}`];
+        const topK = gridByCR[`${slots[i].col}:${slots[i].row - 1}`];
+        let picked = null;
+        for (let gi = 0; gi < M; gi++) {
+          if (queues[gi].length && groupOrder[gi] !== leftK && groupOrder[gi] !== topK) { picked = queues[gi].shift(); break; }
+        }
+        if (!picked) picked = popAny(i);
+        if (!picked) break;
+        placed[i] = picked;
+        gridByCR[`${slots[i].col}:${slots[i].row}`] = picked.crit_key;
+      }
+    } else if (mode === 'by_column') {
+      // Pass 1: fill each column using explicit col_map[col] or cycling col % M
+      for (let i = 0; i < slots.length; i++) {
+        const c = slots[i].col;
+        const explicitKey = colMap[String(c)];
+        let targetGi = explicitKey ? groupOrder.indexOf(explicitKey) : (c % M);
+        if (targetGi < 0) targetGi = c % M;
+        const item = popFrom(targetGi);
+        if (item) placed[i] = item;
+      }
+      // Pass 2: spill any leftover students into remaining empty slots
+      for (let i = 0; i < slots.length; i++) {
+        if (!placed[i]) { const item = popAny(slots[i].col); if (!item) break; placed[i] = item; }
+      }
+    }
+
+    // Apply any manual seat swaps recorded by user
+    const swaps = Array.isArray(mixCfg?.swaps) ? mixCfg.swaps : [];
+    swaps.forEach(([sA, sB]) => {
+      const iA = sA - 1, iB = sB - 1;
+      if (iA >= 0 && iB >= 0 && iA < placed.length && iB < placed.length) {
+        const tmp = placed[iA]; placed[iA] = placed[iB]; placed[iB] = tmp;
+      }
+    });
+
+    const slotMap = {};
+    const finalEntries = [];
+    for (let i = 0; i < slots.length; i++) {
+      const e = placed[i];
+      if (!e) continue;
+      e.seat_no = slots[i].seatNo;
+      e.layout_col = slots[i].col;
+      e.layout_row = slots[i].row;
+      e.group_idx = groupOrder.indexOf(e.crit_key);
+      slotMap[`${slots[i].col}:${slots[i].row}`] = e;
+      finalEntries.push(e);
+    }
+    // Any overflow students (if room layout has fewer active desks than students assigned)
+    const overflowEntries = [];
+    let nextSeat = slots.length + 1;
+    queues.forEach(q => {
+      q.forEach(e => {
+        e.seat_no = nextSeat++;
+        e.layout_col = -1;
+        e.layout_row = -1;
+        e.group_idx = groupOrder.indexOf(e.crit_key);
+        overflowEntries.push(e);
+        finalEntries.push(e);
+      });
+    });
+
+    return { entries: finalEntries, slots, slotMap, overflowEntries, groupMeta };
+  }
+
+  // ── Layout Designer Event Handlers ────────────────────────────────────────
+  function _admSpLayOpenRoom(roomId) {
+    _admSpActiveRoomId = parseInt(roomId, 10) || null;
+    _admSpLaySwapSeat = null;
+    _admSpActiveSubView = 'layout';
+    _admSpRenderStudio();
+  }
+  function _admSpLayToggleShowAllRooms(checked) {
+    _admSpLayShowAllRooms = !!checked;
+    _admSpRenderStudio();
+  }
+  function _admSpLaySetMode(mode) {
+    _admSpLayMode = mode === 'design' ? 'design' : 'view';
+    _admSpLaySwapSeat = null;
+    _admSpRenderStudio();
+  }
+  function _admSpLaySetFillOrder(val) {
+    if (!_admSpActiveRoomId || !_admSpCanEdit) return;
+    const lay = _admSpEnsureEditableLayout(_admSpActiveRoomId);
+    lay.fill_order = val || 'col_tb';
+    _admSpLayoutsDirty = true;
+    _admSpRenderStudio();
+  }
+  function _admSpLaySetMixMode(val) {
+    const sched = _admSpActiveSchedule();
+    if (!sched || !_admSpActiveRoomId || !_admSpCanEdit) return;
+    const mix = _admSpEnsureRoomMix(sched, _admSpActiveRoomId);
+    mix.mode = val || 'sequential';
+    mix.swaps = [];
+    _admSpLaySwapSeat = null;
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+  }
+  function _admSpLayApplyMixToAll() {
+    const sched = _admSpActiveSchedule();
+    if (!sched || !_admSpActiveRoomId || !_admSpCanEdit) return;
+    const comp = _admSpCompute(sched);
+    const curMix = _admSpEnsureRoomMix(sched, _admSpActiveRoomId);
+    let count = 0;
+    Object.keys(comp.byRoom).forEach(ridStr => {
+      const rs = comp.roomStates[ridStr];
+      if (rs && rs.slices && rs.slices.length > 1) {
+        const m = _admSpEnsureRoomMix(sched, parseInt(ridStr, 10));
+        m.mode = curMix.mode;
+        m.swaps = [];
+        count++;
+      }
+    });
+    if (!count) { showToast('No multi-group shared rooms found in this exam schedule', 'error'); return; }
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+    showToast(`Applied "${curMix.mode}" mix mode to all ${count} multi-group room(s)`, 'success');
+  }
+  function _admSpLaySetColMixGroup(colIdx, critKey) {
+    const sched = _admSpActiveSchedule();
+    if (!sched || !_admSpActiveRoomId || !_admSpCanEdit) return;
+    const mix = _admSpEnsureRoomMix(sched, _admSpActiveRoomId);
+    if (critKey) mix.col_map[String(colIdx)] = critKey;
+    else delete mix.col_map[String(colIdx)];
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+  }
+  function _admSpLayResetSwaps() {
+    const sched = _admSpActiveSchedule();
+    if (!sched || !_admSpActiveRoomId || !_admSpCanEdit) return;
+    const mix = _admSpEnsureRoomMix(sched, _admSpActiveRoomId);
+    mix.swaps = [];
+    _admSpLaySwapSeat = null;
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+    showToast('Manual seat swaps cleared', 'success');
+  }
+  function _admSpLayAddColumn() {
+    if (!_admSpActiveRoomId || !_admSpCanEdit) return;
+    const lay = _admSpEnsureEditableLayout(_admSpActiveRoomId);
+    const prevRows = lay.columns.length ? lay.columns[lay.columns.length - 1].rows : 8;
+    lay.columns.push({ label: `Col ${lay.columns.length + 1}`, rows: prevRows || 8, aisle_after: false });
+    _admSpLayoutsDirty = true;
+    _admSpRenderStudio();
+  }
+  function _admSpLayRemoveColumn(colIdx) {
+    if (!_admSpActiveRoomId || !_admSpCanEdit) return;
+    const lay = _admSpEnsureEditableLayout(_admSpActiveRoomId);
+    if (lay.columns.length <= 1) { showToast('Keep at least one column', 'error'); return; }
+    lay.columns.splice(colIdx, 1);
+    lay.disabled = (lay.disabled || []).filter(k => parseInt(k.split(':')[0], 10) !== colIdx)
+      .map(k => { const [c, r] = k.split(':').map(Number); return `${c > colIdx ? c - 1 : c}:${r}`; });
+    _admSpLayoutsDirty = true;
+    _admSpRenderStudio();
+  }
+  function _admSpLayUpdateColumn(colIdx, prop, val) {
+    if (!_admSpActiveRoomId || !_admSpCanEdit) return;
+    const lay = _admSpEnsureEditableLayout(_admSpActiveRoomId);
+    if (!lay.columns[colIdx]) return;
+    if (prop === 'rows') lay.columns[colIdx].rows = Math.max(0, Math.min(30, parseInt(val, 10) || 0));
+    else if (prop === 'aisle_after') lay.columns[colIdx].aisle_after = !!val;
+    else lay.columns[colIdx][prop] = String(val || '');
+    _admSpLayoutsDirty = true;
+    _admSpRenderStudio();
+  }
+  function _admSpLayApplyPreset(preset) {
+    if (!_admSpActiveRoomId || !_admSpCanEdit) return;
+    const room = _admSpRooms.find(r => r.id === _admSpActiveRoomId);
+    const sched = _admSpActiveSchedule();
+    const comp = _admSpCompute(sched);
+    const targetSeats = Math.max(room ? room.capacity : 0, (comp.byRoom[_admSpActiveRoomId] || []).length) || 30;
+    const lay = _admSpEnsureEditableLayout(_admSpActiveRoomId);
+    let numCols = 4, aisles = [1], fillOrder = 'col_tb';
+    if (preset === '3col_row') { numCols = 3; aisles = []; fillOrder = 'row_lr'; }
+    else if (preset === '4col_22') { numCols = 4; aisles = [1]; fillOrder = 'col_tb'; }
+    else if (preset === '5col_212') { numCols = 5; aisles = [1, 3]; fillOrder = 'col_tb'; }
+    else if (preset === '6col_pairs') { numCols = 6; aisles = [1, 3]; fillOrder = 'col_tb'; }
+    const base = Math.floor(targetSeats / numCols);
+    const extra = targetSeats % numCols;
+    lay.columns = Array.from({ length: numCols }, (_, i) => ({
+      label: `Col ${i + 1}`,
+      rows: Math.max(1, base + (i < extra ? 1 : 0)),
+      aisle_after: aisles.includes(i),
+    }));
+    lay.disabled = [];
+    lay.fill_order = fillOrder;
+    _admSpLayoutsDirty = true;
+    _admSpRenderStudio();
+  }
+  function _admSpLayAutoFitCapacity(targetCount) {
+    if (!_admSpActiveRoomId || !_admSpCanEdit) return;
+    const lay = _admSpEnsureEditableLayout(_admSpActiveRoomId);
+    const n = Math.max(1, parseInt(targetCount, 10) || 30);
+    const C = Math.max(1, lay.columns.length);
+    const base = Math.floor(n / C);
+    const extra = n % C;
+    lay.columns.forEach((col, i) => { col.rows = Math.max(1, base + (i < extra ? 1 : 0)); });
+    lay.disabled = [];
+    _admSpLayoutsDirty = true;
+    _admSpRenderStudio();
+  }
+  function _admSpLayAddFixture(type) {
+    if (!_admSpActiveRoomId || !_admSpCanEdit) return;
+    const lay = _admSpEnsureEditableLayout(_admSpActiveRoomId);
+    const meta = ADM_SP_FIXTURE_META[type] || ADM_SP_FIXTURE_META.door;
+    const defaultWall = type === 'door' ? 'left' : (type === 'window' ? 'right' : 'top');
+    const defaultPos = type === 'door' ? 15 : (type === 'window' ? 50 : 50);
+    lay.fixtures = lay.fixtures || [];
+    lay.fixtures.push({
+      id: 'fx_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5),
+      type,
+      wall: defaultWall,
+      pos: defaultPos,
+      label: meta.label,
+    });
+    _admSpLayoutsDirty = true;
+    _admSpRenderStudio();
+  }
+  function _admSpLayUpdateFixture(idx, prop, val) {
+    if (!_admSpActiveRoomId || !_admSpCanEdit) return;
+    const lay = _admSpEnsureEditableLayout(_admSpActiveRoomId);
+    if (!lay.fixtures || !lay.fixtures[idx]) return;
+    if (prop === 'pos') lay.fixtures[idx].pos = Math.max(0, Math.min(100, parseInt(val, 10) || 0));
+    else lay.fixtures[idx][prop] = val;
+    _admSpLayoutsDirty = true;
+    _admSpRenderStudio();
+  }
+  function _admSpLayRemoveFixture(idx) {
+    if (!_admSpActiveRoomId || !_admSpCanEdit) return;
+    const lay = _admSpEnsureEditableLayout(_admSpActiveRoomId);
+    if (!lay.fixtures) return;
+    lay.fixtures.splice(idx, 1);
+    _admSpLayoutsDirty = true;
+    _admSpRenderStudio();
+  }
+  function _admSpLaySeatClick(colIdx, rowIdx, seatNo) {
+    if (!_admSpActiveRoomId || !_admSpCanEdit) return;
+    if (_admSpLayMode === 'design') {
+      const lay = _admSpEnsureEditableLayout(_admSpActiveRoomId);
+      const key = `${colIdx}:${rowIdx}`;
+      lay.disabled = lay.disabled || [];
+      const i = lay.disabled.indexOf(key);
+      if (i >= 0) lay.disabled.splice(i, 1); else lay.disabled.push(key);
+      _admSpLayoutsDirty = true;
+      _admSpRenderStudio();
+      return;
+    }
+    // Live View mode: click-to-swap two occupied/active seats
+    if (!seatNo) return;
+    if (_admSpLaySwapSeat === null) {
+      _admSpLaySwapSeat = seatNo;
+      _admSpRenderStudio();
+    } else if (_admSpLaySwapSeat === seatNo) {
+      _admSpLaySwapSeat = null;
+      _admSpRenderStudio();
+    } else {
+      const sched = _admSpActiveSchedule();
+      if (!sched) return;
+      const mix = _admSpEnsureRoomMix(sched, _admSpActiveRoomId);
+      mix.swaps.push([_admSpLaySwapSeat, seatNo]);
+      _admSpLaySwapSeat = null;
+      _admSpMarkDirty();
+      _admSpRenderStudio();
+      showToast('Swapped seats', 'success');
+    }
+  }
+  function _admSpLaySetDisplayField(v) { _admSpLayLabelField = v || ''; _admSpRenderStudio(); }
+  function _admSpLayToggleShowName(v) { _admSpLayShowName = !!v; _admSpRenderStudio(); }
+  function _admSpLayToggleShowClass(v) { _admSpLayShowClass = !!v; _admSpRenderStudio(); }
+  function _admSpLaySetPrintOrient(v) { _admSpLayPrintOrient = v || 'auto'; }
+  function _admSpLayCopyFromRoom(srcRoomIdStr) {
+    const srcId = parseInt(srcRoomIdStr, 10);
+    if (!srcId || !_admSpActiveRoomId || !_admSpCanEdit) return;
+    const srcRoom = _admSpRooms.find(r => r.id === srcId);
+    const copy = JSON.parse(JSON.stringify(_admSpGetRoomLayout(srcId, srcRoom ? srcRoom.capacity : 30)));
+    _admSpRoomLayouts[String(_admSpActiveRoomId)] = copy;
+    _admSpLayoutsDirty = true;
+    _admSpRenderStudio();
+    showToast(`Copied layout from ${srcRoom ? srcRoom.room_name : 'selected room'}`, 'success');
+  }
+  async function _admSpLayApplyToSameCap() {
+    if (!_admSpActiveRoomId || !_admSpCanEdit) return;
+    const curRoom = _admSpRooms.find(r => r.id === _admSpActiveRoomId);
+    if (!curRoom) return;
+    const sameCapRooms = _admSpRooms.filter(r => r.capacity === curRoom.capacity);
+    if (sameCapRooms.length <= 1) { showToast(`No other rooms have capacity ${curRoom.capacity}`, 'error'); return; }
+    const curLayout = _admSpGetRoomLayout(_admSpActiveRoomId, curRoom.capacity);
+    showConfirm(
+      `Apply ${curRoom.room_name}'s exact room layout (columns, rows, aisles, doors & fixtures) to ALL ${sameCapRooms.length} rooms with ${curRoom.capacity} seats?\n\nRooms: ${sameCapRooms.map(r => r.room_name).join(', ')}`,
+      async () => {
+        sameCapRooms.forEach(r => {
+          _admSpRoomLayouts[String(r.id)] = JSON.parse(JSON.stringify(curLayout));
+        });
+        _admSpLayoutsDirty = true;
+        await _admSpLaySaveLayouts(true);
+        _admSpRenderStudio();
+        showToast(`Applied layout to all ${sameCapRooms.length} rooms (${curRoom.capacity} seats each) & saved!`, 'success');
+      }
+    );
+  }
+  async function _admSpLaySaveLayouts(silent) {
+    if (!_admCandRequireCircular() || !_admSpCanEdit) return;
+    try {
+      const res = await _admCandFetch('saveSeatPlanRoomLayouts', {
+        circular_id: _admCandActiveCircularId,
+        room_layouts: _admSpRoomLayouts,
+      });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      _admSpLayoutsDirty = false;
+      // Also persist any schedule mix changes alongside layout save
+      if (_admSpDirty) {
+        await _admCandFetch('saveSeatPlanSchedules', { circular_id: _admCandActiveCircularId, schedules: _admSpSchedules });
+        _admSpDirty = false;
+        document.getElementById('admSpDirtyBadge')?.classList.add('hidden');
+      }
+      if (!silent) showToast('Room layouts & mix settings saved', 'success');
+      _admSpRenderStudio();
+    } catch (e) { showToast(e.message || 'Save failed', 'error'); }
+  }
+
+  // ── Render Live Classroom Floor Plan (shared visual logic for screen) ────
+  function _admSpRenderFixturesStripHtml(fixtures, wall) {
+    const items = (fixtures || []).filter(f => f.wall === wall);
+    if (!items.length) return '';
+    if (wall === 'top' || wall === 'bottom') {
+      return `<div class="relative h-8 w-full my-1">
+        ${items.map(f => {
+          const m = ADM_SP_FIXTURE_META[f.type] || ADM_SP_FIXTURE_META.door;
+          const pos = Math.max(6, Math.min(94, parseInt(f.pos, 10) || 50));
+          return `<div style="left:${pos}%;transform:translateX(-50%);background:${m.bg};border-color:${m.border};color:${m.text}" class="absolute top-0.5 px-2.5 py-0.5 rounded-md border text-[10px] font-black whitespace-nowrap shadow-xs">${m.icon} ${_escHtml(f.label || m.label)}</div>`;
+        }).join('')}
+      </div>`;
+    }
+    return `<div class="relative w-7 shrink-0 self-stretch">
+      ${items.map(f => {
+        const m = ADM_SP_FIXTURE_META[f.type] || ADM_SP_FIXTURE_META.door;
+        const pos = Math.max(8, Math.min(92, parseInt(f.pos, 10) || 20));
+        return `<div style="top:${pos}%;transform:translateY(-50%) rotate(-90deg);background:${m.bg};border-color:${m.border};color:${m.text}" class="absolute left-1/2 -ml-10 w-20 text-center px-1.5 py-0.5 rounded border text-[9px] font-black whitespace-nowrap shadow-xs">${m.icon} ${_escHtml(f.label || m.label)}</div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  function _admSpRenderLayoutDesignerHtml(sched, comp) {
+    const usedRoomIds = Object.keys(comp.byRoom).map(Number).sort((a, b) =>
+      (comp.roomStates[a]?.room?.room_name || '').localeCompare(comp.roomStates[b]?.room?.room_name || '', undefined, { numeric: true })
+    );
+    const listRooms = _admSpLayShowAllRooms || !usedRoomIds.length
+      ? _admSpRooms
+      : usedRoomIds.map(id => comp.roomStates[id]?.room).filter(Boolean);
+
+    if (!_admSpActiveRoomId || !listRooms.some(r => r.id === _admSpActiveRoomId)) {
+      _admSpActiveRoomId = (usedRoomIds[0]) || (_admSpRooms[0]?.id) || null;
+    }
+    const room = _admSpRooms.find(r => r.id === _admSpActiveRoomId);
+    if (!room) return '<div class="bg-white rounded-2xl border border-slate-100 p-8 text-center text-xs text-slate-400">No rooms available yet — add rooms in the Rooms tab first.</div>';
+
+    const rs = comp.roomStates[room.id] || { room, capacity: room.capacity, building: _admSpRoomBuildingName(room), actualUsed: 0, slices: [] };
+    const layout = _admSpGetRoomLayout(room.id, room.capacity);
+    const slots = _admSpGetLayoutSlots(layout);
+    const disSet = new Set(layout.disabled || []);
+    const slotNumByCR = {};
+    slots.forEach(s => { slotNumByCR[`${s.col}:${s.row}`] = s.seatNo; });
+
+    const mixCfg = (sched.room_mix && sched.room_mix[String(room.id)]) || { mode: 'sequential', col_map: {}, swaps: [] };
+    const entries = comp.byRoom[room.id] || [];
+    const slotMap = rs.slotMap || {};
+    const groupMeta = rs.groupMeta || [];
+    const overflowEntries = rs.overflowEntries || [];
+    const sameCapCount = _admSpRooms.filter(r => r.capacity === room.capacity).length;
+    const fieldOpts = _admSpFieldOptionsList();
+    const labelField = _admSpLayLabelField || sched.index_display_col || 'index_id';
+
+    // Left Room Selector list
+    const roomListHtml = listRooms.map(r => {
+      const st = comp.roomStates[r.id];
+      const cnt = (comp.byRoom[r.id] || []).length;
+      const isAct = r.id === room.id;
+      const hasCustom = !!(_admSpRoomLayouts && _admSpRoomLayouts[String(r.id)]);
+      const multi = st && st.slices && st.slices.length > 1;
+      return `<button type="button" onclick="_admSpLayOpenRoom(${r.id})" class="w-full text-left px-3 py-2 border-b border-slate-100 transition-colors flex items-center justify-between gap-2 ${isAct ? 'bg-blue-600 text-white' : 'hover:bg-slate-50 text-slate-700'}">
+        <div class="min-w-0">
+          <div class="font-black text-xs flex items-center gap-1.5">
+            <span>${_escHtml(r.room_name)}</span>
+            ${hasCustom ? `<span class="w-1.5 h-1.5 rounded-full ${isAct ? 'bg-amber-300' : 'bg-emerald-500'}" title="Custom layout saved"></span>` : ''}
+          </div>
+          <div class="text-[10px] ${isAct ? 'text-blue-100' : 'text-slate-400'} truncate">Cap ${r.capacity}${multi ? ` · ${st.slices.length} groups` : ''}</div>
+        </div>
+        <span class="px-1.5 py-0.5 rounded-md text-[10px] font-black ${isAct ? 'bg-white/20 text-white' : (cnt ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-400')}">${cnt}</span>
+      </button>`;
+    }).join('');
+
+    // Group Legend Bar
+    const legendHtml = groupMeta.length ? groupMeta.map(g => `
+      <span style="background:${g.palette.pillBg};border-color:${g.palette.border};color:${g.palette.text}" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-black">
+        <span style="background:${g.palette.border}" class="w-2.5 h-2.5 rounded-full"></span>
+        ${_escHtml(g.label)} (${g.count}) <span class="font-mono opacity-80 text-[10px]">[${_escHtml(g.firstId)}–${_escHtml(g.lastId)}]</span>
+      </span>
+    `).join('') : '<span class="text-xs text-slate-400 font-bold">No students assigned to this room in this schedule yet — you can still design &amp; save its physical layout.</span>';
+
+    // Design Panel (Per-column controls + Fixtures)
+    const colControlsHtml = layout.columns.map((col, ci) => `
+      <div class="p-2 bg-white border border-slate-200 rounded-xl flex flex-col gap-1.5 min-w-[125px]">
+        <div class="flex items-center justify-between gap-1">
+          <input type="text" value="${_escHtml(col.label)}" ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpLayUpdateColumn(${ci}, 'label', this.value)" class="w-20 px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[11px] font-black">
+          ${_admSpCanEdit ? `<button type="button" onclick="_admSpLayRemoveColumn(${ci})" class="text-red-400 hover:text-red-600 font-black text-xs px-1" title="Remove column">×</button>` : ''}
+        </div>
+        <div class="flex items-center justify-between gap-1 text-[10px]">
+          <span class="font-bold text-slate-400">Rows:</span>
+          <input type="number" min="0" max="30" value="${col.rows}" ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpLayUpdateColumn(${ci}, 'rows', this.value)" class="w-14 px-1.5 py-0.5 text-center font-mono font-black bg-blue-50 border border-blue-300 rounded text-xs">
+        </div>
+        <label class="flex items-center gap-1 text-[10px] font-bold text-slate-600 cursor-pointer">
+          <input type="checkbox" ${col.aisle_after ? 'checked' : ''} ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpLayUpdateColumn(${ci}, 'aisle_after', this.checked)" class="rounded border-slate-300"> Aisle after
+        </label>
+        ${(mixCfg.mode === 'by_column' && groupMeta.length > 1) ? `
+          <select ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpLaySetColMixGroup(${ci}, this.value)" class="w-full px-1.5 py-1 bg-indigo-50 border border-indigo-200 rounded text-[10px] font-bold text-indigo-800">
+            <option value="">Auto Cycle</option>
+            ${groupMeta.map(g => `<option value="${_escHtml(g.critKey)}" ${(mixCfg.col_map && mixCfg.col_map[String(ci)] === g.critKey) ? 'selected' : ''}>${_escHtml(g.label)}</option>`).join('')}
+          </select>
+        ` : ''}
+      </div>
+    `).join('');
+
+    const fixturesEditorHtml = (layout.fixtures || []).map((f, fi) => {
+      const m = ADM_SP_FIXTURE_META[f.type] || ADM_SP_FIXTURE_META.door;
+      return `<div class="flex items-center gap-1.5 flex-wrap px-2 py-1 bg-white border border-slate-200 rounded-lg text-[11px]">
+        <span>${m.icon}</span>
+        <input type="text" value="${_escHtml(f.label || '')}" ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpLayUpdateFixture(${fi}, 'label', this.value)" class="w-28 px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[11px] font-bold">
+        <select ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpLayUpdateFixture(${fi}, 'wall', this.value)" class="px-1.5 py-0.5 bg-slate-50 border border-slate-200 rounded text-[10px] font-bold">
+          <option value="top" ${f.wall === 'top' ? 'selected' : ''}>Front / Top</option>
+          <option value="bottom" ${f.wall === 'bottom' ? 'selected' : ''}>Back / Bottom</option>
+          <option value="left" ${f.wall === 'left' ? 'selected' : ''}>Left Wall</option>
+          <option value="right" ${f.wall === 'right' ? 'selected' : ''}>Right Wall</option>
+        </select>
+        <label class="flex items-center gap-1 text-[10px] font-bold text-slate-500">Pos
+          <input type="number" min="0" max="100" value="${f.pos}" ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpLayUpdateFixture(${fi}, 'pos', this.value)" class="w-12 px-1 py-0.5 text-center font-mono bg-slate-50 border border-slate-200 rounded text-[10px]">%
+        </label>
+        ${_admSpCanEdit ? `<button type="button" onclick="_admSpLayRemoveFixture(${fi})" class="text-red-400 hover:text-red-600 font-black px-1">×</button>` : ''}
+      </div>`;
+    }).join('');
+
+    // Build visual columns grid
+    const maxRows = layout.columns.reduce((m, c) => Math.max(m, parseInt(c.rows, 10) || 0), 0);
+    const colsGridHtml = layout.columns.map((col, ci) => {
+      const colRows = parseInt(col.rows, 10) || 0;
+      let colHeaderBadge = '';
+      if (mixCfg.mode === 'by_column' && groupMeta.length > 1) {
+        const expK = mixCfg.col_map && mixCfg.col_map[String(ci)];
+        const gm = expK ? groupMeta.find(g => g.critKey === expK) : groupMeta[ci % groupMeta.length];
+        if (gm) colHeaderBadge = `<div style="color:${gm.palette.text}" class="text-[9px] font-bold truncate">${_escHtml(gm.label)}</div>`;
+      }
+      const desksHtml = [];
+      for (let r = 0; r < maxRows; r++) {
+        if (r >= colRows) {
+          desksHtml.push(`<div class="h-[62px] rounded-xl border border-dashed border-transparent"></div>`);
+          continue;
+        }
+        const crKey = `${ci}:${r}`;
+        const isDisabled = disSet.has(crKey);
+        if (isDisabled) {
+          desksHtml.push(`<button type="button" onclick="_admSpLaySeatClick(${ci}, ${r}, 0)" title="Disabled spot (pillar/door clearance) — click in Design Mode to restore" class="h-[62px] w-full rounded-xl border border-dashed border-slate-300 bg-slate-100/70 text-[10px] font-bold text-slate-400 flex items-center justify-center ${ _admSpLayMode === 'design' ? 'hover:border-emerald-500 hover:text-emerald-600 cursor-pointer' : 'cursor-default'}">✕ Empty</button>`);
+          continue;
+        }
+        const seatNo = slotNumByCR[crKey] || 0;
+        const entry = slotMap[crKey] || null;
+        const isSwapSel = _admSpLaySwapSeat === seatNo;
+        if (!entry) {
+          desksHtml.push(`<button type="button" onclick="_admSpLaySeatClick(${ci}, ${r}, ${seatNo})" title="${_admSpLayMode === 'design' ? 'Click to disable this desk spot' : 'Vacant seat — click to swap'}" class="h-[62px] w-full rounded-xl border ${isSwapSel ? 'border-2 border-amber-500 ring-2 ring-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50/70 hover:border-blue-300'} p-1.5 flex flex-col items-center justify-center transition-all">
+            <span class="text-[9px] font-black text-slate-400">Seat ${seatNo}</span>
+            <span class="text-[10px] text-slate-300 font-bold">Open</span>
+          </button>`);
+        } else {
+          const pal = ADM_SP_GROUP_PALETTE[(entry.group_idx || 0) % ADM_SP_GROUP_PALETTE.length];
+          const idVal = _admSpGetFieldVal(entry.cand, labelField) || entry.display_id || entry.tracking_id;
+          const stName = entry.cand.name_english || entry.cand.name_bangla || '';
+          const shortCrit = [entry.cls, entry.version ? entry.version.slice(0, 3) : ''].filter(Boolean).join('-');
+          desksHtml.push(`<button type="button" onclick="_admSpLaySeatClick(${ci}, ${r}, ${seatNo})" title="Seat ${seatNo}: ${_escHtml(idVal)} — ${_escHtml(stName)} (${_escHtml(entry.crit_label)})${_admSpLayMode === 'design' ? ' [Click to disable spot]' : ' [Click to swap seat]'}" style="background:${pal.bg};border-color:${isSwapSel ? '#f59e0b' : pal.border};border-left-width:4px" class="h-[62px] w-full rounded-xl border ${isSwapSel ? 'ring-2 ring-amber-400 shadow-md' : 'hover:shadow-sm'} px-2 py-1 text-left flex flex-col justify-between transition-all overflow-hidden">
+            <div class="flex items-center justify-between gap-1 w-full">
+              <span class="text-[9px] font-black opacity-65" style="color:${pal.text}">#${seatNo}</span>
+              ${_admSpLayShowClass ? `<span style="background:${pal.pillBg};color:${pal.text}" class="px-1 rounded text-[8px] font-black truncate max-w-[60px]">${_escHtml(shortCrit)}</span>` : ''}
+            </div>
+            <div class="font-mono font-black text-xs text-slate-900 truncate w-full leading-tight">${_escHtml(idVal)}</div>
+            ${_admSpLayShowName ? `<div class="text-[9px] font-semibold text-slate-600 truncate w-full leading-tight">${_escHtml(stName)}</div>` : ''}
+          </button>`);
+        }
+      }
+      const aisleHtml = col.aisle_after && ci < layout.columns.length - 1
+        ? `<div class="w-5 shrink-0 flex items-center justify-center"><div class="h-full border-l-2 border-dashed border-slate-200 flex items-center"><span class="text-[8px] font-black tracking-widest text-slate-300 -rotate-90 whitespace-nowrap select-none">AISLE</span></div></div>`
+        : '';
+      return `<div class="flex-1 min-w-[115px] flex flex-col gap-1.5">
+        <div class="text-center pb-1 border-b border-slate-200">
+          <div class="text-[11px] font-black text-slate-700">${_escHtml(col.label)} <span class="text-slate-400 font-bold">(${colRows})</span></div>
+          ${colHeaderBadge}
+        </div>
+        ${desksHtml.join('')}
+      </div>${aisleHtml}`;
+    }).join('');
+
+    const layoutOverflowBanner = overflowEntries.length ? `
+      <div class="mb-3 p-3 bg-amber-50 border border-amber-300 rounded-xl flex items-center justify-between gap-2 flex-wrap text-xs">
+        <span class="font-bold text-amber-900">⚠️ This room has <b>${entries.length}</b> seated students, but the current layout only has <b>${slots.length}</b> active desk spots (${overflowEntries.length} overflow).</span>
+        ${_admSpCanEdit ? `<button type="button" onclick="_admSpLayAutoFitCapacity(${entries.length})" class="px-3 py-1 bg-amber-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-black">Auto-Fit Layout to ${entries.length} Seats</button>` : ''}
+      </div>` : '';
+
+    return `
+      <div class="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
+        <!-- Left Sidebar: Individual Rooms -->
+        <div class="xl:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div class="p-3 bg-slate-50 border-b border-slate-100">
+            <h4 class="font-black text-slate-800 text-xs uppercase tracking-wider">Rooms (${listRooms.length})</h4>
+            <label class="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 mt-1.5 cursor-pointer">
+              <input type="checkbox" ${_admSpLayShowAllRooms ? 'checked' : ''} onchange="_admSpLayToggleShowAllRooms(this.checked)" class="rounded border-slate-300"> Show all ${_admSpRooms.length} rooms
+            </label>
+          </div>
+          <div class="max-h-[680px] overflow-y-auto">${roomListHtml}</div>
+        </div>
+
+        <!-- Right Main Workspace: Designer + Live Floor Plan -->
+        <div class="xl:col-span-10 space-y-4">
+          <!-- Toolbar Card -->
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+              <div>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <h3 class="font-black text-slate-900 text-base">${_escHtml(room.room_name)}</h3>
+                  <span class="text-xs font-bold text-slate-400">${_escHtml(rs.building || '')}</span>
+                  <span class="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-black">${entries.length} seated · ${slots.length} layout desks · Cap ${room.capacity}</span>
+                  ${_admSpLayoutsDirty ? '<span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-black">Layout Unsaved</span>' : ''}
+                </div>
+              </div>
+              <div class="flex items-center gap-1.5 flex-wrap">
+                ${_admSpCanEdit ? `
+                  <div class="inline-flex bg-slate-100 p-0.5 rounded-lg">
+                    <button type="button" onclick="_admSpLaySetMode('view')" class="px-2.5 py-1 rounded-md text-[10px] font-black ${_admSpLayMode === 'view' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500'}">Live View / Swap</button>
+                    <button type="button" onclick="_admSpLaySetMode('design')" class="px-2.5 py-1 rounded-md text-[10px] font-black ${_admSpLayMode === 'design' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-500'}">✎ Toggle Desks</button>
+                  </div>
+                  <button type="button" onclick="_admSpLaySaveLayouts(false)" class="px-3 py-1.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-black">Save Layout</button>
+                  <button type="button" onclick="_admSpLayApplyToSameCap()" class="px-3 py-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl text-[10px] font-black uppercase hover:bg-indigo-600 hover:text-white" title="Apply this layout to every room with capacity ${room.capacity}">Apply to All ${room.capacity}-Seat Rooms (${sameCapCount})</button>
+                ` : ''}
+                <select onchange="_admSpLaySetPrintOrient(this.value)" title="Print orientation" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-black">
+                  <option value="auto" ${_admSpLayPrintOrient === 'auto' ? 'selected' : ''}>Auto A4</option>
+                  <option value="portrait" ${_admSpLayPrintOrient === 'portrait' ? 'selected' : ''}>Portrait</option>
+                  <option value="landscape" ${_admSpLayPrintOrient === 'landscape' ? 'selected' : ''}>Landscape</option>
+                </select>
+                <button type="button" onclick="_admSpLayPrintRoomMap('CURRENT')" class="px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-black">🖨 Print Room</button>
+                <button type="button" onclick="_admSpLayPrintRoomMap('ALL')" class="px-3 py-1.5 bg-slate-800 text-white rounded-xl text-[10px] font-black uppercase hover:bg-black">🖨 Print All Rooms</button>
+              </div>
+            </div>
+
+            <!-- Mix Mode, Fill Order & Display Settings -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-2.5 p-3 bg-slate-50 rounded-xl border border-slate-100 mb-3">
+              <div>
+                <label class="text-[9px] uppercase text-slate-400 font-black">Class / Version Mix Mode</label>
+                <div class="flex gap-1 mt-0.5">
+                  <select ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpLaySetMixMode(this.value)" class="flex-1 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[11px] font-bold">
+                    ${ADM_SP_MIX_MODES.map(([v, l]) => `<option value="${v}" ${v === mixCfg.mode ? 'selected' : ''}>${l}</option>`).join('')}
+                  </select>
+                  ${_admSpCanEdit ? `<button type="button" onclick="_admSpLayApplyMixToAll()" title="Apply this mix mode to all multi-group rooms in this exam" class="px-2 py-1 bg-white border border-slate-200 hover:bg-blue-600 hover:text-white rounded-lg text-[10px] font-black">All</button>` : ''}
+                </div>
+              </div>
+              <div>
+                <label class="text-[9px] uppercase text-slate-400 font-black">Seat Numbering Order</label>
+                <select ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpLaySetFillOrder(this.value)" class="w-full mt-0.5 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[11px] font-bold">
+                  ${ADM_SP_FILL_ORDERS.map(([v, l]) => `<option value="${v}" ${v === layout.fill_order ? 'selected' : ''}>${l}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="text-[9px] uppercase text-slate-400 font-black">Desk ID Field</label>
+                <select onchange="_admSpLaySetDisplayField(this.value)" class="w-full mt-0.5 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[11px] font-bold">
+                  ${fieldOpts.map(o => `<option value="${_escHtml(o.value)}" ${o.value === labelField ? 'selected' : ''}>${_escHtml(o.label)}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="text-[9px] uppercase text-slate-400 font-black">Copy Layout From Room</label>
+                <select ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpLayCopyFromRoom(this.value); this.value='';" class="w-full mt-0.5 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-[11px] font-bold">
+                  <option value="">— Copy from another room —</option>
+                  ${_admSpRooms.filter(r => r.id !== room.id).map(r => `<option value="${r.id}">${_escHtml(r.room_name)} (cap ${r.capacity})${_admSpRoomLayouts[String(r.id)] ? ' ★' : ''}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+
+            <!-- Quick Presets + Display Toggles -->
+            <div class="flex items-center justify-between flex-wrap gap-2 text-xs">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="text-[10px] font-black uppercase text-slate-400">Presets:</span>
+                ${_admSpCanEdit ? `
+                  <button type="button" onclick="_admSpLayApplyPreset('3col_row')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-bold">3 Cols (Row-wise)</button>
+                  <button type="button" onclick="_admSpLayApplyPreset('4col_22')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-bold">4 Cols (2+2)</button>
+                  <button type="button" onclick="_admSpLayApplyPreset('5col_212')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-bold">5 Cols (2+1+2)</button>
+                  <button type="button" onclick="_admSpLayApplyPreset('6col_pairs')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded-lg text-[10px] font-bold">6 Cols (3 Pairs)</button>
+                  <button type="button" onclick="_admSpLayAutoFitCapacity(${Math.max(room.capacity, entries.length)})" class="px-2 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-[10px] font-black">Auto-Fit ${Math.max(room.capacity, entries.length)}</button>
+                ` : ''}
+              </div>
+              <div class="flex items-center gap-3 flex-wrap">
+                <label class="flex items-center gap-1 text-[11px] font-bold text-slate-600 cursor-pointer"><input type="checkbox" ${_admSpLayShowName ? 'checked' : ''} onchange="_admSpLayToggleShowName(this.checked)" class="rounded border-slate-300"> Show Name</label>
+                <label class="flex items-center gap-1 text-[11px] font-bold text-slate-600 cursor-pointer"><input type="checkbox" ${_admSpLayShowClass ? 'checked' : ''} onchange="_admSpLayToggleShowClass(this.checked)" class="rounded border-slate-300"> Show Class Tag</label>
+                ${(mixCfg.swaps && mixCfg.swaps.length && _admSpCanEdit) ? `<button type="button" onclick="_admSpLayResetSwaps()" class="px-2 py-1 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-[10px] font-black">Reset ${mixCfg.swaps.length} Swap(s)</button>` : ''}
+              </div>
+            </div>
+
+            <!-- Collapsible Column & Fixture Designer Controls -->
+            <details class="mt-3 pt-3 border-t border-slate-100" open>
+              <summary class="text-[10px] font-black uppercase text-slate-500 tracking-wider cursor-pointer select-none">Columns (Per-Column Rows &amp; Aisles) &amp; Room Fixtures (Doors, Windows, Board)</summary>
+              <div class="mt-2.5 space-y-3">
+                <div class="flex items-stretch gap-2 overflow-x-auto pb-1">
+                  ${colControlsHtml}
+                  ${_admSpCanEdit ? `<button type="button" onclick="_admSpLayAddColumn()" class="px-3 py-2 min-w-[90px] border-2 border-dashed border-blue-300 text-blue-600 hover:bg-blue-50 rounded-xl text-[10px] font-black uppercase">+ Add Col</button>` : ''}
+                </div>
+                <div class="p-2.5 bg-slate-50 rounded-xl border border-slate-200">
+                  <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+                    <span class="text-[10px] font-black uppercase text-slate-400">Room Doors &amp; Fixtures</span>
+                    ${_admSpCanEdit ? `<div class="flex items-center gap-1.5 flex-wrap">
+                      <button type="button" onclick="_admSpLayAddFixture('door')" class="px-2 py-1 bg-amber-100 text-amber-900 hover:bg-amber-200 rounded-lg text-[10px] font-black">+ 🚪 Door</button>
+                      <button type="button" onclick="_admSpLayAddFixture('window')" class="px-2 py-1 bg-sky-100 text-sky-900 hover:bg-sky-200 rounded-lg text-[10px] font-black">+ 🪟 Window</button>
+                      <button type="button" onclick="_admSpLayAddFixture('board')" class="px-2 py-1 bg-slate-800 text-white hover:bg-black rounded-lg text-[10px] font-black">+ 📋 Board</button>
+                      <button type="button" onclick="_admSpLayAddFixture('desk')" class="px-2 py-1 bg-slate-200 text-slate-800 hover:bg-slate-300 rounded-lg text-[10px] font-black">+ 🧑‍🏫 Teacher Desk</button>
+                      <button type="button" onclick="_admSpLayAddFixture('pillar')" class="px-2 py-1 bg-pink-100 text-pink-900 hover:bg-pink-200 rounded-lg text-[10px] font-black">+ 🏛 Pillar</button>
+                    </div>` : ''}
+                  </div>
+                  <div class="flex flex-wrap gap-2">${fixturesEditorHtml || '<span class="text-[11px] text-slate-400">No fixtures added yet.</span>'}</div>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <!-- Live Architectural Classroom Floor Plan -->
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+              <div class="flex flex-wrap gap-1.5">${legendHtml}</div>
+              <span class="text-[10px] font-bold ${_admSpLayMode === 'design' ? 'text-indigo-600' : 'text-slate-400'}">
+                ${_admSpLayMode === 'design' ? '✎ Design Mode: Click any desk to disable/enable it' : (_admSpLaySwapSeat ? `🔄 Click another seat to swap with Seat #${_admSpLaySwapSeat}` : 'Tip: Click any 2 seats to swap students live')}
+              </span>
+            </div>
+            ${layoutOverflowBanner}
+            <div class="border-2 border-slate-800 rounded-2xl p-3 bg-gradient-to-b from-slate-50/70 to-white overflow-x-auto">
+              ${_admSpRenderFixturesStripHtml(layout.fixtures, 'top')}
+              <div class="flex items-stretch gap-2 min-w-max py-2">
+                ${_admSpRenderFixturesStripHtml(layout.fixtures, 'left')}
+                <div class="flex-1 flex items-start gap-2.5">${colsGridHtml}</div>
+                ${_admSpRenderFixturesStripHtml(layout.fixtures, 'right')}
+              </div>
+              ${_admSpRenderFixturesStripHtml(layout.fixtures, 'bottom')}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Attractive Architectural Room-wise Visual Seat Plan Printout ─────────
+  function _admSpBuildRoomMapFixturesPrintHtml(fixtures, wall) {
+    const items = (fixtures || []).filter(f => f.wall === wall);
+    if (!items.length) return '';
+    if (wall === 'top' || wall === 'bottom') {
+      return `<div style="position:relative;height:24px;width:100%;margin:${wall === 'top' ? '0 0 6px' : '6px 0 0'}">
+        ${items.map(f => {
+          const m = ADM_SP_FIXTURE_META[f.type] || ADM_SP_FIXTURE_META.door;
+          const pos = Math.max(8, Math.min(92, parseInt(f.pos, 10) || 50));
+          return `<div style="position:absolute;left:${pos}%;transform:translateX(-50%);top:1px;background:${m.bg};border:1.5px solid ${m.border};color:${m.text};padding:2px 10px;border-radius:6px;font-size:8.5pt;font-weight:900;white-space:nowrap">${m.icon} ${_escHtml(f.label || m.label)}</div>`;
+        }).join('')}
+      </div>`;
+    }
+    return `<div style="position:relative;width:24px;flex-shrink:0;align-self:stretch">
+      ${items.map(f => {
+        const m = ADM_SP_FIXTURE_META[f.type] || ADM_SP_FIXTURE_META.door;
+        const pos = Math.max(10, Math.min(90, parseInt(f.pos, 10) || 20));
+        return `<div style="position:absolute;top:${pos}%;left:50%;transform:translate(-50%,-50%) rotate(-90deg);background:${m.bg};border:1.5px solid ${m.border};color:${m.text};padding:1px 8px;border-radius:5px;font-size:7.5pt;font-weight:900;white-space:nowrap">${m.icon} ${_escHtml(f.label || m.label)}</div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  function _admSpLayPrintRoomMap(target) {
+    const sched = _admSpActiveSchedule();
+    if (!sched) return;
+    const comp = _admSpCompute(sched);
+    const labelField = _admSpLayLabelField || sched.index_display_col || 'index_id';
+
+    let roomIds;
+    if (target === 'ALL') {
+      roomIds = Object.keys(comp.byRoom).map(Number).sort((a, b) =>
+        (comp.roomStates[a]?.room?.room_name || '').localeCompare(comp.roomStates[b]?.room?.room_name || '', undefined, { numeric: true })
+      );
+    } else {
+      const rid = _admSpActiveRoomId || Object.keys(comp.byRoom).map(Number)[0];
+      roomIds = rid ? [rid] : [];
+    }
+    if (!roomIds.length) { showToast('No seated rooms to print yet', 'error'); return; }
+
+    let maxColsAcross = 3;
+    const pages = roomIds.map((rid, rIdx) => {
+      const rs = comp.roomStates[rid];
+      const room = rs ? rs.room : _admSpRooms.find(r => r.id === rid);
+      if (!room) return '';
+      const layout = _admSpGetRoomLayout(rid, room.capacity);
+      if (layout.columns.length > maxColsAcross) maxColsAcross = layout.columns.length;
+      const slots = _admSpGetLayoutSlots(layout);
+      const disSet = new Set(layout.disabled || []);
+      const slotNumByCR = {};
+      slots.forEach(s => { slotNumByCR[`${s.col}:${s.row}`] = s.seatNo; });
+      const slotMap = (rs && rs.slotMap) || {};
+      const entries = comp.byRoom[rid] || [];
+      const groupMeta = (rs && rs.groupMeta) || [];
+      const mixCfg = (sched.room_mix && sched.room_mix[String(rid)]) || { mode: 'sequential', col_map: {} };
+      const mixLabel = (ADM_SP_MIX_MODES.find(m => m[0] === mixCfg.mode) || ['', ''])[1];
+      const maxRows = layout.columns.reduce((m, c) => Math.max(m, parseInt(c.rows, 10) || 0), 0);
+
+      const titleLine = [_admSpSessionName, _admSpCircularName].filter(Boolean).join(' — ') || 'CCPC Admission Test';
+      const examSub = [sched.name, sched.exam_date ? `Date: ${sched.exam_date}` : '', sched.start_time ? `Time: ${sched.start_time}` : ''].filter(Boolean).join('  |  ');
+
+      const legendPills = groupMeta.map(g =>
+        `<span style="display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;background:${g.palette.pillBg};border:1.5px solid ${g.palette.border};color:${g.palette.text};font-size:8.5pt;font-weight:800">
+          <span style="width:8px;height:8px;border-radius:999px;background:${g.palette.border};display:inline-block"></span>
+          ${_escHtml(g.label)} (${g.count}) <span style="font-family:monospace;font-size:8pt">[${_escHtml(g.firstId)}–${_escHtml(g.lastId)}]</span>
+        </span>`
+      ).join('');
+
+      // Dense row height auto-scales nicely when a column has >10 rows so 1 room ALWAYS fits on 1 single page!
+      const compact = maxRows > 10 || layout.columns.length > 5;
+      const cardPad = compact ? '3px 4px' : '5px 6px';
+      const idFont = compact ? '9.5pt' : '11pt';
+      const nameFont = compact ? '6.8pt' : '7.5pt';
+      const cardH = compact ? '36px' : '46px';
+
+      const colsHtml = layout.columns.map((col, ci) => {
+        const colRows = parseInt(col.rows, 10) || 0;
+        let colSub = '';
+        if (mixCfg.mode === 'by_column' && groupMeta.length > 1) {
+          const expK = mixCfg.col_map && mixCfg.col_map[String(ci)];
+          const gm = expK ? groupMeta.find(g => g.critKey === expK) : groupMeta[ci % groupMeta.length];
+          if (gm) colSub = `<div style="font-size:7pt;font-weight:800;color:${gm.palette.text};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escHtml(gm.label)}</div>`;
+        }
+        const cells = [];
+        for (let r = 0; r < maxRows; r++) {
+          if (r >= colRows) {
+            cells.push(`<div style="height:${cardH}"></div>`);
+            continue;
+          }
+          const crKey = `${ci}:${r}`;
+          if (disSet.has(crKey)) {
+            cells.push(`<div style="height:${cardH};border:1px dashed #cbd5e1;border-radius:6px;background:#f8fafc;display:flex;align-items:center;justify-content:center;font-size:7pt;color:#94a3b8;font-weight:700">—</div>`);
+            continue;
+          }
+          const seatNo = slotNumByCR[crKey] || '';
+          const entry = slotMap[crKey];
+          if (!entry) {
+            cells.push(`<div style="height:${cardH};border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#94a3b8;font-size:7.5pt;font-weight:700"><span>#${seatNo}</span></div>`);
+          } else {
+            const pal = ADM_SP_GROUP_PALETTE[(entry.group_idx || 0) % ADM_SP_GROUP_PALETTE.length];
+            const idVal = _admSpGetFieldVal(entry.cand, labelField) || entry.display_id || entry.tracking_id;
+            const stName = entry.cand.name_english || entry.cand.name_bangla || '';
+            const shortCrit = [entry.cls, entry.version ? entry.version.slice(0, 3) : ''].filter(Boolean).join('-');
+            cells.push(`<div style="height:${cardH};border:1.2px solid ${pal.border};border-left:4px solid ${pal.border};border-radius:6px;background:${pal.bg};padding:${cardPad};display:flex;flex-direction:column;justify-content:space-between;overflow:hidden">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:2px">
+                <span style="font-size:7pt;font-weight:900;color:${pal.text}">#${seatNo}</span>
+                ${_admSpLayShowClass ? `<span style="font-size:6.5pt;font-weight:900;background:${pal.pillBg};color:${pal.text};padding:0 3px;border-radius:3px;white-space:nowrap">${_escHtml(shortCrit)}</span>` : ''}
+              </div>
+              <div style="font-family:monospace;font-size:${idFont};font-weight:900;color:#0f172a;text-align:center;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escHtml(idVal)}</div>
+              ${_admSpLayShowName ? `<div style="font-size:${nameFont};font-weight:600;color:#334155;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.05">${_escHtml(stName)}</div>` : ''}
+            </div>`);
+          }
+        }
+        const aisleHtml = (col.aisle_after && ci < layout.columns.length - 1)
+          ? `<div style="width:14px;flex-shrink:0;display:flex;align-items:center;justify-content:center"><div style="height:100%;border-left:1.5px dashed #94a3b8"></div></div>`
+          : '';
+        return `<div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:4px">
+          <div style="text-align:center;padding:3px 2px;background:#f1f5f9;border-radius:5px;border:1px solid #cbd5e1">
+            <div style="font-size:8.5pt;font-weight:900;color:#0f172a">${_escHtml(col.label)} (${colRows})</div>
+            ${colSub}
+          </div>
+          ${cells.join('')}
+        </div>${aisleHtml}`;
+      }).join('');
+
+      const isLast = rIdx === roomIds.length - 1;
+      return `<div style="${isLast ? '' : 'page-break-after:always;'}display:flex;flex-direction:column">
+        <!-- Attractive Dark Header Banner -->
+        <div style="background:linear-gradient(135deg,#0f172a 0%,#1e3a8a 100%);color:#ffffff;border-radius:10px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:8px">
+          <div>
+            <div style="font-size:11.5pt;font-weight:900;letter-spacing:0.4px;text-transform:uppercase">${_escHtml(titleLine)}</div>
+            <div style="font-size:8.5pt;opacity:0.88;margin-top:2px;font-weight:600">${_escHtml(examSub)}</div>
+            ${groupMeta.length > 1 ? `<div style="font-size:7.5pt;opacity:0.8;margin-top:2px">Seating Mix: ${_escHtml(mixLabel)}</div>` : ''}
+          </div>
+          <div style="background:#ffffff;color:#0f172a;border-radius:8px;padding:6px 14px;text-align:center;flex-shrink:0">
+            <div style="font-size:7.5pt;font-weight:800;color:#475569;text-transform:uppercase">${_escHtml(rs ? rs.building : '')}</div>
+            <div style="font-size:17pt;font-weight:900;line-height:1.05;color:#1e3a8a">${_escHtml(room.room_name)}</div>
+            <div style="font-size:8.5pt;font-weight:900;color:#059669">Total: ${entries.length}</div>
+          </div>
+        </div>
+
+        <!-- Group Legend Bar -->
+        ${legendPills ? `<div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-bottom:8px">${legendPills}</div>` : ''}
+
+        <!-- Classroom Architectural Wall Frame -->
+        <div style="border:2.5px solid #0f172a;border-radius:12px;padding:8px 10px;background:#ffffff">
+          ${_admSpBuildRoomMapFixturesPrintHtml(layout.fixtures, 'top')}
+          <div style="display:flex;align-items:stretch;gap:6px">
+            ${_admSpBuildRoomMapFixturesPrintHtml(layout.fixtures, 'left')}
+            <div style="flex:1;display:flex;align-items:flex-start;gap:6px">${colsHtml}</div>
+            ${_admSpBuildRoomMapFixturesPrintHtml(layout.fixtures, 'right')}
+          </div>
+          ${_admSpBuildRoomMapFixturesPrintHtml(layout.fixtures, 'bottom')}
+        </div>
+
+        <!-- Footer -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:8pt;color:#475569;font-weight:700">
+          <span>Hall Superintendent / Invigilator: ________________________</span>
+          <span>Room ${_escHtml(room.room_name)} · ${entries.length} Candidate(s) · Printed ${new Date().toLocaleDateString()}</span>
+        </div>
+      </div>`;
+    }).filter(Boolean);
+
+    if (!pages.length) { showToast('No rooms to print', 'error'); return; }
+    const orient = _admSpLayPrintOrient === 'auto' ? (maxColsAcross >= 5 ? 'landscape' : 'portrait') : _admSpLayPrintOrient;
+    const css = `@page { size: A4 ${orient}; margin: 8mm; }
+      body { margin: 0; font-family: Arial, sans-serif; color: #0f172a; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      * { box-sizing: border-box; }`;
+    _gfOpenPrintWindow(`${sched.name} — Visual Room Seat Plan`, pages.join(''), css);
   }
 
   // ══════════════════════════════════════════════════════════════════════════
