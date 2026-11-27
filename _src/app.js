@@ -36329,6 +36329,42 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const val = _ccpcEvalCustomCol({ delimiter: '', parts: _admCustomColStaging }, sample, byHeader);
     return `Preview (1st applicant): <span class="font-mono font-bold text-slate-800">${_escHtml(val || '(empty)')}</span>`;
   }
+  let _admCustomColDragIdx = -1;
+  function _admCustomColDragStart(evt, idx) {
+    _admCustomColDragIdx = idx;
+    if (evt.dataTransfer) {
+      evt.dataTransfer.effectAllowed = 'move';
+      evt.dataTransfer.setData('text/plain', String(idx));
+    }
+    evt.currentTarget.style.opacity = '0.45';
+  }
+  function _admCustomColDragOver(evt) {
+    evt.preventDefault();
+    if (evt.dataTransfer) evt.dataTransfer.dropEffect = 'move';
+    evt.currentTarget.classList.add('ring-2', 'ring-indigo-500', 'bg-indigo-100');
+  }
+  function _admCustomColDragLeave(evt) {
+    evt.currentTarget.classList.remove('ring-2', 'ring-indigo-500', 'bg-indigo-100');
+  }
+  function _admCustomColDrop(evt, toIdx) {
+    evt.preventDefault();
+    evt.currentTarget.classList.remove('ring-2', 'ring-indigo-500', 'bg-indigo-100');
+    const fromIdx = _admCustomColDragIdx >= 0 ? _admCustomColDragIdx : parseInt(evt.dataTransfer && evt.dataTransfer.getData('text/plain'), 10);
+    _admCustomColDragIdx = -1;
+    if (Number.isNaN(fromIdx) || fromIdx < 0 || fromIdx >= _admCustomColStaging.length || fromIdx === toIdx) return;
+    const seps = _admCustomColStaging.slice(0, -1).map(p => p.sep ?? '');
+    const [moved] = _admCustomColStaging.splice(fromIdx, 1);
+    _admCustomColStaging.splice(toIdx, 0, moved);
+    for (let i = 0; i < _admCustomColStaging.length; i++) {
+      _admCustomColStaging[i].sep = i < _admCustomColStaging.length - 1 ? (seps[i] ?? '') : '';
+    }
+    const curName = document.getElementById('admCustomColName')?.value || '';
+    _admCustomColRenderModal(curName);
+  }
+  function _admCustomColDragEnd(evt) {
+    _admCustomColDragIdx = -1;
+    evt.currentTarget.style.opacity = '';
+  }
   function _admCustomColSetSep(idx, val) {
     if (!_admCustomColStaging[idx]) return;
     _admCustomColStaging[idx].sep = val;
@@ -36350,7 +36386,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const colOpts = _admCustomColAvailHeaders.map(h => `<option value="${_escHtml(h)}">${_escHtml(h)}</option>`).join('');
     const chips = _admCustomColStaging.length
       ? _admCustomColStaging.map((p, i) => {
-          const chip = `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-indigo-50 border border-indigo-200 text-indigo-800 rounded text-[10px] font-bold">${_escHtml(_admTopMergePartLabel(p))}<button type="button" onclick="_admCustomColRemovePart(${i})" class="text-red-500 font-black">×</button></span>`;
+          const chip = `<span draggable="true" ondragstart="_admCustomColDragStart(event,${i})" ondragover="_admCustomColDragOver(event)" ondragleave="_admCustomColDragLeave(event)" ondrop="_admCustomColDrop(event,${i})" ondragend="_admCustomColDragEnd(event)" title="Drag to reorder" class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-indigo-50 border border-indigo-200 text-indigo-800 rounded text-[10px] font-bold cursor-grab active:cursor-grabbing select-none"><span class="text-indigo-400">⋮⋮</span>${_escHtml(_admTopMergePartLabel(p))}<button type="button" onclick="_admCustomColRemovePart(${i})" class="text-red-500 font-black ml-0.5">×</button></span>`;
           if (i < _admCustomColStaging.length - 1) {
             const sepVal = (p.sep !== undefined && p.sep !== null) ? String(p.sep) : '';
             const sepBox = `<input type="text" value="${_escHtml(sepVal)}" placeholder="delim" title="Text / delimiter between segment ${i + 1} and ${i + 2}" oninput="_admCustomColSetSep(${i},this.value)" class="w-16 px-1.5 py-0.5 bg-amber-50 border border-amber-300 focus:border-indigo-500 focus:bg-white rounded text-[11px] font-mono text-center text-amber-950 placeholder-amber-400">`;
@@ -36392,7 +36428,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button type="button" onclick="_admCustomColAddPart('slice')" class="flex-1 px-2.5 py-1 bg-violet-600 text-white rounded text-[10px] font-black uppercase">+ Portion</button>
           </div>
           <div>
-            <p class="text-[9px] font-bold text-slate-400 mb-1">Segments &amp; Delimiters (type different delimiter text in each amber box between segments)</p>
+            <p class="text-[9px] font-bold text-slate-400 mb-1">Segments &amp; Delimiters (drag ⋮⋮ chips to reorder · type delimiter text in amber boxes)</p>
             <div class="flex flex-wrap items-center gap-1.5 p-2 bg-white border border-slate-200 rounded-lg min-h-[34px]">${chips}</div>
             <div id="admCustomColPreview" class="text-[10px] text-slate-500 mt-1 min-h-[14px]">${previewHtml}</div>
           </div>
