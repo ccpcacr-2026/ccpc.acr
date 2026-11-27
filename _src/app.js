@@ -35223,23 +35223,46 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return '';
   }
   function _admTopRenderCurvedTextSvg(el, text) {
-    const w = Math.max(140, el.width || 280);
-    const curve = parseInt(el.curve, 10) || 0;
-    const h = Math.max(60, Math.abs(curve) + (el.font_size || 14) * 2.5);
-    const midY = curve >= 0 ? h - 14 : 18;
-    const ctrlY = curve >= 0 ? midY - curve * 1.4 : midY - curve * 1.4;
-    const pid = 'topCurve_' + el.id + '_' + Math.floor(Math.random() * 10000);
-    const ff = _escHtml(el.font_family || 'Arial, sans-serif');
+    const w = Math.max(120, el.width || 280);
+    const deg = Math.max(-320, Math.min(320, parseInt(el.curve, 10) || 0));
     const fs = el.font_size || 14;
+    const pad = Math.max(14, Math.ceil(fs * 1.6));
+    const span = Math.max(60, w - pad * 2);
+    const theta = Math.abs(deg) * Math.PI / 180;
+    const R = theta <= Math.PI ? (span / (2 * Math.sin(theta / 2))) : (span / 2);
+    const cx = w / 2;
+    let cy, a1, a2, sweep, h;
+    if (deg > 0) {
+      cy = pad + R;
+      a1 = -Math.PI / 2 - theta / 2;
+      a2 = -Math.PI / 2 + theta / 2;
+      sweep = 1;
+      const yEnd = cy + R * Math.sin(a1);
+      h = Math.ceil(Math.max(yEnd, pad + fs * 1.5) + pad * 0.7);
+    } else {
+      a1 = Math.PI / 2 + theta / 2;
+      a2 = Math.PI / 2 - theta / 2;
+      cy = pad - R * Math.sin(a1);
+      sweep = 0;
+      h = Math.ceil(Math.max(cy + R, pad + fs * 1.5) + pad);
+    }
+    const x1 = (cx + R * Math.cos(a1)).toFixed(2);
+    const y1 = (cy + R * Math.sin(a1)).toFixed(2);
+    const x2 = (cx + R * Math.cos(a2)).toFixed(2);
+    const y2 = (cy + R * Math.sin(a2)).toFixed(2);
+    const largeArc = theta > Math.PI ? 1 : 0;
+    const pid = 'topCurve_' + el.id + '_' + Math.floor(Math.random() * 100000);
+    const ff = _escHtml(el.font_family || 'Arial, sans-serif');
     const fw = el.bold ? 'bold' : 'normal';
     const fst = el.italic ? 'italic' : 'normal';
     const td = el.underline ? 'underline' : 'none';
     const ls = el.letter_spacing || 0;
     const fill = _escHtml(el.color || '#0f172a');
-    return `<svg width="${w}" height="${Math.round(h)}" viewBox="0 0 ${w} ${Math.round(h)}" style="overflow:visible;display:block;">
-      <defs><path id="${pid}" d="M 10,${midY} Q ${w / 2},${ctrlY} ${w - 10},${midY}" /></defs>
+    const disp = el.uppercase ? String(text || '').toUpperCase() : String(text || '');
+    return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="overflow:visible;display:block;">
+      <defs><path id="${pid}" d="M ${x1},${y1} A ${R.toFixed(2)},${R.toFixed(2)} 0 ${largeArc},${sweep} ${x2},${y2}" /></defs>
       <text fill="${fill}" font-family="${ff}" font-size="${fs}pt" font-weight="${fw}" font-style="${fst}" text-decoration="${td}" letter-spacing="${ls}px" text-anchor="middle">
-        <textPath href="#${pid}" startOffset="50%">${_escHtml(text)}</textPath>
+        <textPath href="#${pid}" startOffset="50%">${_escHtml(disp)}</textPath>
       </text>
     </svg>`;
   }
@@ -36430,9 +36453,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.underline ? 'checked' : ''} onchange="_admTopUpdateEl('${el.id}','underline',this.checked)"> Underline</label>
         <label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.uppercase ? 'checked' : ''} onchange="_admTopUpdateEl('${el.id}','uppercase',this.checked)"> Uppercase</label>
         ${(el.type === 'field' || el.type === 'slice') ? `<label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.show_label ? 'checked' : ''} onchange="_admTopUpdateEl('${el.id}','show_label',this.checked)"> Show Label</label>` : ''}
-        ${(el.type === 'text' || el.type === 'merged') ? `<label class="text-[10px] font-bold text-slate-700 flex items-center gap-1">Curve: <input type="range" min="-90" max="90" value="${el.curve || 0}" oninput="_admTopUpdateEl('${el.id}','curve',+this.value||0)" class="w-20"><span class="text-indigo-600">${el.curve || 0}</span></label>` : ''}
+        ${(el.type === 'text' || el.type === 'merged') ? `<span class="text-[10px] font-bold text-slate-700 inline-flex items-center gap-1">Curve°:
+          <input id="admTopCurveRng" type="range" min="-300" max="300" value="${el.curve || 0}" oninput="_admTopSetCurve('${el.id}',+this.value||0)" class="w-24">
+          <input id="admTopCurveNum" type="number" min="-320" max="320" value="${el.curve || 0}" oninput="_admTopSetCurve('${el.id}',+this.value||0)" class="w-12 px-1 py-0.5 bg-white border border-slate-200 rounded text-[11px] text-center">
+          ${[0, 90, 180, -180].map(a => `<button type="button" onclick="_admTopSetCurve('${el.id}',${a})" class="px-1 py-0.5 bg-white hover:bg-indigo-50 border border-slate-200 rounded text-[9px] font-bold text-slate-600">${a}°</button>`).join('')}
+        </span>` : ''}
         ${el.type === 'text' ? `<input value="${_escHtml(el.text || '')}" oninput="_admTopUpdateEl('${el.id}','text',this.value)" class="flex-1 min-w-[140px] px-2 py-0.5 bg-white border border-slate-200 rounded text-xs">` : ''}
       </div>${mergeExtra}`;
+  }
+  function _admTopSetCurve(elId, deg) {
+    const el = _admTopDraft && _admTopDraft.elements.find(e => e.id === elId);
+    if (!el) return;
+    el.curve = Math.max(-320, Math.min(320, parseInt(deg, 10) || 0));
+    const rng = document.getElementById('admTopCurveRng');
+    const num = document.getElementById('admTopCurveNum');
+    if (rng) rng.value = Math.max(-300, Math.min(300, el.curve));
+    if (num) num.value = el.curve;
+    _admTopRedrawCanvas();
   }
   function _admTopStepFont(elId, delta) {
     const el = _admTopDraft && _admTopDraft.elements.find(e => e.id === elId);
