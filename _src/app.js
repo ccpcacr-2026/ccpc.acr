@@ -55048,12 +55048,137 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       index_display_col: defaultField,
       exclude_statuses: ['Rejected', 'Cancelled'],
       required_scan_key: '',
+      dynamic_filters: {},
+      filter_locked: false,
       included_criteria: [],
       plan_rows: [],
       sms_template: ADM_SP_DEFAULT_SMS_TPL,
       sms_log: {},
       updated_at: new Date().toISOString(),
     };
+  }
+  let _admSpFilterPanelOpen = false;
+  function _admSpFilterDims() {
+    const distinct = (fn, numeric) => [...new Set(_admSpCandidates.map(fn).filter(Boolean))]
+      .sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: !!numeric }));
+    const dims = [
+      { key: 'class', label: 'Class', values: distinct(a => a.class, true) },
+      { key: 'version', label: 'Version', values: distinct(a => a.version, false) },
+      { key: 'category', label: 'Category', values: distinct(a => a.category, false) },
+      { key: 'status', label: 'Status', values: [...new Set(['Pending', 'Approved', 'Rejected', 'Cancelled', ...distinct(a => a.status, false)])] },
+    ];
+    const sources = distinct(a => a.source, false);
+    if (sources.length > 1) dims.push({ key: 'source', label: 'Source', values: sources });
+    (_admSpScanOptions || []).forEach(o => {
+      if (o.behavior === 'status') { dims.push({ key: 'opt:' + o.key, label: o.label, values: ['done', 'pending'] }); return; }
+      if (o.behavior === 'form') { dims.push({ key: 'opt:' + o.key, label: o.label, values: ['__has__', '__none__'] }); return; }
+      const cfg = o.config || {};
+      const values = cfg.type === 'toggle'
+        ? ['yes']
+        : cfg.type === 'dropdown'
+          ? (cfg.options || []).slice()
+          : distinct(a => { const v = (a.scan_values || {})[o.key]; return (v && typeof v !== 'object' && v !== true) ? String(v) : ''; }, false);
+      values.push('__none__');
+      dims.push({ key: 'opt:' + o.key, label: o.label, values });
+    });
+    return dims.filter(d => d.values.length);
+  }
+  function _admSpActiveFilterCount(sched) {
+    const df = (sched && sched.dynamic_filters && typeof sched.dynamic_filters === 'object') ? sched.dynamic_filters : {};
+    return Object.values(df).reduce((n, arr) => n + (Array.isArray(arr) ? arr.length : 0), 0);
+  }
+  function _admSpCandMatchesDynamicFilters(c, sched) {
+    const df = (sched && sched.dynamic_filters && typeof sched.dynamic_filters === 'object') ? sched.dynamic_filters : {};
+    const hasExplicitStatus = Array.isArray(df.status) && df.status.length > 0;
+    const excludeSet = new Set(Array.isArray(sched.exclude_statuses) ? sched.exclude_statuses : []);
+    if (!hasExplicitStatus && excludeSet.has(String(c.status || ''))) return false;
+    if (sched.required_scan_key && !_admSpHasScanValue(c, sched.required_scan_key)) return false;
+
+    for (const [dimKey, vals] of Object.entries(df)) {
+      if (!Array.isArray(vals) || !vals.length) continue;
+      if (dimKey.startsWith('opt:')) {
+        const optKey = dimKey.slice(4);
+        const opt = (_admSpScanOptions || []).find(o => o.key === optKey);
+        const sv = (c.scan_values || {})[optKey];
+        if (!opt || opt.behavior === 'status') {
+          const cur = (sv && sv.done) ? 'done' : 'pending';
+          if (!vals.includes(cur)) return false;
+        } else if (opt.behavior === 'form') {
+          const hasAny = sv && typeof sv === 'object' && Object.values(sv).some(v => v !== undefined && v !== null && v !== false && String(v).trim() !== '');
+          const cur = hasAny ? '__has__' : '__none__';
+          if (!vals.includes(cur)) return false;
+        } else {
+          const isEmpty = sv === undefined || sv === null || sv === false || String(sv).trim() === '';
+          const cur = isEmpty ? '__none__' : (sv === true ? 'yes' : String(sv));
+          if (!vals.includes(cur)) return false;
+        }
+      } else {
+        const v = String(c[dimKey] || '').trim();
+        if (!vals.includes(v)) return false;
+      }
+    }
+    return true;
+  }
+  function _admSpToggleFilterPanel() {
+    _admSpFilterPanelOpen = !_admSpFilterPanelOpen;
+    _admSpRenderStudio();
+  }
+  function _admSpToggleDynFilter(dimKey, val) {
+    const cur = _admSpActiveSchedule();
+    if (!cur || !_admSpCanEdit) return;
+    if (cur.filter_locked) {
+      showToast('Filter is locked for this exam — click Unlock Filter to change it', 'error');
+      return;
+    }
+    if (!cur.dynamic_filters || typeof cur.dynamic_filters !== 'object') cur.dynamic_filters = {};
+    const arr = Array.isArray(cur.dynamic_filters[dimKey]) ? cur.dynamic_filters[dimKey].slice() : [];
+    const idx = arr.indexOf(val);
+    if (idx >= 0) arr.splice(idx, 1); else arr.push(val);
+    if (arr.length) cur.dynamic_filters[dimKey] = arr;
+    else delete cur.dynamic_filters[dimKey];
+    // Sync included_criteria with newly matching groups so filtered classes are immediately ready to allocate
+    const matchingKeys = [...new Set(_admSpCandidates
+      .filter(c => _admSpCandMatchesDynamicFilters(c, cur))
+      .map(c => _admSpCritKey(c.class, c.version, c.category)))];
+    cur.included_criteria = matchingKeys;
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+  }
+  function _admSpClearDynFilters() {
+    const cur = _admSpActiveSchedule();
+    if (!cur || !_admSpCanEdit) return;
+    if (cur.filter_locked) {
+      showToast('Filter is locked for this exam — click Unlock Filter first', 'error');
+      return;
+    }
+    cur.dynamic_filters = {};
+    const matchingKeys = [...new Set(_admSpCandidates
+      .filter(c => _admSpCandMatchesDynamicFilters(c, cur))
+      .map(c => _admSpCritKey(c.class, c.version, c.category)))];
+    cur.included_criteria = matchingKeys;
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+  }
+  async function _admSpToggleFilterLock() {
+    const cur = _admSpActiveSchedule();
+    if (!cur || !_admSpCanEdit) return;
+    const doSet = async (locked) => {
+      cur.filter_locked = locked;
+      if (locked) _admSpFilterPanelOpen = false;
+      _admSpMarkDirty();
+      _admSpRenderStudio();
+      try {
+        await _admCandFetch('saveSeatPlanSchedules', { circular_id: _admCandActiveCircularId, schedules: _admSpSchedules });
+        _admSpDirty = false;
+        document.getElementById('admSpDirtyBadge')?.classList.add('hidden');
+      } catch (_) {}
+      showToast(locked ? 'Exam filter locked — accidental clicks are now prevented' : 'Exam filter unlocked — you can now edit filters', 'success');
+    };
+    if (cur.filter_locked) {
+      showConfirm(`Unlock the filter for "${cur.name || 'this exam'}" so you can change classes or filter options?`, () => doSet(false));
+    } else {
+      await doSet(true);
+    }
   }
   function _admSpActiveSchedule() {
     if (!_admSpSchedules.length) return null;
@@ -55119,8 +55244,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
     const critBuckets = {};
     _admSpCandidates.forEach(c => {
-      if (excludeSet.has(String(c.status || ''))) return;
-      if (reqScan && !_admSpHasScanValue(c, reqScan)) return;
+      if (!_admSpCandMatchesDynamicFilters(c, sched)) return;
       const ck = _admSpCritKey(c.class, c.version, c.category);
       if (!critBuckets[ck]) {
         critBuckets[ck] = {
@@ -55133,13 +55257,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       }
       critBuckets[ck].candidates.push(c);
     });
-    // Ensure any criteria referenced in plan_rows or included_criteria exists in map
-    (sched.included_criteria || []).forEach(ck => {
-      if (!critBuckets[ck]) {
-        const p = _admSpParseCritKey(ck);
-        critBuckets[ck] = { key: ck, cls: p.cls, version: p.version, category: p.category, candidates: [] };
-      }
-    });
+    // Ensure any criteria referenced in plan_rows exists in map (keep plan rows visible even if filtered out)
     (sched.plan_rows || []).forEach(r => {
       const ck = _admSpCritKey(r.cls, r.version, r.category);
       if (!critBuckets[ck]) {
@@ -55333,6 +55451,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admSpActiveSchedId = id;
     _admSpSelectedCriteriaKey = '';
     _admSpSmsRoomFilter = '';
+    const next = _admSpActiveSchedule();
+    if (next && next.filter_locked) _admSpFilterPanelOpen = false;
     _admSpRenderStudio();
   }
   function _admSpNewSchedule() {
@@ -55348,6 +55468,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admSpSchedules.push(s);
     _admSpActiveSchedId = s.id;
     _admSpSelectedCriteriaKey = '';
+    _admSpFilterPanelOpen = true; // Open dynamic filter panel immediately so user can pick classes for the new exam!
     _admSpMarkDirty();
     _admSpRenderStudio();
   }
@@ -55395,6 +55516,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admSpToggleExcludeStatus(status, checked) {
     const cur = _admSpActiveSchedule();
     if (!cur) return;
+    if (cur.filter_locked) { showToast('Filter is locked for this exam — click Unlock Filter first', 'error'); _admSpRenderStudio(); return; }
     const set = new Set(cur.exclude_statuses || []);
     if (checked) set.add(status); else set.delete(status);
     cur.exclude_statuses = [...set];
@@ -55404,6 +55526,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admSpToggleCriteria(critKey, checked) {
     const cur = _admSpActiveSchedule();
     if (!cur) return;
+    if (cur.filter_locked) { showToast('Filter is locked for this exam — click Unlock Filter first', 'error'); _admSpRenderStudio(); return; }
     const set = new Set(cur.included_criteria || []);
     if (checked) set.add(critKey); else set.delete(critKey);
     cur.included_criteria = [...set];
@@ -55988,10 +56111,43 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const schedTabsHtml = _admSpSchedules.map(s => {
       const active = s.id === sched.id;
       const dateTag = s.exam_date ? ` · ${s.exam_date}` : '';
+      const lockIcon = s.filter_locked ? ' 🔒' : '';
       return `<button type="button" onclick="_admSpSelectSchedule('${_escHtml(s.id)}')" class="px-3 py-1.5 rounded-xl text-xs font-black transition-all border ${active ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}">
-        <span data-sp-sched-pill="${_escHtml(s.id)}">${_escHtml(s.name || 'Untitled')}</span><span class="opacity-75 font-bold text-[10px]">${_escHtml(dateTag)}</span>
+        <span data-sp-sched-pill="${_escHtml(s.id)}">${_escHtml(s.name || 'Untitled')}</span><span class="opacity-75 font-bold text-[10px]">${_escHtml(dateTag)}</span>${lockIcon}
       </button>`;
     }).join('');
+    const isFilterLocked = !!sched.filter_locked;
+    const filterDims = _admSpFilterDims();
+    const activeFilterCount = _admSpActiveFilterCount(sched);
+    const dynFilters = (sched.dynamic_filters && typeof sched.dynamic_filters === 'object') ? sched.dynamic_filters : {};
+    const filterSummaryChips = filterDims.map(d => {
+      const sel = Array.isArray(dynFilters[d.key]) ? dynFilters[d.key] : [];
+      if (!sel.length) return '';
+      const labels = sel.map(v => _admFilterValueLabel(v)).join(', ');
+      return `<span class="px-2 py-0.5 rounded-full text-[10px] font-black ${isFilterLocked ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}">${_escHtml(d.label)}: ${_escHtml(labels)}</span>`;
+    }).filter(Boolean).join('');
+    const filterPanelHtml = _admSpFilterPanelOpen ? `
+      <div class="mb-3 p-3.5 rounded-xl border ${isFilterLocked ? 'bg-amber-50/40 border-amber-200' : 'bg-slate-50 border-slate-200'}">
+        ${isFilterLocked ? `<div class="mb-2.5 px-3 py-1.5 rounded-lg bg-amber-100 text-amber-900 text-[11px] font-bold flex items-center justify-between gap-2">
+          <span>🔒 Filter is locked for this exam to prevent accidental clicks.</span>
+          ${_admSpCanEdit ? `<button type="button" onclick="_admSpToggleFilterLock()" class="px-2 py-0.5 bg-white border border-amber-300 text-amber-900 rounded text-[10px] font-black uppercase hover:bg-amber-200">Unlock</button>` : ''}
+        </div>` : ''}
+        <div class="${isFilterLocked ? 'opacity-65 pointer-events-none select-none' : ''}">
+          ${filterDims.map(d => {
+            const sel = new Set(Array.isArray(dynFilters[d.key]) ? dynFilters[d.key] : []);
+            return `<div class="mb-2.5 last:mb-0">
+              <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">${_escHtml(d.label)}</p>
+              <div class="flex flex-wrap gap-1.5">
+                ${d.values.map(v => `<button type="button" ${(!_admSpCanEdit || isFilterLocked) ? 'disabled' : ''} onclick='_admSpToggleDynFilter(${JSON.stringify(d.key)}, ${JSON.stringify(v)})' class="px-2.5 py-1 rounded-full font-black text-[10px] uppercase transition-all ${sel.has(v) ? 'bg-slate-800 text-white shadow-sm' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(_admFilterValueLabel(v))}</button>`).join('')}
+              </div>
+            </div>`;
+          }).join('')}
+          ${(!isFilterLocked && _admSpCanEdit && activeFilterCount > 0) ? `<div class="mt-2.5 pt-2 border-t border-slate-200 flex items-center justify-between">
+            <button type="button" onclick="_admSpClearDynFilters()" class="text-[10px] font-black text-red-600 uppercase hover:underline">Clear all exam filters</button>
+            <button type="button" onclick="_admSpToggleFilterLock()" class="px-2.5 py-1 bg-amber-500 text-white rounded-lg text-[10px] font-black uppercase hover:bg-amber-600">🔒 Lock This Filter</button>
+          </div>` : ''}
+        </div>
+      </div>` : '';
 
     // Sub-view tabs (Live Planner | 6 Print Sheets & Excel | Bulk SMS)
     const seatedCount = comp.assignments.length;
@@ -56008,7 +56164,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const otherBadge = c.otherScheduleName ? `<span class="ml-1.5 px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[9px] font-black" title="Also included in ${_escHtml(c.otherScheduleName)}">In: ${_escHtml(c.otherScheduleName)}</span>` : '';
         return `<tr data-sp-crit-row="${_escHtml(c.key)}" onclick="_admSpSelectCriteria('${_escHtml(c.key)}')" class="border-t border-slate-100 cursor-pointer hover:bg-slate-50 transition-colors ${isSel ? 'bg-blue-50/80 ring-1 ring-inset ring-blue-300' : ''} ${c.included ? '' : 'opacity-55'}">
           <td class="px-2.5 py-2 text-center" onclick="event.stopPropagation()">
-            <input type="checkbox" ${c.included ? 'checked' : ''} ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpToggleCriteria('${_escHtml(c.key)}', this.checked)" class="rounded border-slate-300 text-blue-600 cursor-pointer">
+            <input type="checkbox" ${c.included ? 'checked' : ''} ${(_admSpCanEdit && !isFilterLocked) ? '' : 'disabled'} onchange="_admSpToggleCriteria('${_escHtml(c.key)}', this.checked)" title="${isFilterLocked ? 'Filter is locked for this exam' : 'Include group in this exam'}" class="rounded border-slate-300 text-blue-600 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
           </td>
           <td class="px-2.5 py-2 font-black text-slate-800 text-xs">${_escHtml(c.cls || '—')}${otherBadge}</td>
           <td class="px-2.5 py-2 text-xs font-bold text-slate-600">${_escHtml(c.version || '—')}</td>
@@ -56411,22 +56567,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
 
-        <!-- Eligibility & Schedule Utility Row -->
-        <div class="flex items-center justify-between flex-wrap gap-3 text-xs mb-3">
-          <div class="flex items-center gap-3 flex-wrap">
-            <span class="text-[10px] font-black uppercase text-slate-400">Exclude Status:</span>
-            ${allStatuses.map(st => {
-              const chk = (sched.exclude_statuses || []).includes(st);
-              return `<label class="flex items-center gap-1 text-[11px] font-bold text-slate-600 cursor-pointer"><input type="checkbox" ${chk ? 'checked' : ''} ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpToggleExcludeStatus('${_escHtml(st)}', this.checked)" class="rounded border-slate-300"> ${_escHtml(st)}</label>`;
-            }).join('')}
-            <span class="text-slate-200">|</span>
-            <label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-600">
-              <span class="text-[10px] font-black uppercase text-slate-400">Require Scan:</span>
-              <select ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpUpdateSchedProp('required_scan_key', this.value)" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold">
-                <option value="">Any (No scan filter)</option>
-                ${_admSpScanOptions.map(o => `<option value="${_escHtml(o.key)}" ${o.key === sched.required_scan_key ? 'selected' : ''}>${_escHtml(o.label)}</option>`).join('')}
-              </select>
-            </label>
+        <!-- Dynamic Exam Filter Bar + Lock Button -->
+        <div class="flex items-center justify-between flex-wrap gap-2 text-xs mb-2.5">
+          <div class="flex items-center gap-2 flex-wrap">
+            <button type="button" onclick="_admSpToggleFilterPanel()" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[11px] font-black transition-all ${_admSpFilterPanelOpen ? 'bg-slate-800 text-white border-slate-800' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}">
+              <span>Exam Class / Dynamic Filters</span>
+              ${activeFilterCount ? `<span class="px-1.5 py-0.5 rounded-full text-[9px] font-black ${_admSpFilterPanelOpen ? 'bg-blue-500 text-white' : 'bg-blue-600 text-white'}">${activeFilterCount}</span>` : ''}
+              <span class="text-[9px] opacity-70">${_admSpFilterPanelOpen ? '▲' : '▼'}</span>
+            </button>
+            ${_admSpCanEdit ? `
+              <button type="button" onclick="_admSpToggleFilterLock()" title="${isFilterLocked ? 'Filter is locked — click to unlock' : 'Lock this exam\'s filter to prevent accidental clicks'}" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border ${isFilterLocked ? 'bg-amber-100 border-amber-300 text-amber-900 hover:bg-amber-200' : 'bg-white border-slate-200 text-slate-600 hover:bg-amber-50 hover:border-amber-300 hover:text-amber-800'}">
+                ${isFilterLocked ? '🔒 Filter Locked · Unlock' : '🔓 Lock Filter'}
+              </button>
+            ` : (isFilterLocked ? '<span class="px-2.5 py-1 rounded-xl bg-amber-100 text-amber-800 text-[10px] font-black uppercase">🔒 Filter Locked</span>' : '')}
+            ${filterSummaryChips || '<span class="text-[11px] text-slate-400 font-bold">All Classes (no dynamic filter)</span>'}
           </div>
           ${_admSpCanEdit ? `
             <div class="flex items-center gap-1.5">
@@ -56435,6 +56589,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               ${_admSpSchedules.length > 1 ? `<button type="button" onclick="_admSpDeleteSchedule()" class="px-2 py-1 border border-red-200 text-red-500 rounded-lg text-[10px] font-bold hover:bg-red-50">Delete Date</button>` : ''}
             </div>
           ` : ''}
+        </div>
+        ${filterPanelHtml}
+
+        <!-- Quick Exclude Status (when Status pill isn't pinned) -->
+        <div class="flex items-center gap-3 flex-wrap text-xs mb-3 ${isFilterLocked ? 'opacity-60 pointer-events-none' : ''}">
+          <span class="text-[10px] font-black uppercase text-slate-400">Exclude Status:</span>
+          ${allStatuses.map(st => {
+            const chk = (sched.exclude_statuses || []).includes(st);
+            return `<label class="flex items-center gap-1 text-[11px] font-bold text-slate-600 cursor-pointer"><input type="checkbox" ${chk ? 'checked' : ''} ${(_admSpCanEdit && !isFilterLocked) ? '' : 'disabled'} onchange="_admSpToggleExcludeStatus('${_escHtml(st)}', this.checked)" class="rounded border-slate-300"> ${_escHtml(st)}</label>`;
+          }).join('')}
         </div>
 
         <!-- KPI Summary Strip + Sub-View Switcher -->
