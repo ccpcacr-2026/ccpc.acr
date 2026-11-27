@@ -35381,6 +35381,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admTopMergePartLabel(p) {
     if (p.kind === 'text') return `"${p.text || ''}"`;
     if (p.kind === 'field') return `{${p.header}}`;
+    if (p.kind === 'cond') {
+      const src = p.slice_mode === 'first' ? `First ${p.slice_n} of {${p.header}}`
+        : p.slice_mode === 'last' ? `Last ${p.slice_n} of {${p.header}}`
+        : p.slice_mode === 'range' ? `${p.slice_from}-${p.slice_to} of {${p.header}}`
+        : `{${p.header}}`;
+      const sample = (p.rules || []).slice(0, 2).map(r => `${r.when}→${r.then}`).join(', ');
+      const more = (p.rules || []).length > 2 ? `, +${p.rules.length - 2}` : '';
+      return `If ${src}: ${sample}${more}`;
+    }
     if (p.slice_mode === 'first') return `First ${p.slice_n} of {${p.header}}`;
     if (p.slice_mode === 'last') return `Last ${p.slice_n} of {${p.header}}`;
     return `${p.slice_from}-${p.slice_to} of {${p.header}}`;
@@ -36238,7 +36247,19 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         if (col) raw = _ccpcPlainCell(col.get(row), col.isPhone);
         else if (row[p.header] !== undefined && row[p.header] !== null) raw = String(row[p.header]);
         else if (row.extra_fields && row.extra_fields[p.header] !== undefined) raw = String(row.extra_fields[p.header] ?? '');
-        val = p.kind === 'slice' ? _admTopSliceVal(raw, p.slice_mode, p.slice_n, p.slice_from, p.slice_to) : raw;
+        if (p.kind === 'cond') {
+          const extracted = (p.slice_mode && p.slice_mode !== 'full')
+            ? _admTopSliceVal(raw, p.slice_mode, p.slice_n, p.slice_from, p.slice_to)
+            : raw;
+          const norm = String(extracted || '').trim().toLowerCase();
+          const match = (p.rules || []).find(r => String(r.when ?? '').trim().toLowerCase() === norm);
+          if (match) val = String(match.then ?? '');
+          else if (p.fallback !== undefined && p.fallback !== '') val = String(p.fallback);
+          else if (p.keep_raw) val = extracted;
+          else val = '';
+        } else {
+          val = p.kind === 'slice' ? _admTopSliceVal(raw, p.slice_mode, p.slice_n, p.slice_from, p.slice_to) : raw;
+        }
       }
       out += val;
       if (i < parts.length - 1) {
@@ -36305,7 +36326,106 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admCustomColAvailHeaders = Array.from(new Set(baseCols));
     _admCustomColEditId = null;
     _admCustomColStaging = [];
-    _admCustomColRenderModal('', '');
+    _admCustomColResetCondDraft();
+    _admCustomColRenderModal('');
+  }
+  let _admCustomColCondDraft = null;
+  let _admCustomColEditCondIdx = -1;
+  function _admCustomColResetCondDraft() {
+    _admCustomColEditCondIdx = -1;
+    _admCustomColCondDraft = {
+      header: _admCustomColAvailHeaders[0] || '',
+      slice_mode: 'range',
+      slice_n: 2,
+      slice_from: 5,
+      slice_to: 6,
+      rules: [{ when: '', then: '' }, { when: '', then: '' }],
+      fallback: '',
+      keep_raw: false,
+    };
+  }
+  function _admCustomColRenderCondRules() {
+    const box = document.getElementById('admCustomColCondRulesBox');
+    if (!box || !_admCustomColCondDraft) return;
+    box.innerHTML = (_admCustomColCondDraft.rules || []).map((r, i) => `
+      <div class="flex items-center gap-1">
+        <span class="text-[10px] font-bold text-emerald-700 shrink-0">If =</span>
+        <input type="text" value="${_escHtml(r.when || '')}" placeholder="e.g. EA" oninput="_admCustomColCondRuleSet(${i},'when',this.value)" class="flex-1 min-w-0 px-1.5 py-1 bg-white border border-emerald-200 rounded text-xs">
+        <span class="text-[10px] font-bold text-emerald-700 shrink-0">→ put</span>
+        <input type="text" value="${_escHtml(r.then || '')}" placeholder="e.g. 51" oninput="_admCustomColCondRuleSet(${i},'then',this.value)" class="flex-1 min-w-0 px-1.5 py-1 bg-white border border-emerald-200 rounded text-xs">
+        <button type="button" onclick="_admCustomColCondRuleRemove(${i})" title="Remove rule" class="px-1.5 py-0.5 text-red-500 font-black text-xs">×</button>
+      </div>`).join('');
+  }
+  function _admCustomColCondRuleSet(idx, field, val) {
+    if (!_admCustomColCondDraft || !_admCustomColCondDraft.rules[idx]) return;
+    _admCustomColCondDraft.rules[idx][field] = val;
+  }
+  function _admCustomColCondRuleAdd() {
+    if (!_admCustomColCondDraft) _admCustomColResetCondDraft();
+    _admCustomColCondDraft.rules.push({ when: '', then: '' });
+    _admCustomColRenderCondRules();
+  }
+  function _admCustomColCondRuleRemove(idx) {
+    if (!_admCustomColCondDraft) return;
+    _admCustomColCondDraft.rules.splice(idx, 1);
+    if (!_admCustomColCondDraft.rules.length) _admCustomColCondDraft.rules.push({ when: '', then: '' });
+    _admCustomColRenderCondRules();
+  }
+  function _admCustomColCondModeChange() {
+    const m = document.getElementById('admCustomColCondMode')?.value || 'full';
+    if (_admCustomColCondDraft) _admCustomColCondDraft.slice_mode = m;
+    document.getElementById('admCustomColCondN')?.classList.toggle('hidden', m !== 'first' && m !== 'last');
+    document.getElementById('admCustomColCondFrom')?.classList.toggle('hidden', m !== 'range');
+    document.getElementById('admCustomColCondTo')?.classList.toggle('hidden', m !== 'range');
+  }
+  function _admCustomColAddCond() {
+    if (!_admCustomColCondDraft) _admCustomColResetCondDraft();
+    const curName = document.getElementById('admCustomColName')?.value || '';
+    const header = document.getElementById('admCustomColCondCol')?.value || _admCustomColCondDraft.header;
+    const mode = document.getElementById('admCustomColCondMode')?.value || 'full';
+    const slice_n = Math.max(1, parseInt(document.getElementById('admCustomColCondN')?.value, 10) || 2);
+    const slice_from = Math.max(1, parseInt(document.getElementById('admCustomColCondFrom')?.value, 10) || 5);
+    const slice_to = Math.max(1, parseInt(document.getElementById('admCustomColCondTo')?.value, 10) || 6);
+    const fallback = document.getElementById('admCustomColCondFallback')?.value ?? '';
+    const keep_raw = !!document.getElementById('admCustomColCondKeepRaw')?.checked;
+    const rules = (_admCustomColCondDraft.rules || [])
+      .map(r => ({ when: String(r.when ?? '').trim(), then: String(r.then ?? '') }))
+      .filter(r => r.when !== '');
+    if (!header) { showToast('Pick a source column first', 'error'); return; }
+    if (!rules.length) { showToast('Add at least one If → put rule', 'error'); return; }
+    const existingSep = (_admCustomColEditCondIdx >= 0 && _admCustomColStaging[_admCustomColEditCondIdx])
+      ? (_admCustomColStaging[_admCustomColEditCondIdx].sep ?? '')
+      : '';
+    const part = { kind: 'cond', header, slice_mode: mode, slice_n, slice_from, slice_to, rules, fallback, keep_raw, sep: existingSep };
+    if (_admCustomColEditCondIdx >= 0 && _admCustomColStaging[_admCustomColEditCondIdx]) {
+      _admCustomColStaging[_admCustomColEditCondIdx] = part;
+    } else {
+      _admCustomColStaging.push(part);
+    }
+    _admCustomColResetCondDraft();
+    _admCustomColRenderModal(curName);
+  }
+  function _admCustomColEditCondPart(idx) {
+    const p = _admCustomColStaging[idx];
+    if (!p || p.kind !== 'cond') return;
+    const curName = document.getElementById('admCustomColName')?.value || '';
+    _admCustomColEditCondIdx = idx;
+    _admCustomColCondDraft = {
+      header: p.header || _admCustomColAvailHeaders[0] || '',
+      slice_mode: p.slice_mode || 'full',
+      slice_n: p.slice_n || 2,
+      slice_from: p.slice_from || 5,
+      slice_to: p.slice_to || 6,
+      rules: (p.rules && p.rules.length) ? p.rules.map(r => ({ when: r.when || '', then: r.then || '' })) : [{ when: '', then: '' }],
+      fallback: p.fallback || '',
+      keep_raw: !!p.keep_raw,
+    };
+    _admCustomColRenderModal(curName);
+  }
+  function _admCustomColCancelCondEdit() {
+    const curName = document.getElementById('admCustomColName')?.value || '';
+    _admCustomColResetCondDraft();
+    _admCustomColRenderModal(curName);
   }
   function _admCustomColFormulaSummary(parts, fallbackDelim) {
     const list = parts || [];
@@ -36358,6 +36478,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     for (let i = 0; i < _admCustomColStaging.length; i++) {
       _admCustomColStaging[i].sep = i < _admCustomColStaging.length - 1 ? (seps[i] ?? '') : '';
     }
+    if (_admCustomColEditCondIdx >= 0) _admCustomColResetCondDraft();
     const curName = document.getElementById('admCustomColName')?.value || '';
     _admCustomColRenderModal(curName);
   }
@@ -36372,6 +36493,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (pv) pv.innerHTML = _admCustomColLivePreviewHtml();
   }
   function _admCustomColRenderModal(initHeader) {
+    if (!_admCustomColCondDraft) _admCustomColResetCondDraft();
+    const cd = _admCustomColCondDraft;
     const existing = _admCustomMergedCols.map(c => `
       <div class="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-xs">
         <div class="min-w-0">
@@ -36384,9 +36507,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>`).join('') || '<p class="text-[11px] text-slate-400">No custom merged columns yet.</p>';
     const colOpts = _admCustomColAvailHeaders.map(h => `<option value="${_escHtml(h)}">${_escHtml(h)}</option>`).join('');
+    const condColOpts = _admCustomColAvailHeaders.map(h => `<option value="${_escHtml(h)}" ${h === cd.header ? 'selected' : ''}>${_escHtml(h)}</option>`).join('');
     const chips = _admCustomColStaging.length
       ? _admCustomColStaging.map((p, i) => {
-          const chip = `<span draggable="true" ondragstart="_admCustomColDragStart(event,${i})" ondragover="_admCustomColDragOver(event)" ondragleave="_admCustomColDragLeave(event)" ondrop="_admCustomColDrop(event,${i})" ondragend="_admCustomColDragEnd(event)" title="Drag to reorder" class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-indigo-50 border border-indigo-200 text-indigo-800 rounded text-[10px] font-bold cursor-grab active:cursor-grabbing select-none"><span class="text-indigo-400">⋮⋮</span>${_escHtml(_admTopMergePartLabel(p))}<button type="button" onclick="_admCustomColRemovePart(${i})" class="text-red-500 font-black ml-0.5">×</button></span>`;
+          const isCond = p.kind === 'cond';
+          const chipCls = isCond
+            ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+            : 'bg-indigo-50 border-indigo-200 text-indigo-800';
+          const editBtn = isCond ? `<button type="button" onclick="_admCustomColEditCondPart(${i})" title="Edit conditional rules" class="text-emerald-700 hover:text-black font-black ml-0.5">✎</button>` : '';
+          const chip = `<span draggable="true" ondragstart="_admCustomColDragStart(event,${i})" ondragover="_admCustomColDragOver(event)" ondragleave="_admCustomColDragLeave(event)" ondrop="_admCustomColDrop(event,${i})" ondragend="_admCustomColDragEnd(event)" title="Drag to reorder" class="inline-flex items-center gap-1 px-1.5 py-0.5 border ${chipCls} rounded text-[10px] font-bold cursor-grab active:cursor-grabbing select-none"><span class="opacity-50">⋮⋮</span>${_escHtml(_admTopMergePartLabel(p))}${editBtn}<button type="button" onclick="_admCustomColRemovePart(${i})" class="text-red-500 font-black ml-0.5">×</button></span>`;
           if (i < _admCustomColStaging.length - 1) {
             const sepVal = (p.sep !== undefined && p.sep !== null) ? String(p.sep) : '';
             const sepBox = `<input type="text" value="${_escHtml(sepVal)}" placeholder="delim" title="Text / delimiter between segment ${i + 1} and ${i + 2}" oninput="_admCustomColSetSep(${i},this.value)" class="w-16 px-1.5 py-0.5 bg-amber-50 border border-amber-300 focus:border-indigo-500 focus:bg-white rounded text-[11px] font-mono text-center text-amber-950 placeholder-amber-400">`;
@@ -36394,13 +36523,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           }
           return chip;
         }).join('')
-      : '<span class="text-[10px] text-slate-400">Add custom text, column value, or portion below…</span>';
+      : '<span class="text-[10px] text-slate-400">Add custom text, column value, portion, or conditional value below…</span>';
     const previewHtml = _admCustomColLivePreviewHtml();
+    const condMode = cd.slice_mode || 'range';
     _diaryShowSimpleModal('Custom Columns (Applicant Data)', `
-      <div class="space-y-3">
+      <div class="space-y-3 max-h-[78vh] overflow-y-auto pr-1">
         <div>
           <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Saved Custom Columns</p>
-          <div class="space-y-1.5 max-h-36 overflow-y-auto">${existing}</div>
+          <div class="space-y-1.5 max-h-32 overflow-y-auto">${existing}</div>
         </div>
         <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
           <p class="text-[10px] font-black text-indigo-700 uppercase">${_admCustomColEditId ? 'Edit Custom Column' : 'New Custom Column'}</p>
@@ -36427,6 +36557,31 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <input id="admCustomColSliceTo" type="number" min="1" value="6" class="hidden w-16 px-2 py-1 bg-white border border-slate-200 rounded text-xs">
             <button type="button" onclick="_admCustomColAddPart('slice')" class="flex-1 px-2.5 py-1 bg-violet-600 text-white rounded text-[10px] font-black uppercase">+ Portion</button>
           </div>
+          <div class="bg-emerald-50/70 border border-emerald-200 rounded-lg p-2 space-y-1.5">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-[9px] font-black text-emerald-800 uppercase">${_admCustomColEditCondIdx >= 0 ? 'Edit Conditional Value' : 'Conditional Value (If Portion = X → Put Y)'}</span>
+              ${_admCustomColEditCondIdx >= 0 ? '<button type="button" onclick="_admCustomColCancelCondEdit()" class="text-[10px] font-bold text-slate-500 hover:text-black">Cancel Edit</button>' : ''}
+            </div>
+            <div class="flex gap-1 items-center flex-wrap">
+              <select id="admCustomColCondCol" onchange="_admCustomColCondDraft.header=this.value" class="flex-1 min-w-[110px] px-1.5 py-1 bg-white border border-emerald-200 rounded text-xs">${condColOpts}</select>
+              <select id="admCustomColCondMode" onchange="_admCustomColCondModeChange()" class="px-1.5 py-1 bg-white border border-emerald-200 rounded text-xs">
+                <option value="full" ${condMode === 'full' ? 'selected' : ''}>Full Value</option>
+                <option value="first" ${condMode === 'first' ? 'selected' : ''}>First N</option>
+                <option value="last" ${condMode === 'last' ? 'selected' : ''}>Last N</option>
+                <option value="range" ${condMode === 'range' ? 'selected' : ''}>From X to Y</option>
+              </select>
+              <input id="admCustomColCondN" type="number" min="1" value="${cd.slice_n || 2}" oninput="_admCustomColCondDraft.slice_n=+this.value||2" placeholder="N" class="${(condMode !== 'first' && condMode !== 'last') ? 'hidden ' : ''}w-14 px-1.5 py-1 bg-white border border-emerald-200 rounded text-xs">
+              <input id="admCustomColCondFrom" type="number" min="1" value="${cd.slice_from || 5}" oninput="_admCustomColCondDraft.slice_from=+this.value||1" placeholder="From" title="Start position (1-based)" class="${condMode !== 'range' ? 'hidden ' : ''}w-14 px-1.5 py-1 bg-white border border-emerald-200 rounded text-xs">
+              <input id="admCustomColCondTo" type="number" min="1" value="${cd.slice_to || 6}" oninput="_admCustomColCondDraft.slice_to=+this.value||2" placeholder="To" title="End position (1-based)" class="${condMode !== 'range' ? 'hidden ' : ''}w-14 px-1.5 py-1 bg-white border border-emerald-200 rounded text-xs">
+            </div>
+            <div id="admCustomColCondRulesBox" class="space-y-1"></div>
+            <div class="flex gap-1.5 items-center flex-wrap">
+              <button type="button" onclick="_admCustomColCondRuleAdd()" class="px-2 py-1 bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 rounded text-[10px] font-black uppercase">+ Rule</button>
+              <input id="admCustomColCondFallback" type="text" value="${_escHtml(cd.fallback || '')}" oninput="_admCustomColCondDraft.fallback=this.value" placeholder="Else (optional)" class="flex-1 min-w-[90px] px-1.5 py-1 bg-white border border-emerald-200 rounded text-xs">
+              <label class="text-[10px] font-bold text-emerald-900 cursor-pointer whitespace-nowrap"><input type="checkbox" id="admCustomColCondKeepRaw" ${cd.keep_raw ? 'checked' : ''} onchange="_admCustomColCondDraft.keep_raw=this.checked"> Keep raw</label>
+              <button type="button" onclick="_admCustomColAddCond()" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[10px] font-black uppercase">${_admCustomColEditCondIdx >= 0 ? 'Update Conditional' : '+ Conditional'}</button>
+            </div>
+          </div>
           <div>
             <p class="text-[9px] font-bold text-slate-400 mb-1">Segments &amp; Delimiters (drag ⋮⋮ chips to reorder · type delimiter text in amber boxes)</p>
             <div class="flex flex-wrap items-center gap-1.5 p-2 bg-white border border-slate-200 rounded-lg min-h-[34px]">${chips}</div>
@@ -36437,6 +36592,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </div>
       </div>
     `);
+    _admCustomColRenderCondRules();
   }
   function _admCustomColSliceModeChange() {
     const m = document.getElementById('admCustomColSliceMode')?.value;
@@ -36471,6 +36627,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admCustomColRemovePart(idx) {
     const curName = document.getElementById('admCustomColName')?.value || '';
     _admCustomColStaging.splice(idx, 1);
+    if (_admCustomColEditCondIdx >= 0) _admCustomColResetCondDraft();
     _admCustomColRenderModal(curName);
   }
   function _admCustomColEdit(id) {
@@ -36481,8 +36638,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const fallbackDelim = cd.delimiter ?? '';
     _admCustomColStaging = rawParts.map((p, i) => ({
       ...p,
+      rules: Array.isArray(p.rules) ? p.rules.map(r => ({ ...r })) : undefined,
       sep: (p.sep !== undefined && p.sep !== null) ? String(p.sep) : (i < rawParts.length - 1 ? fallbackDelim : ''),
     }));
+    _admCustomColResetCondDraft();
     _admCustomColRenderModal(cd.header || '');
   }
   async function _admCustomColDelete(id) {
@@ -36499,6 +36658,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     showToast('Deleted', 'success');
     _admCustomColEditId = null;
     _admCustomColStaging = [];
+    _admCustomColResetCondDraft();
     _admCustomColRenderModal('');
   }
   async function _admCustomColSave() {
@@ -36529,6 +36689,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     showToast('Custom column saved', 'success');
     _admCustomColEditId = null;
     _admCustomColStaging = [];
+    _admCustomColResetCondDraft();
     _admCustomColRenderModal('');
   }
   function _gfOpenPrintWindow(title, bodyHtml, pageCss) {
