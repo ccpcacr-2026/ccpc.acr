@@ -914,6 +914,237 @@ export async function POST(req) {
     return NextResponse.json({ success: true });
   }
 
+  // ── Live Seat Plan Studio (Multi-date schedules, live matrix, 6 sheets, BulkSMSBD) ──
+  const BULKSMSBD_CODE_MEANINGS = {
+    '202': 'SMS Submitted Successfully',
+    '1001': 'Invalid Number',
+    '1002': 'Sender ID not correct / disabled',
+    '1003': 'Required fields missing',
+    '1005': 'Internal Error',
+    '1006': 'Balance Validity Not Available',
+    '1007': 'Balance Insufficient',
+    '1011': 'User ID not found',
+    '1012': 'Masking SMS must be Bengali',
+    '1013': 'Sender ID not found',
+    '1014': 'Sender Type Name not found',
+    '1015': 'Sender ID has no valid gateway',
+    '1016': 'Sender Type Active Price Info not found',
+    '1017': 'Sender Type Price Info not found',
+    '1018': 'Account Owner Disabled',
+    '1019': 'Sender Type Price Disabled',
+    '1020': 'Parent Account not found',
+    '1021': 'Parent Active Price not found',
+    '1031': 'Account Not Verified',
+    '1032': 'IP Not Whitelisted',
+  };
+  async function _upsertAdmissionSetting(key, value) {
+    const existing = await sbAdmission(`admission_settings?key=eq.${encodeURIComponent(key)}&select=key`);
+    const now = new Date().toISOString();
+    if (Array.isArray(existing) && existing.length) {
+      return await sbAdmission(`admission_settings?key=eq.${encodeURIComponent(key)}`, 'PATCH', { value, updated_at: now });
+    }
+    return await sbAdmission('admission_settings', 'POST', { key, value, updated_at: now });
+  }
+  async function _getAdmissionSetting(key) {
+    const rows = await sbAdmission(`admission_settings?key=eq.${encodeURIComponent(key)}&select=value`);
+    return (Array.isArray(rows) && rows[0]) ? rows[0].value : null;
+  }
+
+  if (action === 'getSeatPlanStudioData') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    const perms = isFullAdmin ? null : await _getCommitteePerms(user_id, circularId);
+    if (!isFullAdmin && !_tabOk(false, perms, 'alloc', 'view')) return _forbidden();
+    const canEdit = isFullAdmin || _tabOk(false, perms, 'alloc', 'edit');
+
+    const candSelect = 'id,token,external_key,tracking_id,index_id,class,version,category,status,source,name_english,name_bangla,father_name,mother_name,mobile,father_contact,mother_contact,room_id,seat_no,scan_values,extra_fields,created_at';
+    const [candRows, roomRows, bldgRows, schedSetting, customColsSetting, smsSetting, scanOptRows, circRows] = await Promise.all([
+      sbAdmission(`admission_applications?select=${candSelect}&circular_id=eq.${circularId}&order=id.asc&limit=10000`),
+      sbInventory('rooms?select=id,name,capacity,building_id&order=name.asc'),
+      sbInventory('buildings?select=id,name'),
+      _getAdmissionSetting(`seat_plan_schedules_${circularId}`),
+      _getAdmissionSetting('custom_merged_columns'),
+      _getAdmissionSetting('seat_plan_sms_config'),
+      sbAdmission(`candidate_scan_options?circular_id=eq.${circularId}&order=sort_order.asc,id.asc`),
+      sbAdmission(`exam_circulars?id=eq.${circularId}&select=id,name,session_id`),
+    ]);
+    if (candRows?.error) return NextResponse.json({ error: candRows.error });
+    const bldgById = {};
+    (Array.isArray(bldgRows) ? bldgRows : []).forEach(b => { bldgById[b.id] = b.name; });
+    const rooms = (Array.isArray(roomRows) ? roomRows : []).map(r => ({
+      id: r.id,
+      room_name: r.name,
+      capacity: parseInt(r.capacity, 10) || 0,
+      building: r.building_id ? (bldgById[r.building_id] || null) : null,
+    }));
+    const schedules = Array.isArray(schedSetting?.schedules)
+      ? schedSetting.schedules
+      : (Array.isArray(schedSetting) ? schedSetting : []);
+    const circ = (Array.isArray(circRows) && circRows[0]) || null;
+    let sessionName = '';
+    if (circ && circ.session_id) {
+      const sRows = await sbAdmission(`exam_sessions?id=eq.${circ.session_id}&select=name`);
+      if (Array.isArray(sRows) && sRows[0]) sessionName = sRows[0].name || '';
+    }
+    const smsCfg = (smsSetting && typeof smsSetting === 'object') ? smsSetting : {};
+    return NextResponse.json({
+      candidates: Array.isArray(candRows) ? candRows : [],
+      rooms,
+      schedules,
+      custom_columns: Array.isArray(customColsSetting) ? customColsSetting : [],
+      scan_options: Array.isArray(scanOptRows) ? scanOptRows : [],
+      sms_config: {
+        sender_id: smsCfg.sender_id || '8809617611050',
+        api_key: canEdit ? (smsCfg.api_key || '') : '',
+        has_api_key: !!smsCfg.api_key,
+      },
+      circular_name: circ ? circ.name : '',
+      session_name: sessionName,
+      can_edit: canEdit,
+    });
+  }
+
+  if (action === 'saveSeatPlanSchedules') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'alloc', 'edit')) return _forbidden();
+    const schedules = Array.isArray(payload.schedules) ? payload.schedules : [];
+    const res = await _upsertAdmissionSetting(`seat_plan_schedules_${circularId}`, { schedules, updated_at: new Date().toISOString() });
+    if (res?.error) return NextResponse.json({ error: res.error });
+    return NextResponse.json({ success: true });
+  }
+
+  if (action === 'applySeatPlanSchedule') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'alloc', 'edit')) return _forbidden();
+    const schedules = Array.isArray(payload.schedules) ? payload.schedules : null;
+    const assignments = Array.isArray(payload.assignments) ? payload.assignments : [];
+    const clearIds = Array.isArray(payload.clear_ids) ? payload.clear_ids.map(n => parseInt(n, 10)).filter(Boolean) : [];
+    const now = new Date().toISOString();
+
+    if (schedules !== null) {
+      const saveRes = await _upsertAdmissionSetting(`seat_plan_schedules_${circularId}`, { schedules, updated_at: now });
+      if (saveRes?.error) return NextResponse.json({ error: saveRes.error });
+    }
+    for (const part of chunk(clearIds, 150)) {
+      const res = await sbAdmission(`admission_applications?circular_id=eq.${circularId}&id=in.(${part.join(',')})`, 'PATCH', {
+        room_id: null, seat_no: null, updated_at: now,
+      });
+      if (res?.error) return NextResponse.json({ error: res.error });
+    }
+    const cleanAssignments = assignments
+      .map(a => ({ id: parseInt(a.id, 10), room_id: parseInt(a.room_id, 10), seat_no: String(a.seat_no ?? '') }))
+      .filter(a => a.id && a.room_id);
+    for (const part of chunk(cleanAssignments, 25)) {
+      const results = await Promise.all(part.map(a =>
+        sbAdmission(`admission_applications?id=eq.${a.id}&circular_id=eq.${circularId}`, 'PATCH', {
+          room_id: a.room_id, seat_no: a.seat_no, updated_at: now,
+        })
+      ));
+      const err = results.find(r => r && r.error);
+      if (err) return NextResponse.json({ error: err.error });
+    }
+    return NextResponse.json({ success: true, allocated: cleanAssignments.length, cleared: clearIds.length });
+  }
+
+  if (action === 'getSeatPlanPhotosByIds') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ photos: {} });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'alloc', 'view')) return _forbidden();
+    const ids = Array.isArray(payload.ids) ? [...new Set(payload.ids.map(n => parseInt(n, 10)).filter(Boolean))] : [];
+    const photos = {};
+    for (const part of chunk(ids, 80)) {
+      const rows = await sbAdmission(`admission_applications?circular_id=eq.${circularId}&id=in.(${part.join(',')})&select=id,student_photo`);
+      if (Array.isArray(rows)) rows.forEach(r => { if (r.student_photo) photos[r.id] = r.student_photo; });
+    }
+    return NextResponse.json({ photos });
+  }
+
+  if (action === 'saveSeatPlanSmsConfig') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!isFullAdmin) {
+      if (!circularId || !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'alloc', 'edit')) return _forbidden();
+    }
+    const existing = (await _getAdmissionSetting('seat_plan_sms_config')) || {};
+    const api_key = payload.api_key !== undefined ? String(payload.api_key).trim() : (existing.api_key || '');
+    const sender_id = payload.sender_id !== undefined ? String(payload.sender_id).trim() : (existing.sender_id || '');
+    const res = await _upsertAdmissionSetting('seat_plan_sms_config', { api_key, sender_id });
+    if (res?.error) return NextResponse.json({ error: res.error });
+    return NextResponse.json({ success: true });
+  }
+
+  if (action === 'sendSeatPlanSmsBatch') {
+    const circularId = parseInt(payload.circular_id, 10);
+    const scheduleId = String(payload.schedule_id || '').trim();
+    if (!circularId || !scheduleId) return NextResponse.json({ error: 'Missing circular or schedule.' });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'alloc', 'edit')) return _forbidden();
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    if (!items.length) return NextResponse.json({ error: 'No SMS recipients in batch.' });
+
+    const savedCfg = (await _getAdmissionSetting('seat_plan_sms_config')) || {};
+    const apiKey = String(payload.api_key || savedCfg.api_key || '').trim();
+    const senderId = String(payload.sender_id || savedCfg.sender_id || '').trim();
+    if (!apiKey || !senderId) return NextResponse.json({ error: 'Configure BulkSMSBD API Key and Sender ID first.' });
+
+    const schedSetting = await _getAdmissionSetting(`seat_plan_schedules_${circularId}`);
+    const schedules = Array.isArray(schedSetting?.schedules)
+      ? schedSetting.schedules
+      : (Array.isArray(schedSetting) ? schedSetting : []);
+    const sched = schedules.find(s => s && s.id === scheduleId);
+    const smsLog = (sched && sched.sms_log && typeof sched.sms_log === 'object') ? { ...sched.sms_log } : {};
+    const force = !!payload.force;
+
+    let sent = 0, failed = 0, skipped = 0;
+    const results = [];
+    for (const item of items) {
+      const appId = String(item.id || '');
+      const phone = String(item.phone || '').replace(/\D/g, '');
+      const message = String(item.message || '').trim();
+      if (!force && appId && smsLog[appId] && String(smsLog[appId].code) === '202') {
+        skipped++;
+        results.push({ id: appId, skipped: true, ...smsLog[appId] });
+        continue;
+      }
+      if (!phone || !message) {
+        failed++;
+        const entry = { code: '1003', meaning: 'Missing phone or message', sent_at: new Date().toISOString() };
+        if (appId) smsLog[appId] = entry;
+        results.push({ id: appId, ...entry });
+        continue;
+      }
+      const normalizedPhone = phone.length === 10 ? ('880' + phone) : (phone.length === 11 && phone.startsWith('0') ? ('88' + phone) : phone);
+      const url = `http://bulksmsbd.net/api/smsapi?api_key=${encodeURIComponent(apiKey)}&type=text&number=${encodeURIComponent(normalizedPhone)}&senderid=${encodeURIComponent(senderId)}&message=${encodeURIComponent(message)}`;
+      try {
+        const resp = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(15000) });
+        const rawText = (await resp.text()).trim();
+        let code = rawText;
+        let extraMsg = '';
+        try {
+          const parsed = JSON.parse(rawText);
+          if (parsed && parsed.response_code !== undefined) code = String(parsed.response_code);
+          if (parsed && (parsed.success_message || parsed.error_message)) extraMsg = String(parsed.success_message || parsed.error_message);
+        } catch {}
+        const meaning = BULKSMSBD_CODE_MEANINGS[code] || extraMsg || `Response: ${rawText.slice(0, 80)}`;
+        const entry = { code, meaning, phone: normalizedPhone, sent_at: new Date().toISOString() };
+        if (code === '202') sent++; else failed++;
+        if (appId) smsLog[appId] = entry;
+        results.push({ id: appId, ...entry });
+      } catch (err) {
+        failed++;
+        const entry = { code: 'ERR', meaning: String((err && err.message) || 'Network error'), phone: normalizedPhone, sent_at: new Date().toISOString() };
+        if (appId) smsLog[appId] = entry;
+        results.push({ id: appId, ...entry });
+      }
+    }
+
+    if (sched) {
+      sched.sms_log = smsLog;
+      await _upsertAdmissionSetting(`seat_plan_schedules_${circularId}`, { schedules, updated_at: new Date().toISOString() });
+    }
+    return NextResponse.json({ success: true, sent, failed, skipped, results, sms_log: smsLog });
+  }
+
   // ── Photo bulk upload by admin-selected match field ──────────────────────
   // VortiBD's own "download all candidate photos" export comes as four
   // separate folders (applicant/father/mother/local guardian), so the admin

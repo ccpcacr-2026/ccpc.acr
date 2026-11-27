@@ -52665,7 +52665,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     const el = document.getElementById(id); if (el) el.classList.remove('hidden');
     if (id === 'adm-cand-rooms') _admCandLoadRooms();
-    else if (id === 'adm-cand-alloc') { _admCandLoadRooms(); _admCandPopulateFilterDropdowns(); _admCandLoadAutoAllocRules(); }
+    else if (id === 'adm-cand-alloc') { _admSpInit(); _admCandLoadAutoAllocRules(); }
     else if (id === 'adm-cand-scan') { _admCandPopulateFilterDropdowns(); _admCandLoadScanOptions(); }
     else if (id === 'adm-cand-import') { _admCandLoadFormFieldsForMapping(); _admCandLoadTemplates().then(_admCandLoadVortibdPanel); }
   }
@@ -52840,70 +52840,46 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>
 
       <div id="adm-cand-alloc" class="hidden">
-        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
-          <p class="text-xs text-slate-400 mb-4">
-            Running this takes every candidate matching the filters below, sorts/groups them as chosen, then fills the
-            checked rooms <b>in the order they're listed below</b>, each up to its capacity. It re-assigns ALL matching
-            candidates every time — including ones already seated from a previous run — so re-running with different
-            filters/rooms can move someone who was already allocated. "Clear All Allocations" removes every room/seat
-            assignment in this circular (useful before a fresh run with new criteria).
-          </p>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
-              <label class="text-[10px] uppercase text-slate-400 font-bold">Sort candidates by</label>
-              <select id="admCandAllocSortBy" onchange="_admCandUpdateAllocPreview()" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mt-1">
-                <option value="token">Tracking ID</option><option value="name_english">Name</option>${_admCandAllocFieldOptionsHtml()}
-              </select>
-            </div>
-            <div>
-              <label class="text-[10px] uppercase text-slate-400 font-bold">Group by (keeps each group together, filled before moving to the next)</label>
-              <select id="admCandAllocGroupBy" onchange="_admCandUpdateAllocPreview()" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold mt-1">
-                <option value="">No grouping</option>${_admCandAllocFieldOptionsHtml()}
-              </select>
-            </div>
-          </div>
-          <div id="admCandAllocFilters" class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4"></div>
-          <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
-            <label class="text-[10px] uppercase text-slate-400 font-bold">Rooms to fill, in order shown</label>
-            <label class="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 cursor-pointer"><input type="checkbox" id="admCandAllocOnlyAvailable" checked onchange="_admCandRenderAllocRoomPicker()"> Only rooms with available seats</label>
-          </div>
-          <div id="admCandAllocRoomPicker" class="flex flex-wrap gap-2 my-2"></div>
-          <div id="admCandAllocPreview" class="text-xs text-slate-500 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 mb-3"></div>
-          <div class="flex items-center gap-2 mt-3">
-            <button onclick="_admCandRunAllocation()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase">Run Allocation</button>
-            <button onclick="_admCandClearAllocation()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase">Clear All Allocations</button>
-          </div>
-          <div id="admCandAllocResult" class="mt-3 text-sm"></div>
+        <div id="admSpStudioRoot">
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 text-center text-slate-400 text-xs font-bold">Loading Live Seat Plan Studio…</div>
         </div>
-        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mt-4">
-          <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
-            <h3 class="font-black text-slate-800 text-sm">Live Auto-Allocation</h3>
-            <button onclick="_admCandAutoAllocFormOpen()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">+ New Rule</button>
-          </div>
-          <p class="text-xs text-slate-400 mb-3">
-            A rule here seats every FUTURE new arrival (import, online submission, or a new application you create) matching its filter — automatically and immediately, into the next open seat in its room list, in arrival order. Nothing already allocated before a rule existed is ever touched or renumbered. If a rule's rooms fill up, new arrivals matching it stay unallocated and show up flagged below — add more rooms to the rule to pick them up.
-          </p>
-          <div id="admCandAutoAllocForm" class="hidden bg-slate-50 border border-slate-200 rounded-xl p-4 mb-3">
-            <input type="hidden" id="admCandAutoAllocEditId">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-              <div>
-                <label class="text-[10px] uppercase text-slate-400 font-bold">Field</label>
-                <select id="admCandAutoAllocField" onchange="_admCandAutoAllocFieldChange()" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold mt-1">${_admCandAllocFieldOptionsHtml()}</select>
+        <details class="bg-white rounded-2xl shadow-sm border border-slate-100 mt-4 group">
+          <summary class="px-5 py-3.5 cursor-pointer select-none flex items-center justify-between gap-2 list-none">
+            <div class="flex items-center gap-2">
+              <span class="font-black text-slate-700 text-xs uppercase tracking-wider">Live Auto-Allocation Rules (Auto-seat future arrivals)</span>
+              <span class="text-[10px] text-slate-400 font-bold">Optional background rules for incoming applications</span>
+            </div>
+            <span class="text-[10px] font-black uppercase text-blue-600">Toggle ▾</span>
+          </summary>
+          <div class="px-5 pb-5 pt-2 border-t border-slate-100">
+            <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+              <p class="text-xs text-slate-400 flex-1">
+                A rule here seats every FUTURE new arrival (import, online submission, or a new application you create) matching its filter — automatically and immediately, into the next open seat in its room list, in arrival order.
+              </p>
+              <button onclick="_admCandAutoAllocFormOpen()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase shrink-0">+ New Rule</button>
+            </div>
+            <div id="admCandAutoAllocForm" class="hidden bg-slate-50 border border-slate-200 rounded-xl p-4 mb-3">
+              <input type="hidden" id="admCandAutoAllocEditId">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                <div>
+                  <label class="text-[10px] uppercase text-slate-400 font-bold">Field</label>
+                  <select id="admCandAutoAllocField" onchange="_admCandAutoAllocFieldChange()" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold mt-1">${_admCandAllocFieldOptionsHtml()}</select>
+                </div>
+                <div>
+                  <label class="text-[10px] uppercase text-slate-400 font-bold">Value</label>
+                  <select id="admCandAutoAllocValue" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold mt-1"></select>
+                </div>
               </div>
-              <div>
-                <label class="text-[10px] uppercase text-slate-400 font-bold">Value</label>
-                <select id="admCandAutoAllocValue" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold mt-1"></select>
+              <label class="text-[10px] uppercase text-slate-400 font-bold">Rooms to fill, in order shown</label>
+              <div id="admCandAutoAllocRoomPicker" class="flex flex-wrap gap-2 my-2"></div>
+              <div class="flex items-center gap-2 mt-2">
+                <button onclick="_admCandAutoAllocSave()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Save Rule</button>
+                <button onclick="_admCandAutoAllocFormClose()" class="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">Cancel</button>
               </div>
             </div>
-            <label class="text-[10px] uppercase text-slate-400 font-bold">Rooms to fill, in order shown</label>
-            <div id="admCandAutoAllocRoomPicker" class="flex flex-wrap gap-2 my-2"></div>
-            <div class="flex items-center gap-2 mt-2">
-              <button onclick="_admCandAutoAllocSave()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Save Rule</button>
-              <button onclick="_admCandAutoAllocFormClose()" class="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">Cancel</button>
-            </div>
+            <div id="admCandAutoAllocList" class="divide-y divide-slate-100"></div>
           </div>
-          <div id="admCandAutoAllocList" class="divide-y divide-slate-100"></div>
-        </div>
+        </details>
       </div>
 
       <div id="adm-cand-setup-tabs" class="hidden flex gap-1 mb-4 overflow-x-auto pb-1">
@@ -54729,6 +54705,2332 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         _admCandLoadAutoAllocRules();
       } catch (e) { showToast(e.message || 'Failed', 'error'); }
     });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // LIVE SEAT PLAN STUDIO — Multi-date Exam Schedules, Live Matrix,
+  // Criteria Demand & Room Availability Pool, 6 Exam-Day Print Sheets,
+  // Excel Export & BulkSMSBD Integration
+  // ══════════════════════════════════════════════════════════════════════════
+  let _admSpCandidates = [];
+  let _admSpRooms = [];
+  let _admSpSchedules = [];
+  let _admSpActiveSchedId = null;
+  let _admSpCustomCols = [];
+  let _admSpScanOptions = [];
+  let _admSpSmsConfig = { api_key: '', sender_id: '8809617611050', has_api_key: false };
+  let _admSpCanEdit = true;
+  let _admSpDirty = false;
+  let _admSpActiveSubView = 'planner'; // 'planner' | 'outputs' | 'sms'
+  let _admSpSelectedCriteriaKey = '';
+  let _admSpRoomPoolFilter = 'ALL';
+  let _admSpRoomPoolSearch = '';
+  let _admSpCircularName = '';
+  let _admSpSessionName = '';
+  let _admSpDragRowIdx = -1;
+  let _admSpColsByHeader = {};
+  let _admSpExtraFieldKeys = [];
+  let _admSpSmsFilter = 'unsent';
+  let _admSpSmsRoomFilter = '';
+  let _admSpSmsSearch = '';
+  let _admSpSmsRunning = false;
+  let _admSpSmsStop = false;
+
+  const ADM_SP_DEFAULT_SMS_TPL = 'CCPC Admission Test\nName: {name}\nIndex: {index_id}\nRoom: {room} ({building}), Seat: {seat}\nDate: {exam_date} ({time})';
+
+  function _admSpCritKey(cls, version, category) {
+    return `${String(cls || '').trim()}||${String(version || '').trim()}||${String(category || '').trim()}`;
+  }
+  function _admSpParseCritKey(key) {
+    const parts = String(key || '').split('||');
+    return { cls: parts[0] || '', version: parts[1] || '', category: parts[2] || '' };
+  }
+  function _admSpCritLabel(cls, version, category) {
+    return [cls || '(No Class)', version || '', category || ''].filter(Boolean).join(' · ');
+  }
+  function _admSpRoomBuildingCode(room) {
+    if (!room) return 'OTHER';
+    const m = /^([A-Za-z]{2,4})[-_\s]/.exec(String(room.room_name || '').trim());
+    if (m) return m[1].toUpperCase();
+    if (room.building) {
+      const b = String(room.building).trim();
+      for (const [code, label] of Object.entries(ADM_CAND_BUILDING_PREFIXES)) {
+        if (label.toLowerCase() === b.toLowerCase()) return code;
+      }
+      return b.slice(0, 6).toUpperCase();
+    }
+    return 'OTHER';
+  }
+  function _admSpRoomBuildingName(room) {
+    const lbl = _admCandRoomBuildingLabel(room);
+    if (lbl) return lbl;
+    const code = _admSpRoomBuildingCode(room);
+    return ADM_CAND_BUILDING_PREFIXES[code] || (code === 'OTHER' ? 'Other' : code);
+  }
+  function _admSpBuildFieldLookups() {
+    if (_admSpCustomCols.length && !_admCustomMergedCols.length) {
+      _admCustomMergedCols = _admSpCustomCols.slice();
+    }
+    const cols = _ccpcCsvColumnsFromRows(_admSpCandidates.slice(0, 200), _admCandFormFieldDefs);
+    const byHeader = {};
+    cols.forEach(c => { byHeader[c.header] = c; });
+    _admSpColsByHeader = byHeader;
+    const extraSet = new Set();
+    _admSpCandidates.forEach(c => {
+      if (c.extra_fields && typeof c.extra_fields === 'object') {
+        Object.keys(c.extra_fields).forEach(k => {
+          if (k && !/photo/i.test(k)) extraSet.add(k);
+        });
+      }
+    });
+    _admSpExtraFieldKeys = [...extraSet].sort();
+  }
+  function _admSpFieldOptionsList() {
+    const opts = [
+      { value: 'index_id', label: 'Index ID' },
+      { value: 'token', label: 'Tracking ID / Token' },
+      { value: 'name_english', label: 'Student Name' },
+      { value: 'id', label: 'Application Serial (DB ID)' },
+    ];
+    (_admSpCustomCols || []).forEach(cc => {
+      if (cc && cc.header) opts.push({ value: `custom:${cc.header}`, label: `Custom: ${cc.header}` });
+    });
+    (_admSpExtraFieldKeys || []).forEach(k => {
+      const def = (_admCandFormFieldDefs || []).find(f => f.key === k);
+      opts.push({ value: `extra:${k}`, label: `Field: ${def ? def.label : k}` });
+    });
+    return opts;
+  }
+  function _admSpGetFieldVal(cand, fieldKey) {
+    if (!cand) return '';
+    const fk = String(fieldKey || 'index_id');
+    if (fk === 'index_id') return String(cand.index_id || '').trim();
+    if (fk === 'token' || fk === 'tracking_id') return String(cand.tracking_id || cand.token || cand.external_key || '').trim();
+    if (fk === 'name_english') return String(cand.name_english || cand.name_bangla || '').trim();
+    if (fk === 'id') return String(cand.id || '');
+    if (fk.startsWith('extra:')) {
+      const k = fk.slice(6);
+      return String((cand.extra_fields && cand.extra_fields[k]) ?? '').trim();
+    }
+    if (fk.startsWith('custom:')) {
+      const h = fk.slice(7);
+      const def = (_admSpCustomCols || []).find(c => c && c.header === h);
+      if (def) return String(_ccpcEvalCustomCol(def, cand, _admSpColsByHeader) || '').trim();
+      return '';
+    }
+    return String(cand[fk] ?? (cand.extra_fields && cand.extra_fields[fk]) ?? '').trim();
+  }
+  function _admSpGetDisplayId(cand, sched) {
+    const primary = _admSpGetFieldVal(cand, (sched && sched.index_display_col) || 'index_id');
+    if (primary) return primary;
+    return String(cand.index_id || cand.tracking_id || cand.token || cand.external_key || cand.id || '');
+  }
+  function _admSpGetPhone(cand) {
+    if (!cand) return '';
+    const raw = cand.mobile || cand.father_contact || cand.mother_contact
+      || (cand.extra_fields && (cand.extra_fields.mobile || cand.extra_fields.phone || cand.extra_fields.MobileNo || cand.extra_fields.Phone || cand.extra_fields.guardian_contact))
+      || '';
+    return _ccpcNormalizePhoneDigits(raw);
+  }
+  function _admSpHasScanValue(cand, scanKey) {
+    if (!scanKey) return true;
+    const sv = cand && cand.scan_values;
+    if (!sv || typeof sv !== 'object') return false;
+    const val = sv[scanKey];
+    if (val === undefined || val === null || val === false || val === '') return false;
+    if (typeof val === 'object') {
+      return Object.values(val).some(v => v !== undefined && v !== null && v !== false && String(v).trim() !== '');
+    }
+    return true;
+  }
+  function _admSpMakeDefaultSchedule(indexNum) {
+    const hasIndex = _admSpCandidates.some(c => String(c.index_id || '').trim() !== '');
+    const defaultField = hasIndex ? 'index_id' : 'token';
+    return {
+      id: 'sp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      name: `Written Exam — Day ${indexNum || 1}`,
+      exam_date: '',
+      start_time: '09:00 AM',
+      end_time: '11:00 AM',
+      sort_by: defaultField,
+      index_display_col: defaultField,
+      exclude_statuses: ['Rejected', 'Cancelled'],
+      required_scan_key: '',
+      included_criteria: [],
+      plan_rows: [],
+      sms_template: ADM_SP_DEFAULT_SMS_TPL,
+      sms_log: {},
+      updated_at: new Date().toISOString(),
+    };
+  }
+  function _admSpActiveSchedule() {
+    if (!_admSpSchedules.length) return null;
+    let s = _admSpSchedules.find(x => x.id === _admSpActiveSchedId);
+    if (!s) { s = _admSpSchedules[0]; _admSpActiveSchedId = s.id; }
+    return s;
+  }
+
+  async function _admSpInit() {
+    if (!_admCandRequireCircular()) return;
+    const root = document.getElementById('admSpStudioRoot');
+    if (root) root.innerHTML = '<div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 text-center text-slate-400 text-xs font-bold">Loading Live Seat Plan Studio…</div>';
+    try {
+      const res = await _admCandFetch('getSeatPlanStudioData', { circular_id: _admCandActiveCircularId });
+      if (res.error) {
+        if (root) root.innerHTML = `<div class="bg-red-50 border border-red-200 rounded-2xl p-5 text-xs font-bold text-red-600">${_escHtml(res.error)}</div>`;
+        return;
+      }
+      _admSpCandidates = res.candidates || [];
+      _admSpRooms = (res.rooms || []).slice().sort((a, b) => String(a.room_name || '').localeCompare(String(b.room_name || ''), undefined, { numeric: true }));
+      _admCandRooms = _admSpRooms.slice();
+      _admSpSchedules = Array.isArray(res.schedules) ? res.schedules : [];
+      _admSpCustomCols = Array.isArray(res.custom_columns) ? res.custom_columns : [];
+      _admSpScanOptions = Array.isArray(res.scan_options) ? res.scan_options : [];
+      _admSpSmsConfig = res.sms_config || { api_key: '', sender_id: '8809617611050', has_api_key: false };
+      _admSpCircularName = res.circular_name || '';
+      _admSpSessionName = res.session_name || '';
+      _admSpCanEdit = res.can_edit !== false;
+      _admSpDirty = false;
+      _admSpBuildFieldLookups();
+      if (!_admSpSchedules.length) {
+        const def = _admSpMakeDefaultSchedule(1);
+        const allKeys = [...new Set(_admSpCandidates
+          .filter(c => !def.exclude_statuses.includes(String(c.status || '')))
+          .map(c => _admSpCritKey(c.class, c.version, c.category)))];
+        def.included_criteria = allKeys;
+        _admSpSchedules = [def];
+        _admSpActiveSchedId = def.id;
+      } else if (!_admSpSchedules.some(s => s.id === _admSpActiveSchedId)) {
+        _admSpActiveSchedId = _admSpSchedules[0].id;
+      }
+      _admSpRenderStudio();
+    } catch (e) {
+      if (root) root.innerHTML = `<div class="bg-red-50 border border-red-200 rounded-2xl p-5 text-xs font-bold text-red-600">Failed to load Seat Plan Studio: ${_escHtml(e.message || e)}</div>`;
+    }
+  }
+
+  // Core live calculation engine — runs in < 3ms even for 5000+ applicants
+  function _admSpCompute(sched) {
+    if (!sched) return { criteriaList: [], criteriaMap: {}, rows: [], roomStates: {}, buildingTotals: [], assignments: [], byRoom: {}, totalIncludedEligible: 0, totalAllocated: 0, totalRemaining: 0, totalOverbookedSeats: 0 };
+    const excludeSet = new Set(Array.isArray(sched.exclude_statuses) ? sched.exclude_statuses : []);
+    const reqScan = sched.required_scan_key || '';
+    const sortBy = sched.sort_by || 'index_id';
+
+    // Map criteria claimed by OTHER schedules so we can badge them
+    const otherSchedOwner = {};
+    _admSpSchedules.forEach(os => {
+      if (os.id === sched.id) return;
+      (os.included_criteria || []).forEach(ck => {
+        if (!otherSchedOwner[ck]) otherSchedOwner[ck] = os.name || 'Another Date';
+      });
+    });
+
+    const critBuckets = {};
+    _admSpCandidates.forEach(c => {
+      if (excludeSet.has(String(c.status || ''))) return;
+      if (reqScan && !_admSpHasScanValue(c, reqScan)) return;
+      const ck = _admSpCritKey(c.class, c.version, c.category);
+      if (!critBuckets[ck]) {
+        critBuckets[ck] = {
+          key: ck,
+          cls: String(c.class || '').trim(),
+          version: String(c.version || '').trim(),
+          category: String(c.category || '').trim(),
+          candidates: [],
+        };
+      }
+      critBuckets[ck].candidates.push(c);
+    });
+    // Ensure any criteria referenced in plan_rows or included_criteria exists in map
+    (sched.included_criteria || []).forEach(ck => {
+      if (!critBuckets[ck]) {
+        const p = _admSpParseCritKey(ck);
+        critBuckets[ck] = { key: ck, cls: p.cls, version: p.version, category: p.category, candidates: [] };
+      }
+    });
+    (sched.plan_rows || []).forEach(r => {
+      const ck = _admSpCritKey(r.cls, r.version, r.category);
+      if (!critBuckets[ck]) {
+        critBuckets[ck] = { key: ck, cls: r.cls || '', version: r.version || '', category: r.category || '', candidates: [] };
+      }
+    });
+
+    const includedSet = new Set(sched.included_criteria || []);
+    const criteriaMap = {};
+    const criteriaList = Object.values(critBuckets).sort((a, b) =>
+      a.cls.localeCompare(b.cls, undefined, { numeric: true })
+      || a.version.localeCompare(b.version)
+      || a.category.localeCompare(b.category)
+    ).map(b => {
+      b.candidates.sort((a, c) =>
+        _admSpGetFieldVal(a, sortBy).localeCompare(_admSpGetFieldVal(c, sortBy), undefined, { numeric: true, sensitivity: 'base' })
+        || (a.id - c.id)
+      );
+      const item = {
+        ...b,
+        label: _admSpCritLabel(b.cls, b.version, b.category),
+        eligibleCount: b.candidates.length,
+        included: includedSet.has(b.key),
+        otherScheduleName: otherSchedOwner[b.key] || '',
+        cursor: 0,
+        plannedGiven: 0,
+        allocated: 0,
+        remaining: b.candidates.length,
+      };
+      criteriaMap[b.key] = item;
+      return item;
+    });
+
+    const roomById = {};
+    const roomStates = {};
+    _admSpRooms.forEach(r => {
+      roomById[r.id] = r;
+      roomStates[r.id] = {
+        room: r,
+        code: _admSpRoomBuildingCode(r),
+        building: _admSpRoomBuildingName(r),
+        capacity: parseInt(r.capacity, 10) || 0,
+        plannedUsed: 0,
+        actualUsed: 0,
+        remaining: parseInt(r.capacity, 10) || 0,
+        slices: [],
+      };
+    });
+
+    const assignments = [];
+    const byRoom = {};
+    const rows = (sched.plan_rows || []).map((row, idx) => {
+      const ck = _admSpCritKey(row.cls, row.version, row.category);
+      const crit = criteriaMap[ck] || null;
+      const roomId = parseInt(row.room_id, 10) || 0;
+      const rState = roomId ? roomStates[roomId] : null;
+      const roomCap = rState ? rState.capacity : 0;
+      const roomFreeBefore = rState ? (roomCap - rState.plannedUsed) : 0;
+      const critRemBefore = crit ? Math.max(0, crit.eligibleCount - crit.cursor) : 0;
+      const suggested = rState ? Math.max(0, Math.min(Math.max(0, roomFreeBefore), critRemBefore)) : 0;
+      const given = Math.max(0, parseInt(row.seats_given, 10) || 0);
+
+      let assignedList = [];
+      let startSl = 0, endSl = 0, startIdx = '', endIdx = '';
+      if (crit && given > 0 && rState) {
+        assignedList = crit.candidates.slice(crit.cursor, crit.cursor + given);
+        if (assignedList.length) {
+          startSl = crit.cursor + 1;
+          endSl = crit.cursor + assignedList.length;
+          startIdx = _admSpGetDisplayId(assignedList[0], sched);
+          endIdx = _admSpGetDisplayId(assignedList[assignedList.length - 1], sched);
+        }
+        crit.cursor += assignedList.length;
+        crit.allocated += assignedList.length;
+      }
+      if (crit) {
+        crit.plannedGiven += given;
+        crit.remaining = crit.eligibleCount - crit.plannedGiven;
+      }
+
+      const seatStart = rState ? (rState.actualUsed + 1) : 0;
+      if (rState) {
+        rState.plannedUsed += given;
+        rState.remaining = rState.capacity - rState.plannedUsed;
+        if (assignedList.length) {
+          if (!byRoom[roomId]) byRoom[roomId] = [];
+          assignedList.forEach((cand, ci) => {
+            const seatNo = rState.actualUsed + ci + 1;
+            const entry = {
+              cand,
+              id: cand.id,
+              room_id: roomId,
+              room_name: rState.room.room_name,
+              building: rState.building,
+              building_code: rState.code,
+              seat_no: seatNo,
+              cls: crit ? crit.cls : '',
+              version: crit ? crit.version : '',
+              category: crit ? crit.category : '',
+              crit_key: ck,
+              crit_label: crit ? crit.label : '',
+              criteria_sl: startSl + ci,
+              display_id: _admSpGetDisplayId(cand, sched),
+              tracking_id: String(cand.tracking_id || cand.token || cand.external_key || ''),
+            };
+            assignments.push(entry);
+            byRoom[roomId].push(entry);
+          });
+          rState.actualUsed += assignedList.length;
+          rState.slices.push({
+            rowIdx: idx,
+            critKey: ck,
+            cls: crit ? crit.cls : '',
+            version: crit ? crit.version : '',
+            category: crit ? crit.category : '',
+            label: crit ? crit.label : '',
+            count: assignedList.length,
+            given,
+            startSl,
+            endSl,
+            startIdx,
+            endIdx,
+            seatStart,
+            seatEnd: rState.actualUsed,
+          });
+        }
+      }
+      const roomFreeAfter = rState ? (roomCap - rState.plannedUsed) : 0;
+      const critRemAfter = crit ? (crit.eligibleCount - crit.plannedGiven) : 0;
+      return {
+        idx,
+        row,
+        critKey: ck,
+        crit,
+        roomId,
+        room: rState ? rState.room : null,
+        roomCap,
+        roomFreeBefore,
+        roomFreeAfter,
+        suggested,
+        given,
+        actualCount: assignedList.length,
+        startSl,
+        endSl,
+        startIdx,
+        endIdx,
+        critRemAfter,
+        overbookedRoom: !!rState && roomFreeAfter < 0,
+        overCriteria: !!crit && critRemAfter < 0,
+      };
+    });
+
+    // Building totals summary
+    const bldgMap = {};
+    Object.values(roomStates).forEach(rs => {
+      if (!bldgMap[rs.code]) bldgMap[rs.code] = { code: rs.code, name: rs.building, rooms: 0, usedRooms: 0, capacity: 0, used: 0, free: 0 };
+      const b = bldgMap[rs.code];
+      b.rooms++;
+      if (rs.plannedUsed > 0) b.usedRooms++;
+      b.capacity += rs.capacity;
+      b.used += rs.plannedUsed;
+      b.free += Math.max(0, rs.capacity - rs.plannedUsed);
+    });
+    const buildingTotals = Object.values(bldgMap).sort((a, b) => a.code.localeCompare(b.code));
+
+    let totalIncludedEligible = 0, totalAllocated = 0, totalRemaining = 0, totalOverbookedSeats = 0;
+    criteriaList.forEach(c => {
+      if (c.included) {
+        totalIncludedEligible += c.eligibleCount;
+        totalRemaining += Math.max(0, c.eligibleCount - c.allocated);
+      }
+      totalAllocated += c.allocated;
+    });
+    Object.values(roomStates).forEach(rs => {
+      if (rs.plannedUsed > rs.capacity) totalOverbookedSeats += (rs.plannedUsed - rs.capacity);
+    });
+
+    return {
+      criteriaList, criteriaMap, rows, roomStates, buildingTotals, assignments, byRoom,
+      totalIncludedEligible, totalAllocated, totalRemaining, totalOverbookedSeats,
+    };
+  }
+
+  function _admSpMarkDirty() {
+    _admSpDirty = true;
+    const badge = document.getElementById('admSpDirtyBadge');
+    if (badge) badge.classList.remove('hidden');
+  }
+
+  function _admSpSelectSchedule(id) {
+    _admSpActiveSchedId = id;
+    _admSpSelectedCriteriaKey = '';
+    _admSpSmsRoomFilter = '';
+    _admSpRenderStudio();
+  }
+  function _admSpNewSchedule() {
+    const s = _admSpMakeDefaultSchedule(_admSpSchedules.length + 1);
+    // Auto-include any criteria NOT yet claimed by existing schedules
+    const claimed = new Set(_admSpSchedules.flatMap(x => x.included_criteria || []));
+    const excludeSet = new Set(s.exclude_statuses);
+    const unclaimed = [...new Set(_admSpCandidates
+      .filter(c => !excludeSet.has(String(c.status || '')))
+      .map(c => _admSpCritKey(c.class, c.version, c.category))
+      .filter(k => !claimed.has(k)))];
+    s.included_criteria = unclaimed;
+    _admSpSchedules.push(s);
+    _admSpActiveSchedId = s.id;
+    _admSpSelectedCriteriaKey = '';
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+  }
+  function _admSpDuplicateSchedule() {
+    const cur = _admSpActiveSchedule();
+    if (!cur) return;
+    const copy = JSON.parse(JSON.stringify(cur));
+    copy.id = 'sp_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    copy.name = (cur.name || 'Schedule') + ' (Copy)';
+    copy.sms_log = {};
+    copy.updated_at = new Date().toISOString();
+    _admSpSchedules.push(copy);
+    _admSpActiveSchedId = copy.id;
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+  }
+  function _admSpDeleteSchedule() {
+    const cur = _admSpActiveSchedule();
+    if (!cur) return;
+    if (_admSpSchedules.length <= 1) { showToast('Keep at least one exam schedule', 'error'); return; }
+    showConfirm(`Delete exam schedule "${cur.name}"? (This removes the schedule plan; students' existing DB room assignments are not touched until you Clear or Apply another schedule.)`, () => {
+      _admSpSchedules = _admSpSchedules.filter(s => s.id !== cur.id);
+      _admSpActiveSchedId = _admSpSchedules[0]?.id || null;
+      _admSpMarkDirty();
+      _admSpRenderStudio();
+    });
+  }
+  function _admSpSetSubView(v) {
+    _admSpActiveSubView = v;
+    _admSpRenderStudio();
+  }
+  function _admSpUpdateSchedProp(prop, val) {
+    const cur = _admSpActiveSchedule();
+    if (!cur) return;
+    cur[prop] = val;
+    cur.updated_at = new Date().toISOString();
+    _admSpMarkDirty();
+    if (prop === 'name') {
+      const pill = document.querySelector(`[data-sp-sched-pill="${cur.id}"]`);
+      if (pill) pill.textContent = val || 'Untitled Schedule';
+    } else if (prop === 'sort_by' || prop === 'index_display_col' || prop === 'required_scan_key') {
+      _admSpRenderStudio();
+    }
+  }
+  function _admSpToggleExcludeStatus(status, checked) {
+    const cur = _admSpActiveSchedule();
+    if (!cur) return;
+    const set = new Set(cur.exclude_statuses || []);
+    if (checked) set.add(status); else set.delete(status);
+    cur.exclude_statuses = [...set];
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+  }
+  function _admSpToggleCriteria(critKey, checked) {
+    const cur = _admSpActiveSchedule();
+    if (!cur) return;
+    const set = new Set(cur.included_criteria || []);
+    if (checked) set.add(critKey); else set.delete(critKey);
+    cur.included_criteria = [...set];
+    if (checked) _admSpSelectedCriteriaKey = critKey;
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+  }
+  function _admSpSelectCriteria(critKey) {
+    _admSpSelectedCriteriaKey = critKey;
+    document.querySelectorAll('[data-sp-crit-row]').forEach(el => {
+      const active = el.getAttribute('data-sp-crit-row') === critKey;
+      el.classList.toggle('bg-blue-50/80', active);
+      el.classList.toggle('ring-1', active);
+      el.classList.toggle('ring-inset', active);
+      el.classList.toggle('ring-blue-300', active);
+    });
+    const indicator = document.getElementById('admSpActiveCritIndicator');
+    if (indicator) {
+      const p = _admSpParseCritKey(critKey);
+      indicator.textContent = _admSpCritLabel(p.cls, p.version, p.category);
+    }
+  }
+  function _admSpPickNextFreeRoom(computed, buildingFilter) {
+    const candidates = _admSpRooms.filter(r => {
+      const rs = computed.roomStates[r.id];
+      if (!rs || rs.remaining <= 0) return false;
+      if (buildingFilter && buildingFilter !== 'ALL' && rs.code !== buildingFilter) return false;
+      return true;
+    });
+    return candidates[0] || null;
+  }
+  function _admSpAddRowForCriteria(critKey) {
+    const cur = _admSpActiveSchedule();
+    if (!cur) return;
+    const p = _admSpParseCritKey(critKey);
+    if (!cur.included_criteria.includes(critKey)) cur.included_criteria.push(critKey);
+    const comp = _admSpCompute(cur);
+    const crit = comp.criteriaMap[critKey];
+    const rem = crit ? Math.max(0, crit.eligibleCount - crit.plannedGiven) : 0;
+    const nextRoom = _admSpPickNextFreeRoom(comp, _admSpRoomPoolFilter);
+    const nextRoomFree = nextRoom ? comp.roomStates[nextRoom.id].remaining : 0;
+    const suggested = nextRoom ? Math.max(0, Math.min(nextRoomFree, rem)) : rem;
+    cur.plan_rows.push({
+      id: 'r_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      cls: p.cls,
+      version: p.version,
+      category: p.category,
+      room_id: nextRoom ? nextRoom.id : '',
+      seats_given: suggested,
+    });
+    _admSpSelectedCriteriaKey = critKey;
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+  }
+  function _admSpAutoFillCriteria(critKey) {
+    const cur = _admSpActiveSchedule();
+    if (!cur) return;
+    const p = _admSpParseCritKey(critKey);
+    if (!cur.included_criteria.includes(critKey)) cur.included_criteria.push(critKey);
+    let comp = _admSpCompute(cur);
+    let crit = comp.criteriaMap[critKey];
+    let rem = crit ? Math.max(0, crit.eligibleCount - crit.plannedGiven) : 0;
+    if (rem <= 0) { showToast('All eligible students for this group are already allocated', 'success'); return; }
+    let added = 0;
+    while (rem > 0) {
+      const nextRoom = _admSpPickNextFreeRoom(comp, _admSpRoomPoolFilter) || _admSpPickNextFreeRoom(comp, 'ALL');
+      if (!nextRoom) break;
+      const free = comp.roomStates[nextRoom.id].remaining;
+      const take = Math.min(free, rem);
+      cur.plan_rows.push({
+        id: 'r_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6) + '_' + added,
+        cls: p.cls,
+        version: p.version,
+        category: p.category,
+        room_id: nextRoom.id,
+        seats_given: take,
+      });
+      added++;
+      comp = _admSpCompute(cur);
+      crit = comp.criteriaMap[critKey];
+      rem = crit ? Math.max(0, crit.eligibleCount - crit.plannedGiven) : 0;
+    }
+    if (!added) { showToast('No rooms with remaining capacity available', 'error'); return; }
+    _admSpSelectedCriteriaKey = critKey;
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+    if (rem > 0) showToast(`Added ${added} room(s); ${rem} student(s) still remaining (add more rooms or overbook)`, 'error');
+    else showToast(`Auto-filled into ${added} room(s)`, 'success');
+  }
+  function _admSpSplitEvenlyCriteria(critKey) {
+    const cur = _admSpActiveSchedule();
+    if (!cur) return;
+    const p = _admSpParseCritKey(critKey);
+    if (!cur.included_criteria.includes(critKey)) cur.included_criteria.push(critKey);
+    const comp = _admSpCompute(cur);
+    const crit = comp.criteriaMap[critKey];
+    const rem = crit ? Math.max(0, crit.eligibleCount - crit.plannedGiven) : 0;
+    if (rem <= 0) { showToast('No remaining students in this group to distribute', 'error'); return; }
+    const poolRooms = _admSpRooms.filter(r => {
+      const rs = comp.roomStates[r.id];
+      if (!rs || rs.remaining <= 0) return false;
+      if (_admSpRoomPoolFilter && _admSpRoomPoolFilter !== 'ALL' && rs.code !== _admSpRoomPoolFilter) return false;
+      return true;
+    });
+    const availRooms = poolRooms.length ? poolRooms : _admSpRooms.filter(r => comp.roomStates[r.id]?.remaining > 0);
+    if (!availRooms.length) { showToast('No rooms with free seats available', 'error'); return; }
+    const defaultN = Math.min(availRooms.length, Math.max(1, Math.ceil(rem / (availRooms[0].capacity || 40))));
+    const raw = prompt(`Split ${rem} remaining student(s) of "${_admSpCritLabel(p.cls, p.version, p.category)}" evenly across how many free rooms?\n(${availRooms.length} free room(s) available${_admSpRoomPoolFilter !== 'ALL' ? ' in ' + _admSpRoomPoolFilter : ''})`, String(defaultN));
+    if (raw === null) return;
+    const k = Math.max(1, Math.min(availRooms.length, parseInt(raw, 10) || 0));
+    if (!k) return;
+    const base = Math.floor(rem / k);
+    const extra = rem % k;
+    for (let i = 0; i < k; i++) {
+      const room = availRooms[i];
+      cur.plan_rows.push({
+        id: 'r_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6) + '_' + i,
+        cls: p.cls,
+        version: p.version,
+        category: p.category,
+        room_id: room.id,
+        seats_given: base + (i < extra ? 1 : 0),
+      });
+    }
+    _admSpSelectedCriteriaKey = critKey;
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+    showToast(`Split ${rem} student(s) evenly across ${k} room(s) (${base + (extra ? 1 : 0)}/${base} per room)`, 'success');
+  }
+  function _admSpAutoFillAllIncluded() {
+    const cur = _admSpActiveSchedule();
+    if (!cur) return;
+    let comp = _admSpCompute(cur);
+    const included = comp.criteriaList.filter(c => c.included && c.remaining > 0);
+    if (!included.length) { showToast('All included groups are already fully allocated', 'success'); return; }
+    let totalAdded = 0;
+    included.forEach(c => {
+      let rem = c.remaining;
+      while (rem > 0) {
+        const nextRoom = _admSpPickNextFreeRoom(comp, _admSpRoomPoolFilter) || _admSpPickNextFreeRoom(comp, 'ALL');
+        if (!nextRoom) break;
+        const take = Math.min(comp.roomStates[nextRoom.id].remaining, rem);
+        cur.plan_rows.push({
+          id: 'r_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6) + '_' + totalAdded,
+          cls: c.cls,
+          version: c.version,
+          category: c.category,
+          room_id: nextRoom.id,
+          seats_given: take,
+        });
+        totalAdded++;
+        comp = _admSpCompute(cur);
+        rem = comp.criteriaMap[c.key]?.remaining || 0;
+      }
+    });
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+    showToast(`Auto-filled ${totalAdded} room row(s)`, 'success');
+  }
+  function _admSpClearPlanRows() {
+    const cur = _admSpActiveSchedule();
+    if (!cur || !cur.plan_rows.length) return;
+    showConfirm(`Clear all ${cur.plan_rows.length} matrix row(s) from "${cur.name}"? (Does not affect database until you Apply.)`, () => {
+      cur.plan_rows = [];
+      _admSpMarkDirty();
+      _admSpRenderStudio();
+    });
+  }
+  function _admSpImportFromCurrentDb() {
+    const cur = _admSpActiveSchedule();
+    if (!cur) return;
+    const seated = _admSpCandidates.filter(c => c.room_id);
+    if (!seated.length) { showToast('No existing DB room assignments found in this circular', 'error'); return; }
+    // Group by (room_id, criteria) in room_name order
+    const roomById = {};
+    _admSpRooms.forEach(r => { roomById[r.id] = r; });
+    const groups = {};
+    seated.forEach(c => {
+      const ck = _admSpCritKey(c.class, c.version, c.category);
+      const gk = `${c.room_id}@@${ck}`;
+      if (!groups[gk]) groups[gk] = { room_id: c.room_id, ck, cls: c.class || '', version: c.version || '', category: c.category || '', count: 0, minSeat: parseInt(c.seat_no, 10) || 9999 };
+      groups[gk].count++;
+      const sn = parseInt(c.seat_no, 10) || 9999;
+      if (sn < groups[gk].minSeat) groups[gk].minSeat = sn;
+    });
+    const list = Object.values(groups).sort((a, b) => {
+      const ra = roomById[a.room_id]?.room_name || '';
+      const rb = roomById[b.room_id]?.room_name || '';
+      return a.cls.localeCompare(b.cls, undefined, { numeric: true })
+        || a.version.localeCompare(b.version)
+        || a.category.localeCompare(b.category)
+        || ra.localeCompare(rb, undefined, { numeric: true })
+        || (a.minSeat - b.minSeat);
+    });
+    const critSet = new Set(cur.included_criteria || []);
+    cur.plan_rows = list.map((g, i) => {
+      critSet.add(g.ck);
+      return { id: 'r_imp_' + Date.now() + '_' + i, cls: g.cls, version: g.version, category: g.category, room_id: g.room_id, seats_given: g.count };
+    });
+    cur.included_criteria = [...critSet];
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+    showToast(`Imported ${list.length} room allocation row(s) from current database`, 'success');
+  }
+
+  // Row mutations
+  function _admSpRowChangeCrit(idx, critKey) {
+    const cur = _admSpActiveSchedule();
+    if (!cur || !cur.plan_rows[idx]) return;
+    const p = _admSpParseCritKey(critKey);
+    cur.plan_rows[idx].cls = p.cls;
+    cur.plan_rows[idx].version = p.version;
+    cur.plan_rows[idx].category = p.category;
+    if (!cur.included_criteria.includes(critKey)) cur.included_criteria.push(critKey);
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+  }
+  function _admSpRowChangeRoom(idx, roomIdVal) {
+    const cur = _admSpActiveSchedule();
+    if (!cur || !cur.plan_rows[idx]) return;
+    cur.plan_rows[idx].room_id = roomIdVal ? parseInt(roomIdVal, 10) : '';
+    // If seats_given is 0 and a room was picked, auto-suggest!
+    if (!parseInt(cur.plan_rows[idx].seats_given, 10) && cur.plan_rows[idx].room_id) {
+      const comp = _admSpCompute(cur);
+      const rInfo = comp.rows[idx];
+      if (rInfo && rInfo.suggested > 0) cur.plan_rows[idx].seats_given = rInfo.suggested;
+    }
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+  }
+  // Zero-focus-loss live patch when typing Seats Given!
+  function _admSpRowInputSeats(idx, val) {
+    const cur = _admSpActiveSchedule();
+    if (!cur || !cur.plan_rows[idx]) return;
+    cur.plan_rows[idx].seats_given = Math.max(0, parseInt(val, 10) || 0);
+    _admSpMarkDirty();
+    _admSpPatchLiveValues();
+  }
+  function _admSpRowApplySuggested(idx) {
+    const cur = _admSpActiveSchedule();
+    if (!cur || !cur.plan_rows[idx]) return;
+    // Compute suggested with this row temporarily at 0 so it reflects full available
+    const prev = cur.plan_rows[idx].seats_given;
+    cur.plan_rows[idx].seats_given = 0;
+    const comp = _admSpCompute(cur);
+    const sug = comp.rows[idx] ? comp.rows[idx].suggested : prev;
+    cur.plan_rows[idx].seats_given = sug;
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+  }
+  function _admSpRowDelete(idx) {
+    const cur = _admSpActiveSchedule();
+    if (!cur || !cur.plan_rows[idx]) return;
+    cur.plan_rows.splice(idx, 1);
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+  }
+  function _admSpRowMove(idx, delta) {
+    const cur = _admSpActiveSchedule();
+    if (!cur) return;
+    const target = idx + delta;
+    if (target < 0 || target >= cur.plan_rows.length) return;
+    const [moved] = cur.plan_rows.splice(idx, 1);
+    cur.plan_rows.splice(target, 0, moved);
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+  }
+  function _admSpRowDragStart(e, idx) {
+    _admSpDragRowIdx = idx;
+    if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(idx)); }
+    e.currentTarget?.classList.add('opacity-50');
+  }
+  function _admSpRowDragOver(e) {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    e.currentTarget?.classList.add('ring-2', 'ring-blue-400');
+  }
+  function _admSpRowDragLeave(e) {
+    e.currentTarget?.classList.remove('ring-2', 'ring-blue-400');
+  }
+  function _admSpRowDrop(e, targetIdx) {
+    e.preventDefault();
+    e.currentTarget?.classList.remove('ring-2', 'ring-blue-400');
+    const cur = _admSpActiveSchedule();
+    if (!cur) return;
+    const fromIdx = _admSpDragRowIdx;
+    _admSpDragRowIdx = -1;
+    if (fromIdx < 0 || fromIdx === targetIdx || fromIdx >= cur.plan_rows.length) return;
+    const [moved] = cur.plan_rows.splice(fromIdx, 1);
+    cur.plan_rows.splice(targetIdx, 0, moved);
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+  }
+  function _admSpRowDragEnd(e) {
+    _admSpDragRowIdx = -1;
+    e.currentTarget?.classList.remove('opacity-50');
+  }
+
+  function _admSpRoomPoolSetFilter(code, searchVal) {
+    if (code !== null && code !== undefined) _admSpRoomPoolFilter = code;
+    if (searchVal !== null && searchVal !== undefined) _admSpRoomPoolSearch = searchVal;
+    const cur = _admSpActiveSchedule();
+    const comp = _admSpCompute(cur);
+    const poolHost = document.getElementById('admSpRoomPoolBody');
+    if (poolHost) poolHost.innerHTML = _admSpRenderRoomPoolRowsHtml(comp);
+    document.querySelectorAll('[data-sp-bldg-chip]').forEach(el => {
+      const active = el.getAttribute('data-sp-bldg-chip') === _admSpRoomPoolFilter;
+      el.classList.toggle('bg-slate-800', active);
+      el.classList.toggle('text-white', active);
+      el.classList.toggle('bg-slate-100', !active);
+      el.classList.toggle('text-slate-600', !active);
+    });
+  }
+  function _admSpRoomPoolClick(roomId) {
+    const cur = _admSpActiveSchedule();
+    if (!cur) return;
+    const comp = _admSpCompute(cur);
+    // Pick active criteria, or first included criteria with remaining > 0, or first included
+    let critKey = _admSpSelectedCriteriaKey;
+    if (!critKey || !comp.criteriaMap[critKey]) {
+      const need = comp.criteriaList.find(c => c.included && c.remaining > 0) || comp.criteriaList.find(c => c.included) || comp.criteriaList[0];
+      critKey = need ? need.key : '';
+    }
+    if (!critKey) { showToast('No eligible student groups found to assign', 'error'); return; }
+    const p = _admSpParseCritKey(critKey);
+    if (!cur.included_criteria.includes(critKey)) cur.included_criteria.push(critKey);
+    const crit = comp.criteriaMap[critKey];
+    const rs = comp.roomStates[roomId];
+    const roomFree = rs ? Math.max(0, rs.remaining) : 0;
+    const critRem = crit ? Math.max(0, crit.eligibleCount - crit.plannedGiven) : 0;
+    const suggested = Math.max(0, Math.min(roomFree, critRem));
+    cur.plan_rows.push({
+      id: 'r_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      cls: p.cls,
+      version: p.version,
+      category: p.category,
+      room_id: roomId,
+      seats_given: suggested > 0 ? suggested : roomFree,
+    });
+    _admSpSelectedCriteriaKey = critKey;
+    _admSpMarkDirty();
+    _admSpRenderStudio();
+  }
+
+  // In-place DOM patcher so typing Seats Given NEVER loses input focus!
+  function _admSpPatchLiveValues() {
+    const cur = _admSpActiveSchedule();
+    if (!cur) return;
+    const comp = _admSpCompute(cur);
+    // Update top KPI bar
+    const kElig = document.getElementById('admSpKpiEligible'); if (kElig) kElig.textContent = comp.totalIncludedEligible;
+    const kAlloc = document.getElementById('admSpKpiAllocated'); if (kAlloc) kAlloc.textContent = comp.totalAllocated;
+    const kRem = document.getElementById('admSpKpiRemaining');
+    if (kRem) {
+      kRem.textContent = comp.totalRemaining;
+      kRem.className = `text-base font-black ${comp.totalRemaining === 0 ? 'text-emerald-600' : 'text-amber-600'}`;
+    }
+    const kRooms = document.getElementById('admSpKpiRooms');
+    if (kRooms) kRooms.textContent = Object.keys(comp.byRoom).length;
+
+    // Update Criteria Demand badges
+    comp.criteriaList.forEach(c => {
+      const aEl = document.querySelector(`[data-sp-crit-alloc="${CSS.escape(c.key)}"]`);
+      if (aEl) aEl.textContent = `${c.allocated}${c.plannedGiven !== c.allocated ? ` (${c.plannedGiven})` : ''}`;
+      const rEl = document.querySelector(`[data-sp-crit-rem="${CSS.escape(c.key)}"]`);
+      if (rEl) {
+        rEl.textContent = c.remaining === 0 ? '0 ✓' : (c.remaining < 0 ? `${c.remaining} excess` : String(c.remaining));
+        rEl.className = `px-2 py-0.5 rounded-full text-[10px] font-black ${c.remaining === 0 ? 'bg-emerald-100 text-emerald-700' : (c.remaining < 0 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700')}`;
+      }
+    });
+
+    // Update each Matrix Row computed cells
+    comp.rows.forEach(r => {
+      const rfEl = document.querySelector(`[data-sp-row-rfree="${r.idx}"]`);
+      if (rfEl) {
+        if (!r.room) { rfEl.innerHTML = '<span class="text-slate-300">—</span>'; }
+        else if (r.roomFreeAfter < 0) { rfEl.innerHTML = `<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-black text-[10px]">+${Math.abs(r.roomFreeAfter)} over</span>`; }
+        else if (r.roomFreeAfter === 0) { rfEl.innerHTML = `<span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-black text-[10px]">Full</span>`; }
+        else { rfEl.innerHTML = `<span class="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-black text-[10px]">${r.roomFreeAfter} free</span>`; }
+      }
+      const sugEl = document.querySelector(`[data-sp-row-sug="${r.idx}"]`);
+      if (sugEl) sugEl.textContent = String(r.suggested);
+      const slEl = document.querySelector(`[data-sp-row-sl="${r.idx}"]`);
+      if (slEl) slEl.textContent = r.actualCount ? `${r.startSl} – ${r.endSl}` : '—';
+      const idxEl = document.querySelector(`[data-sp-row-idx="${r.idx}"]`);
+      if (idxEl) idxEl.textContent = r.actualCount ? `${r.startIdx} → ${r.endIdx}` : '—';
+      const clEl = document.querySelector(`[data-sp-row-cleft="${r.idx}"]`);
+      if (clEl) {
+        if (!r.crit) clEl.innerHTML = '—';
+        else if (r.critRemAfter === 0) clEl.innerHTML = '<span class="text-emerald-600 font-black">0 ✓</span>';
+        else if (r.critRemAfter < 0) clEl.innerHTML = `<span class="text-red-600 font-black">${r.critRemAfter} excess</span>`;
+        else clEl.innerHTML = `<span class="text-blue-600 font-bold">${r.critRemAfter}</span>`;
+      }
+    });
+
+    // Update Room Pool + Building chips
+    const poolHost = document.getElementById('admSpRoomPoolBody');
+    if (poolHost) poolHost.innerHTML = _admSpRenderRoomPoolRowsHtml(comp);
+    const bldgBar = document.getElementById('admSpBuildingTotalsBar');
+    if (bldgBar) bldgBar.innerHTML = _admSpRenderBuildingChipsHtml(comp);
+  }
+
+  // Persistence: Save Draft / Save & Apply / Clear DB Seats
+  async function _admSpSaveDraft() {
+    if (!_admCandRequireCircular()) return;
+    try {
+      const res = await _admCandFetch('saveSeatPlanSchedules', {
+        circular_id: _admCandActiveCircularId,
+        schedules: _admSpSchedules,
+      });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      _admSpDirty = false;
+      document.getElementById('admSpDirtyBadge')?.classList.add('hidden');
+      showToast('Seat plan draft saved', 'success');
+    } catch (e) { showToast(e.message || 'Save failed', 'error'); }
+  }
+  async function _admSpSaveAndApply() {
+    if (!_admCandRequireCircular()) return;
+    const cur = _admSpActiveSchedule();
+    if (!cur) return;
+    const comp = _admSpCompute(cur);
+    const assignedMap = new Map();
+    const assignments = comp.assignments.map(a => {
+      assignedMap.set(a.id, { room_id: a.room_id, seat_no: String(a.seat_no) });
+      return { id: a.id, room_id: a.room_id, seat_no: String(a.seat_no) };
+    });
+    // Only clear unseated eligible candidates in THIS schedule's included criteria (never touches other exam dates!)
+    const clearIds = [];
+    comp.criteriaList.forEach(c => {
+      if (!c.included) return;
+      c.candidates.forEach(cand => {
+        if (!assignedMap.has(cand.id) && cand.room_id) clearIds.push(cand.id);
+      });
+    });
+    const overNote = comp.totalOverbookedSeats > 0 ? `\nNote: ${comp.totalOverbookedSeats} seat(s) intentionally over room capacity.` : '';
+    const remNote = comp.totalRemaining > 0 ? `\nNote: ${comp.totalRemaining} included student(s) are not yet assigned a room.` : '';
+    showConfirm(
+      `Apply "${cur.name}" to the database?\n\n• ${assignments.length} student(s) will be assigned rooms & seat numbers across ${Object.keys(comp.byRoom).length} room(s).`
+      + (clearIds.length ? `\n• ${clearIds.length} unseated student(s) in this schedule's groups will have previous seats cleared.` : '')
+      + `\n• Students in OTHER exam dates will NOT be touched.` + overNote + remNote,
+      async () => {
+        const btn = document.getElementById('admSpApplyBtn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
+        try {
+          const res = await _admCandFetch('applySeatPlanSchedule', {
+            circular_id: _admCandActiveCircularId,
+            schedule_id: cur.id,
+            schedules: _admSpSchedules,
+            assignments,
+            clear_ids: clearIds,
+          });
+          if (res.error) { showToast(res.error, 'error'); return; }
+          // Update local candidate cache so Top Page Coder / Applicants / Rooms reflect immediately
+          const clearSet = new Set(clearIds);
+          _admSpCandidates.forEach(c => {
+            if (assignedMap.has(c.id)) {
+              const a = assignedMap.get(c.id);
+              c.room_id = a.room_id;
+              c.seat_no = a.seat_no;
+            } else if (clearSet.has(c.id)) {
+              c.room_id = null;
+              c.seat_no = null;
+            }
+          });
+          if (Array.isArray(_admAllApps) && _admAllApps.length) {
+            _admAllApps.forEach(c => {
+              if (assignedMap.has(c.id)) {
+                const a = assignedMap.get(c.id);
+                c.room_id = a.room_id;
+                c.seat_no = a.seat_no;
+              } else if (clearSet.has(c.id)) {
+                c.room_id = null;
+                c.seat_no = null;
+              }
+            });
+          }
+          _admSpDirty = false;
+          document.getElementById('admSpDirtyBadge')?.classList.add('hidden');
+          showToast(`Applied! ${res.allocated} student(s) seated${res.cleared ? `, ${res.cleared} cleared` : ''}.`, 'success');
+        } catch (e) {
+          showToast(e.message || 'Apply failed', 'error');
+        } finally {
+          if (btn) { btn.disabled = false; btn.textContent = 'Save & Apply Seats'; }
+        }
+      }
+    );
+  }
+  async function _admSpClearScheduleDbSeats() {
+    if (!_admCandRequireCircular()) return;
+    const cur = _admSpActiveSchedule();
+    if (!cur) return;
+    const comp = _admSpCompute(cur);
+    const clearIds = [];
+    comp.criteriaList.forEach(c => {
+      if (!c.included) return;
+      c.candidates.forEach(cand => { if (cand.room_id) clearIds.push(cand.id); });
+    });
+    if (!clearIds.length) { showToast('No database seat assignments found for this schedule\'s included groups', 'error'); return; }
+    showConfirm(`Clear database room & seat assignments for ${clearIds.length} student(s) in "${cur.name}"? (Other exam dates stay untouched.)`, async () => {
+      try {
+        const res = await _admCandFetch('applySeatPlanSchedule', {
+          circular_id: _admCandActiveCircularId,
+          schedule_id: cur.id,
+          schedules: _admSpSchedules,
+          assignments: [],
+          clear_ids: clearIds,
+        });
+        if (res.error) { showToast(res.error, 'error'); return; }
+        const clearSet = new Set(clearIds);
+        _admSpCandidates.forEach(c => { if (clearSet.has(c.id)) { c.room_id = null; c.seat_no = null; } });
+        showToast(`Cleared ${res.cleared} student seat assignment(s)`, 'success');
+        _admSpRenderStudio();
+      } catch (e) { showToast(e.message || 'Failed', 'error'); }
+    });
+  }
+
+  // ── UI Rendering Helpers ─────────────────────────────────────────────────
+  function _admSpRenderBuildingChipsHtml(comp) {
+    const totalCap = comp.buildingTotals.reduce((s, b) => s + b.capacity, 0);
+    const totalUsed = comp.buildingTotals.reduce((s, b) => s + b.used, 0);
+    const allActive = _admSpRoomPoolFilter === 'ALL';
+    const allChip = `<button type="button" data-sp-bldg-chip="ALL" onclick="_admSpRoomPoolSetFilter('ALL', null)" class="px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${allActive ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">ALL · ${totalUsed}/${totalCap}</button>`;
+    return allChip + comp.buildingTotals.map(b => {
+      const active = _admSpRoomPoolFilter === b.code;
+      return `<button type="button" data-sp-bldg-chip="${_escHtml(b.code)}" onclick="_admSpRoomPoolSetFilter('${_escHtml(b.code)}', null)" title="${_escHtml(b.name)}: ${b.rooms} rooms, ${b.free} free seats" class="px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${active ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">${_escHtml(b.code)} · ${b.used}/${b.capacity} <span class="opacity-70">(${b.free} free)</span></button>`;
+    }).join('');
+  }
+  function _admSpRenderRoomPoolRowsHtml(comp) {
+    const q = (_admSpRoomPoolSearch || '').trim().toLowerCase();
+    const list = _admSpRooms.filter(r => {
+      const rs = comp.roomStates[r.id];
+      if (!rs) return false;
+      if (_admSpRoomPoolFilter && _admSpRoomPoolFilter !== 'ALL' && rs.code !== _admSpRoomPoolFilter) return false;
+      if (q && !String(r.room_name || '').toLowerCase().includes(q) && !String(rs.building || '').toLowerCase().includes(q)) return false;
+      return true;
+    });
+    if (!list.length) return '<p class="text-[11px] text-slate-400 p-4 text-center">No rooms match filter.</p>';
+    return list.map(r => {
+      const rs = comp.roomStates[r.id];
+      const free = rs.remaining;
+      const pct = rs.capacity > 0 ? Math.min(100, Math.round((rs.plannedUsed / rs.capacity) * 100)) : 0;
+      const barColor = free < 0 ? 'bg-amber-500' : (free === 0 ? 'bg-blue-600' : 'bg-emerald-500');
+      const badge = free < 0
+        ? `<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[9px] font-black">+${Math.abs(free)} over</span>`
+        : (free === 0
+          ? `<span class="px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 text-[9px] font-black">Full</span>`
+          : `<span class="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[9px] font-black">${free} free</span>`);
+      const inside = rs.slices.map(s => `${s.label} (${s.count})`).join(', ');
+      return `<button type="button" ${_admSpCanEdit ? `onclick="_admSpRoomPoolClick(${r.id})"` : 'disabled'} title="Click to add ${_escHtml(r.room_name)} to the live allocation matrix" class="w-full text-left px-3 py-2 border-b border-slate-100 hover:bg-blue-50/70 transition-colors flex flex-col gap-1 disabled:opacity-60">
+        <div class="flex items-center justify-between gap-2">
+          <span class="font-black text-xs text-slate-800">${_escHtml(r.room_name)}</span>
+          <div class="flex items-center gap-1.5">
+            <span class="text-[10px] font-bold text-slate-500">${rs.plannedUsed}/${rs.capacity}</span>
+            ${badge}
+          </div>
+        </div>
+        <div class="w-full h-1 bg-slate-100 rounded-full overflow-hidden"><div class="h-full ${barColor}" style="width:${pct}%"></div></div>
+        ${inside ? `<p class="text-[10px] text-slate-500 truncate">${_escHtml(inside)}</p>` : `<p class="text-[10px] text-slate-300">${_escHtml(rs.building)}</p>`}
+      </button>`;
+    }).join('');
+  }
+
+  function _admSpRenderStudio() {
+    const root = document.getElementById('admSpStudioRoot');
+    if (!root) return;
+    const sched = _admSpActiveSchedule();
+    if (!sched) return;
+    const comp = _admSpCompute(sched);
+    const fieldOpts = _admSpFieldOptionsList();
+    const allStatuses = [...new Set(['Pending', 'Approved', 'Rejected', 'Cancelled', ..._admSpCandidates.map(c => c.status).filter(Boolean)])];
+    const dbSeatedCount = _admSpCandidates.filter(c => c.room_id).length;
+
+    // Schedule pill bar
+    const schedTabsHtml = _admSpSchedules.map(s => {
+      const active = s.id === sched.id;
+      const dateTag = s.exam_date ? ` · ${s.exam_date}` : '';
+      return `<button type="button" onclick="_admSpSelectSchedule('${_escHtml(s.id)}')" class="px-3 py-1.5 rounded-xl text-xs font-black transition-all border ${active ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}">
+        <span data-sp-sched-pill="${_escHtml(s.id)}">${_escHtml(s.name || 'Untitled')}</span><span class="opacity-75 font-bold text-[10px]">${_escHtml(dateTag)}</span>
+      </button>`;
+    }).join('');
+
+    // Sub-view tabs (Live Planner | 6 Print Sheets & Excel | Bulk SMS)
+    const seatedCount = comp.assignments.length;
+    const smsLog = sched.sms_log || {};
+    const smsSentCount = comp.assignments.filter(a => smsLog[String(a.id)] && String(smsLog[String(a.id)].code) === '202').length;
+
+    let bodyHtml = '';
+    if (_admSpActiveSubView === 'planner') {
+      // Panel 1: Criteria Demand & Selection (like Sheet cols U-Z)
+      const critRowsHtml = comp.criteriaList.length ? comp.criteriaList.map(c => {
+        const isSel = _admSpSelectedCriteriaKey === c.key;
+        const remCls = c.remaining === 0 ? 'bg-emerald-100 text-emerald-700' : (c.remaining < 0 ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700');
+        const remTxt = c.remaining === 0 ? '0 ✓' : (c.remaining < 0 ? `${c.remaining} excess` : String(c.remaining));
+        const otherBadge = c.otherScheduleName ? `<span class="ml-1.5 px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[9px] font-black" title="Also included in ${_escHtml(c.otherScheduleName)}">In: ${_escHtml(c.otherScheduleName)}</span>` : '';
+        return `<tr data-sp-crit-row="${_escHtml(c.key)}" onclick="_admSpSelectCriteria('${_escHtml(c.key)}')" class="border-t border-slate-100 cursor-pointer hover:bg-slate-50 transition-colors ${isSel ? 'bg-blue-50/80 ring-1 ring-inset ring-blue-300' : ''} ${c.included ? '' : 'opacity-55'}">
+          <td class="px-2.5 py-2 text-center" onclick="event.stopPropagation()">
+            <input type="checkbox" ${c.included ? 'checked' : ''} ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpToggleCriteria('${_escHtml(c.key)}', this.checked)" class="rounded border-slate-300 text-blue-600 cursor-pointer">
+          </td>
+          <td class="px-2.5 py-2 font-black text-slate-800 text-xs">${_escHtml(c.cls || '—')}${otherBadge}</td>
+          <td class="px-2.5 py-2 text-xs font-bold text-slate-600">${_escHtml(c.version || '—')}</td>
+          <td class="px-2.5 py-2 text-xs font-bold text-slate-600">${_escHtml(c.category || '—')}</td>
+          <td class="px-2.5 py-2 text-right font-mono text-xs font-black text-slate-700">${c.eligibleCount}</td>
+          <td class="px-2.5 py-2 text-right font-mono text-xs font-bold text-slate-600" data-sp-crit-alloc="${_escHtml(c.key)}">${c.allocated}${c.plannedGiven !== c.allocated ? ` (${c.plannedGiven})` : ''}</td>
+          <td class="px-2.5 py-2 text-right"><span data-sp-crit-rem="${_escHtml(c.key)}" class="px-2 py-0.5 rounded-full text-[10px] font-black ${remCls}">${remTxt}</span></td>
+          <td class="px-2.5 py-2 text-right whitespace-nowrap" onclick="event.stopPropagation()">
+            ${_admSpCanEdit ? `
+              <button type="button" onclick="_admSpAddRowForCriteria('${_escHtml(c.key)}')" class="px-2 py-1 bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-700 rounded-md text-[10px] font-black transition-colors" title="Add one room row">+ Row</button>
+              <button type="button" onclick="_admSpAutoFillCriteria('${_escHtml(c.key)}')" class="px-2 py-1 bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 rounded-md text-[10px] font-black transition-colors" title="Auto-fill remaining students into free rooms">Auto-Fill</button>
+              <button type="button" onclick="_admSpSplitEvenlyCriteria('${_escHtml(c.key)}')" class="px-2 py-1 bg-indigo-50 hover:bg-indigo-600 hover:text-white text-indigo-700 rounded-md text-[10px] font-black transition-colors" title="Split remaining students evenly across N rooms">Split Evenly</button>
+            ` : ''}
+          </td>
+        </tr>`;
+      }).join('') : '<tr><td colspan="8" class="p-6 text-center text-xs text-slate-400">No eligible applicants match the current filter settings.</td></tr>';
+
+      // Panel 2: Live Allocation Matrix rows (like Sheet cols A-P)
+      const critOptsHtml = (selectedKey) => comp.criteriaList.map(c =>
+        `<option value="${_escHtml(c.key)}" ${c.key === selectedKey ? 'selected' : ''}>${_escHtml(c.label)} (${c.eligibleCount})</option>`
+      ).join('');
+      const roomOptsHtml = (selectedRoomId) => '<option value="">— Pick Room —</option>' + _admSpRooms.map(r => {
+        const rs = comp.roomStates[r.id];
+        const free = rs ? rs.remaining : r.capacity;
+        const tag = free < 0 ? `+${Math.abs(free)} over` : (free === 0 ? 'full' : `${free} free`);
+        return `<option value="${r.id}" ${r.id === selectedRoomId ? 'selected' : ''}>${_escHtml(r.room_name)} (cap ${r.capacity} · ${tag})</option>`;
+      }).join('');
+
+      const matrixRowsHtml = comp.rows.length ? comp.rows.map(r => {
+        const rFreeBadge = !r.room
+          ? '<span class="text-slate-300">—</span>'
+          : (r.roomFreeAfter < 0
+            ? `<span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-black text-[10px]">+${Math.abs(r.roomFreeAfter)} over</span>`
+            : (r.roomFreeAfter === 0
+              ? '<span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-black text-[10px]">Full</span>'
+              : `<span class="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-black text-[10px]">${r.roomFreeAfter} free</span>`));
+        const critLeftBadge = !r.crit
+          ? '—'
+          : (r.critRemAfter === 0
+            ? '<span class="text-emerald-600 font-black">0 ✓</span>'
+            : (r.critRemAfter < 0
+              ? `<span class="text-red-600 font-black">${r.critRemAfter} excess</span>`
+              : `<span class="text-blue-600 font-bold">${r.critRemAfter}</span>`));
+        return `<tr draggable="${_admSpCanEdit ? 'true' : 'false'}"
+          ondragstart="_admSpRowDragStart(event, ${r.idx})"
+          ondragover="_admSpRowDragOver(event)"
+          ondragleave="_admSpRowDragLeave(event)"
+          ondrop="_admSpRowDrop(event, ${r.idx})"
+          ondragend="_admSpRowDragEnd(event)"
+          class="border-t border-slate-100 hover:bg-slate-50/80 transition-colors ${r.overbookedRoom ? 'bg-amber-50/40' : ''}">
+          <td class="px-2 py-1.5 text-center whitespace-nowrap select-none">
+            <span class="cursor-grab text-slate-400 hover:text-slate-700 mr-1" title="Drag to reorder">⋮⋮</span>
+            <span class="font-mono text-[10px] font-black text-slate-400">${r.idx + 1}</span>
+          </td>
+          <td class="px-2 py-1.5 min-w-[165px]">
+            <select ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpRowChangeCrit(${r.idx}, this.value)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-[11px] font-bold text-slate-800">
+              ${critOptsHtml(r.critKey)}
+            </select>
+          </td>
+          <td class="px-2 py-1.5 min-w-[155px]">
+            <select ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpRowChangeRoom(${r.idx}, this.value)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-[11px] font-black text-slate-800">
+              ${roomOptsHtml(r.roomId)}
+            </select>
+          </td>
+          <td class="px-2 py-1.5 text-center font-mono text-[11px] text-slate-500 font-bold">${r.room ? r.roomCap : '—'}</td>
+          <td class="px-2 py-1.5 text-center whitespace-nowrap" data-sp-row-rfree="${r.idx}">${rFreeBadge}</td>
+          <td class="px-2 py-1.5 text-center">
+            <button type="button" ${_admSpCanEdit ? `onclick="_admSpRowApplySuggested(${r.idx})"` : 'disabled'} title="Click to set Seats Given = Suggested" class="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-700 font-mono text-[11px] font-black transition-colors" data-sp-row-sug="${r.idx}">${r.suggested}</button>
+          </td>
+          <td class="px-2 py-1.5 text-center">
+            <input type="number" min="0" value="${r.given}" ${_admSpCanEdit ? '' : 'disabled'} oninput="_admSpRowInputSeats(${r.idx}, this.value)" class="w-16 px-2 py-1 text-center font-mono text-xs font-black bg-blue-50/70 focus:bg-white border border-blue-300 focus:border-blue-600 rounded-lg outline-none">
+          </td>
+          <td class="px-2 py-1.5 text-center font-mono text-[11px] text-slate-500 whitespace-nowrap" data-sp-row-sl="${r.idx}">${r.actualCount ? `${r.startSl} – ${r.endSl}` : '—'}</td>
+          <td class="px-2 py-1.5 font-mono text-[11px] font-bold text-slate-700 whitespace-nowrap" data-sp-row-idx="${r.idx}">${r.actualCount ? `${_escHtml(r.startIdx)} → ${_escHtml(r.endIdx)}` : '—'}</td>
+          <td class="px-2 py-1.5 text-center font-mono text-[11px] whitespace-nowrap" data-sp-row-cleft="${r.idx}">${critLeftBadge}</td>
+          <td class="px-2 py-1.5 text-right whitespace-nowrap">
+            ${_admSpCanEdit ? `
+              <button type="button" onclick="_admSpRowMove(${r.idx}, -1)" ${r.idx === 0 ? 'disabled' : ''} class="px-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 text-xs" title="Move up">↑</button>
+              <button type="button" onclick="_admSpRowMove(${r.idx}, 1)" ${r.idx === comp.rows.length - 1 ? 'disabled' : ''} class="px-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 text-xs" title="Move down">↓</button>
+              <button type="button" onclick="_admSpRowDelete(${r.idx})" class="px-1.5 text-red-400 hover:text-red-600 font-black text-xs" title="Remove row">×</button>
+            ` : ''}
+          </td>
+        </tr>`;
+      }).join('') : `<tr><td colspan="11" class="p-8 text-center text-xs text-slate-400">
+        No room rows yet for this exam date. Click <b>+ Row</b>, <b>Auto-Fill</b>, or <b>Split Evenly</b> on any group above, or click a room in the <b>Room Pool</b> on the right!
+      </td></tr>`;
+
+      const activeCritLabel = _admSpSelectedCriteriaKey
+        ? _admSpCritLabel(...Object.values(_admSpParseCritKey(_admSpSelectedCriteriaKey)))
+        : (comp.criteriaList.find(c => c.included && c.remaining > 0)?.label || comp.criteriaList[0]?.label || 'None');
+
+      bodyHtml = `
+        <!-- Panel 1: Criteria Demand & Selection -->
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 mb-4">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <div>
+              <h4 class="font-black text-slate-800 text-xs uppercase tracking-wider">1. Eligible Student Groups (Select for this Exam Date)</h4>
+              <p class="text-[11px] text-slate-400">Click a group row to target it when clicking rooms in the Room Pool, or use <b>Auto-Fill</b> / <b>Split Evenly</b>.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              ${_admSpCanEdit ? `<button type="button" onclick="_admSpAutoFillAllIncluded()" class="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-black transition-all">⚡ Auto-Fill All Included</button>` : ''}
+              ${_admSpCanEdit && dbSeatedCount > 0 && !sched.plan_rows.length ? `<button type="button" onclick="_admSpImportFromCurrentDb()" class="px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-lg text-[10px] font-black uppercase hover:bg-emerald-100">↓ Import ${dbSeatedCount} Current DB Seats</button>` : ''}
+            </div>
+          </div>
+          <div class="overflow-x-auto rounded-xl border border-slate-100">
+            <table class="w-full text-left">
+              <thead><tr class="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                <th class="px-2.5 py-2 text-center w-10">Incl.</th>
+                <th class="px-2.5 py-2">Class</th>
+                <th class="px-2.5 py-2">Version</th>
+                <th class="px-2.5 py-2">Category</th>
+                <th class="px-2.5 py-2 text-right">Eligible</th>
+                <th class="px-2.5 py-2 text-right">Allocated</th>
+                <th class="px-2.5 py-2 text-right">Remaining</th>
+                <th class="px-2.5 py-2 text-right">Quick Distribute</th>
+              </tr></thead>
+              <tbody>${critRowsHtml}</tbody>
+            </table>
+          </div>
+          <div id="admSpBuildingTotalsBar" class="flex items-center gap-1.5 flex-wrap mt-3 pt-3 border-t border-slate-100">
+            ${_admSpRenderBuildingChipsHtml(comp)}
+          </div>
+        </div>
+
+        <!-- Panels 2 & 3: Live Allocation Matrix + Room Availability Pool -->
+        <div class="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
+          <div class="xl:col-span-9 bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+              <div>
+                <h4 class="font-black text-slate-800 text-xs uppercase tracking-wider">2. Live Room Allocation Matrix <span class="text-slate-400 font-bold">(${comp.rows.length} rows)</span></h4>
+                <p class="text-[11px] text-slate-400">Type any count in <b>Seats Given</b> (supports intentional overbooking &amp; shared rooms across multiple groups). Click <b>Suggested</b> to snap to capacity. Drag <b>⋮⋮</b> to reorder.</p>
+              </div>
+              <div class="flex items-center gap-2">
+                ${_admSpCanEdit && comp.rows.length ? `<button type="button" onclick="_admSpClearPlanRows()" class="px-2.5 py-1.5 border border-red-200 text-red-600 rounded-lg text-[10px] font-black uppercase hover:bg-red-50">Clear Rows</button>` : ''}
+              </div>
+            </div>
+            <div class="overflow-x-auto rounded-xl border border-slate-100">
+              <table class="w-full text-left">
+                <thead><tr class="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+                  <th class="px-2 py-2 text-center w-12">#</th>
+                  <th class="px-2 py-2">Criteria (Class · Ver · Cat)</th>
+                  <th class="px-2 py-2">Room</th>
+                  <th class="px-2 py-2 text-center">Cap</th>
+                  <th class="px-2 py-2 text-center">Room Free</th>
+                  <th class="px-2 py-2 text-center" title="Click number to apply suggested seats">Suggested</th>
+                  <th class="px-2 py-2 text-center">Seats Given</th>
+                  <th class="px-2 py-2 text-center">Start–End SL</th>
+                  <th class="px-2 py-2">Start → End Index</th>
+                  <th class="px-2 py-2 text-center">Crit. Left</th>
+                  <th class="px-2 py-2 text-right w-16"></th>
+                </tr></thead>
+                <tbody>${matrixRowsHtml}</tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="xl:col-span-3 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            <div class="p-3.5 border-b border-slate-100 bg-slate-50/70">
+              <h4 class="font-black text-slate-800 text-xs uppercase tracking-wider">3. Room Pool (This Date)</h4>
+              <p class="text-[10px] text-slate-500 mt-0.5">Click a room to add to: <b id="admSpActiveCritIndicator" class="text-blue-700">${_escHtml(activeCritLabel)}</b></p>
+              <input type="text" value="${_escHtml(_admSpRoomPoolSearch)}" oninput="_admSpRoomPoolSetFilter(null, this.value)" placeholder="Filter room e.g. SB-101…" class="w-full mt-2 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs">
+            </div>
+            <div id="admSpRoomPoolBody" class="max-h-[540px] overflow-y-auto">${_admSpRenderRoomPoolRowsHtml(comp)}</div>
+          </div>
+        </div>
+      `;
+    } else if (_admSpActiveSubView === 'outputs') {
+      const usedRooms = Object.keys(comp.byRoom).map(rid => comp.roomStates[rid]?.room).filter(Boolean)
+        .sort((a, b) => String(a.room_name || '').localeCompare(String(b.room_name || ''), undefined, { numeric: true }));
+      const roomSelectOpts = '<option value="ALL">All Rooms in Schedule (' + usedRooms.length + ')</option>'
+        + usedRooms.map(r => `<option value="${r.id}">${_escHtml(r.room_name)} (${(comp.byRoom[r.id] || []).length} students)</option>`).join('');
+      const critFilterOpts = '<option value="ALL">All Groups in Schedule</option>'
+        + comp.criteriaList.filter(c => c.allocated > 0).map(c => `<option value="${_escHtml(c.key)}">${_escHtml(c.label)} (${c.allocated})</option>`).join('');
+      const labelFieldOpts = fieldOpts.map(o => `<option value="${_escHtml(o.value)}" ${o.value === (sched.index_display_col || 'index_id') ? 'selected' : ''}>${_escHtml(o.label)}</option>`).join('');
+
+      bodyHtml = `
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <!-- 1. At a Glance -->
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex flex-col justify-between gap-3">
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[9px] font-black uppercase">Sheet 1</span>
+                <span class="text-[10px] font-bold text-slate-400">${comp.rows.length} rows · ${seatedCount} seated</span>
+              </div>
+              <h4 class="font-black text-slate-800 text-sm">At a Glance Summary</h4>
+              <p class="text-xs text-slate-400 mt-1">Class, Category, Version, Room, Start/End SL, Starting &amp; Ending Index, Count, Room Total &amp; Index Range.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap pt-2 border-t border-slate-100">
+              <button type="button" onclick="_admSpPrintAtAGlance()" class="flex-1 px-3 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-black transition-all">Print At a Glance</button>
+              <button type="button" onclick="_admSpExportExcel()" class="px-3 py-2 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl text-[10px] font-black uppercase hover:bg-emerald-100">Excel (.xlsx)</button>
+            </div>
+          </div>
+
+          <!-- 2. Notice Board at a Glance -->
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex flex-col justify-between gap-3">
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <span class="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[9px] font-black uppercase">Sheet 2</span>
+                <span class="text-[10px] font-bold text-slate-400">Public Poster</span>
+              </div>
+              <h4 class="font-black text-slate-800 text-sm">Notice Board at a Glance</h4>
+              <p class="text-xs text-slate-400 mt-1">Large-print public notice grouped by Class / Version / Category with Building Legend (SB, MB, CB, JB) and Index ranges.</p>
+              <label class="flex items-center gap-2 text-xs font-bold text-slate-600 mt-3 cursor-pointer">
+                <input type="checkbox" id="admSpNoticePageBreak" class="rounded border-slate-300"> Page break per Class/Group
+              </label>
+            </div>
+            <div class="pt-2 border-t border-slate-100">
+              <button type="button" onclick="_admSpPrintNoticeBoard()" class="w-full px-3 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-black transition-all">Print Notice Board</button>
+            </div>
+          </div>
+
+          <!-- 3. Packet Info Sheet -->
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex flex-col justify-between gap-3">
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[9px] font-black uppercase">Sheet 3</span>
+                <span class="text-[10px] font-bold text-slate-400">Exam Control</span>
+              </div>
+              <h4 class="font-black text-slate-800 text-sm">Question Paper Packet Info</h4>
+              <p class="text-xs text-slate-400 mt-1">Room-by-room script &amp; question-paper packing counts highlighting shared rooms (e.g. Bangla + English in the same room) + Version totals.</p>
+            </div>
+            <div class="pt-2 border-t border-slate-100">
+              <button type="button" onclick="_admSpPrintPacketInfo()" class="w-full px-3 py-2 bg-amber-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-black transition-all">Print Packet Info Sheet</button>
+            </div>
+          </div>
+
+          <!-- 4. Room Seat Grid (ID / Index) -->
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex flex-col justify-between gap-3">
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[9px] font-black uppercase">Sheet 4</span>
+                <span class="text-[10px] font-bold text-slate-400">Door / Bench Grid</span>
+              </div>
+              <h4 class="font-black text-slate-800 text-sm">Room Seat Grid (Index / ID)</h4>
+              <p class="text-xs text-slate-400 mt-1">3-column bench layout (1-2-3 / 4-5-6…) for room doors &amp; invigilators.</p>
+              <div class="grid grid-cols-2 gap-2 mt-3">
+                <div>
+                  <label class="text-[9px] uppercase text-slate-400 font-black">Room</label>
+                  <select id="admSpGridRoomSel" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold mt-0.5">${roomSelectOpts}</select>
+                </div>
+                <div>
+                  <label class="text-[9px] uppercase text-slate-400 font-black">Display Label</label>
+                  <select id="admSpGridFieldSel" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold mt-0.5">${labelFieldOpts}</select>
+                </div>
+              </div>
+              <div class="flex items-center justify-between gap-2 mt-2">
+                <label class="text-[10px] font-bold text-slate-600 flex items-center gap-1.5">
+                  Cols/row:
+                  <select id="admSpGridColsSel" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[11px] font-black">
+                    <option value="2">2</option>
+                    <option value="3" selected>3</option>
+                    <option value="4">4</option>
+                  </select>
+                </label>
+                <label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 cursor-pointer">
+                  <input type="checkbox" id="admSpGridShowName" checked class="rounded border-slate-300"> Show Name
+                </label>
+              </div>
+            </div>
+            <div class="pt-2 border-t border-slate-100">
+              <button type="button" onclick="_admSpPrintRoomSeatGrid()" class="w-full px-3 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-black transition-all">Print Room Seat Grid</button>
+            </div>
+          </div>
+
+          <!-- 5. Room Signature Sheet -->
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex flex-col justify-between gap-3">
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <span class="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[9px] font-black uppercase">Sheet 5</span>
+                <span class="text-[10px] font-bold text-slate-400">Attendance &amp; Photo</span>
+              </div>
+              <h4 class="font-black text-slate-800 text-sm">Room Signature Sheet</h4>
+              <p class="text-xs text-slate-400 mt-1">Full CCPC attendance sheet with Tracking ID, Index, Name, Father/Mother, Mobile, Photo, Signature &amp; Remarks.</p>
+              <div class="mt-3">
+                <label class="text-[9px] uppercase text-slate-400 font-black">Room</label>
+                <select id="admSpSigRoomSel" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold mt-0.5">${roomSelectOpts}</select>
+              </div>
+              <label class="flex items-center gap-2 text-xs font-bold text-slate-600 mt-2 cursor-pointer">
+                <input type="checkbox" id="admSpSigIncludePhotos" checked class="rounded border-slate-300"> Include Applicant Photos
+              </label>
+            </div>
+            <div class="pt-2 border-t border-slate-100">
+              <button type="button" id="admSpSigPrintBtn" onclick="_admSpPrintSignatureSheet()" class="w-full px-3 py-2 bg-purple-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-black transition-all">Print Signature Sheet</button>
+            </div>
+          </div>
+
+          <!-- 6. Booth Lookup Directory -->
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 flex flex-col justify-between gap-3">
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <span class="px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[9px] font-black uppercase">Sheet 6</span>
+                <span class="text-[10px] font-bold text-slate-400">Entrance Help Desk</span>
+              </div>
+              <h4 class="font-black text-slate-800 text-sm">Booth Lookup Directory</h4>
+              <p class="text-xs text-slate-400 mt-1">Compact multi-column <b>Sl | Index/ID | Room</b> directory sorted numerically for fast gate/booth lookup.</p>
+              <div class="grid grid-cols-2 gap-2 mt-3">
+                <div>
+                  <label class="text-[9px] uppercase text-slate-400 font-black">Group Filter</label>
+                  <select id="admSpBoothCritSel" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold mt-0.5">${critFilterOpts}</select>
+                </div>
+                <div>
+                  <label class="text-[9px] uppercase text-slate-400 font-black">ID Field</label>
+                  <select id="admSpBoothFieldSel" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold mt-0.5">${labelFieldOpts}</select>
+                </div>
+              </div>
+              <div class="mt-2">
+                <label class="text-[10px] font-bold text-slate-600 flex items-center gap-1.5">
+                  Side-by-side columns:
+                  <select id="admSpBoothColPairs" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[11px] font-black">
+                    <option value="2">2 pairs</option>
+                    <option value="3" selected>3 pairs (compact)</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div class="pt-2 border-t border-slate-100">
+              <button type="button" onclick="_admSpPrintBoothDirectory()" class="w-full px-3 py-2 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-black transition-all">Print Booth Directory</button>
+            </div>
+          </div>
+        </div>
+      `;
+    } else if (_admSpActiveSubView === 'sms') {
+      bodyHtml = _admSpRenderSmsPanelHtml(sched, comp);
+    }
+
+    root.innerHTML = `
+      <!-- Top Bar: Multi-Date Exam Schedules + Primary Actions -->
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 mb-4">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+          <div class="flex items-center gap-1.5 flex-wrap">
+            ${schedTabsHtml}
+            ${_admSpCanEdit ? `<button type="button" onclick="_admSpNewSchedule()" class="px-2.5 py-1.5 rounded-xl border border-dashed border-blue-300 text-blue-600 hover:bg-blue-50 text-xs font-black">+ New Exam Date</button>` : ''}
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span id="admSpDirtyBadge" class="${_admSpDirty ? '' : 'hidden'} px-2 py-1 rounded-lg bg-amber-100 text-amber-800 text-[10px] font-black uppercase">Unsaved Changes</span>
+            <button type="button" onclick="_admSpInit()" class="px-2.5 py-2 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase hover:bg-slate-50" title="Reload latest candidates & rooms">↻ Refresh</button>
+            ${_admSpCanEdit ? `
+              <button type="button" onclick="_admSpSaveDraft()" class="px-3 py-2 border border-slate-200 text-slate-700 rounded-xl text-[10px] font-black uppercase hover:bg-slate-50">Save Draft</button>
+              <button type="button" id="admSpApplyBtn" onclick="_admSpSaveAndApply()" class="px-4 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-black transition-all shadow-sm">Save &amp; Apply Seats</button>
+            ` : ''}
+          </div>
+        </div>
+
+        <!-- Schedule Settings Row -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5 p-3 bg-slate-50 rounded-xl border border-slate-100 mb-3">
+          <div class="lg:col-span-2">
+            <label class="text-[9px] uppercase text-slate-400 font-black">Schedule / Exam Name</label>
+            <input type="text" value="${_escHtml(sched.name || '')}" ${_admSpCanEdit ? '' : 'disabled'} oninput="_admSpUpdateSchedProp('name', this.value)" placeholder="e.g. Written Exam — Day 1" class="w-full mt-0.5 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          </div>
+          <div>
+            <label class="text-[9px] uppercase text-slate-400 font-black">Exam Date</label>
+            <input type="date" value="${_escHtml(sched.exam_date || '')}" ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpUpdateSchedProp('exam_date', this.value)" class="w-full mt-0.5 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          </div>
+          <div>
+            <label class="text-[9px] uppercase text-slate-400 font-black">Time</label>
+            <input type="text" value="${_escHtml(sched.start_time || '')}" ${_admSpCanEdit ? '' : 'disabled'} oninput="_admSpUpdateSchedProp('start_time', this.value)" placeholder="09:00 AM - 11:00 AM" class="w-full mt-0.5 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          </div>
+          <div>
+            <label class="text-[9px] uppercase text-slate-400 font-black">Sort Students By</label>
+            <select ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpUpdateSchedProp('sort_by', this.value)" class="w-full mt-0.5 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+              ${fieldOpts.map(o => `<option value="${_escHtml(o.value)}" ${o.value === sched.sort_by ? 'selected' : ''}>${_escHtml(o.label)}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="text-[9px] uppercase text-slate-400 font-black">Index / ID Column</label>
+            <select ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpUpdateSchedProp('index_display_col', this.value)" class="w-full mt-0.5 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+              ${fieldOpts.map(o => `<option value="${_escHtml(o.value)}" ${o.value === sched.index_display_col ? 'selected' : ''}>${_escHtml(o.label)}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
+        <!-- Eligibility & Schedule Utility Row -->
+        <div class="flex items-center justify-between flex-wrap gap-3 text-xs mb-3">
+          <div class="flex items-center gap-3 flex-wrap">
+            <span class="text-[10px] font-black uppercase text-slate-400">Exclude Status:</span>
+            ${allStatuses.map(st => {
+              const chk = (sched.exclude_statuses || []).includes(st);
+              return `<label class="flex items-center gap-1 text-[11px] font-bold text-slate-600 cursor-pointer"><input type="checkbox" ${chk ? 'checked' : ''} ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpToggleExcludeStatus('${_escHtml(st)}', this.checked)" class="rounded border-slate-300"> ${_escHtml(st)}</label>`;
+            }).join('')}
+            <span class="text-slate-200">|</span>
+            <label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-600">
+              <span class="text-[10px] font-black uppercase text-slate-400">Require Scan:</span>
+              <select ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpUpdateSchedProp('required_scan_key', this.value)" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold">
+                <option value="">Any (No scan filter)</option>
+                ${_admSpScanOptions.map(o => `<option value="${_escHtml(o.key)}" ${o.key === sched.required_scan_key ? 'selected' : ''}>${_escHtml(o.label)}</option>`).join('')}
+              </select>
+            </label>
+          </div>
+          ${_admSpCanEdit ? `
+            <div class="flex items-center gap-1.5">
+              <button type="button" onclick="_admSpDuplicateSchedule()" class="px-2 py-1 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-bold hover:bg-slate-50">Duplicate</button>
+              <button type="button" onclick="_admSpClearScheduleDbSeats()" class="px-2 py-1 border border-amber-200 text-amber-700 rounded-lg text-[10px] font-bold hover:bg-amber-50">Clear DB Seats</button>
+              ${_admSpSchedules.length > 1 ? `<button type="button" onclick="_admSpDeleteSchedule()" class="px-2 py-1 border border-red-200 text-red-500 rounded-lg text-[10px] font-bold hover:bg-red-50">Delete Date</button>` : ''}
+            </div>
+          ` : ''}
+        </div>
+
+        <!-- KPI Summary Strip + Sub-View Switcher -->
+        <div class="flex items-center justify-between flex-wrap gap-3 pt-3 border-t border-slate-100">
+          <div class="flex items-center gap-5 flex-wrap">
+            <div><span class="text-[9px] uppercase font-black text-slate-400 block">Included Eligible</span><span id="admSpKpiEligible" class="text-base font-black text-slate-800">${comp.totalIncludedEligible}</span></div>
+            <div><span class="text-[9px] uppercase font-black text-slate-400 block">Seated in Plan</span><span id="admSpKpiAllocated" class="text-base font-black text-blue-600">${comp.totalAllocated}</span></div>
+            <div><span class="text-[9px] uppercase font-black text-slate-400 block">Unseated Left</span><span id="admSpKpiRemaining" class="text-base font-black ${comp.totalRemaining === 0 ? 'text-emerald-600' : 'text-amber-600'}">${comp.totalRemaining}</span></div>
+            <div><span class="text-[9px] uppercase font-black text-slate-400 block">Rooms Used</span><span id="admSpKpiRooms" class="text-base font-black text-slate-700">${Object.keys(comp.byRoom).length}</span></div>
+          </div>
+          <div class="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl">
+            <button type="button" onclick="_admSpSetSubView('planner')" class="px-3 py-1.5 rounded-lg text-[11px] font-black transition-all ${_admSpActiveSubView === 'planner' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}">Live Planner</button>
+            <button type="button" onclick="_admSpSetSubView('outputs')" class="px-3 py-1.5 rounded-lg text-[11px] font-black transition-all ${_admSpActiveSubView === 'outputs' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}">6 Print Sheets &amp; Excel</button>
+            <button type="button" onclick="_admSpSetSubView('sms')" class="px-3 py-1.5 rounded-lg text-[11px] font-black transition-all ${_admSpActiveSubView === 'sms' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}">Bulk SMS <span class="ml-1 px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[9px]">${smsSentCount}/${seatedCount}</span></button>
+          </div>
+        </div>
+      </div>
+
+      ${bodyHtml}
+    `;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 6 EXAM-DAY PRINT SHEETS & EXCEL EXPORT
+  // ══════════════════════════════════════════════════════════════════════════
+  function _admSpPrintHeaderHtml(title, sched, extraSub) {
+    const titleLine = [_admSpSessionName, _admSpCircularName].filter(Boolean).join(' — ');
+    const metaParts = [
+      sched.name || '',
+      sched.exam_date ? `Date: ${sched.exam_date}` : '',
+      sched.start_time ? `Time: ${sched.start_time}` : '',
+      extraSub || '',
+    ].filter(Boolean);
+    return `<div style="text-align:center;margin-bottom:10px;border-bottom:2px solid #0f172a;padding-bottom:6px">
+      <div style="font-size:15px;font-weight:900;letter-spacing:0.3px;text-transform:uppercase">${_escHtml(titleLine || 'CCPC Admission Test')}</div>
+      <div style="font-size:13px;font-weight:800;margin-top:2px">${_escHtml(title)}</div>
+      <div style="font-size:10px;color:#334155;margin-top:2px;font-weight:600">${_escHtml(metaParts.join('  |  '))}</div>
+    </div>`;
+  }
+
+  // Sheet 1: At a Glance
+  function _admSpPrintAtAGlance() {
+    const sched = _admSpActiveSchedule();
+    if (!sched) return;
+    const comp = _admSpCompute(sched);
+    const activeRows = comp.rows.filter(r => r.actualCount > 0 && r.room);
+    if (!activeRows.length) { showToast('No seated students in this schedule yet', 'error'); return; }
+    const rowsHtml = activeRows.map((r, i) => {
+      const rs = comp.roomStates[r.roomId];
+      const roomTot = rs ? rs.actualUsed : r.actualCount;
+      const isShared = rs && rs.slices.length > 1;
+      return `<tr>
+        <td style="text-align:center">${i + 1}</td>
+        <td><b>${_escHtml(r.crit?.cls || '')}</b></td>
+        <td>${_escHtml(r.crit?.category || '')}</td>
+        <td>${_escHtml(r.crit?.version || '')}</td>
+        <td style="text-align:center;font-weight:800">${_escHtml(r.room.room_name)}</td>
+        <td style="text-align:center">${r.startSl}</td>
+        <td style="text-align:center;font-family:monospace;font-weight:700">${_escHtml(r.startIdx)}</td>
+        <td style="text-align:center">${r.endSl}</td>
+        <td style="text-align:center;font-family:monospace;font-weight:700">${_escHtml(r.endIdx)}</td>
+        <td style="text-align:center;font-weight:800">${r.actualCount}</td>
+        <td style="text-align:center;${isShared ? 'background:#fef3c7;font-weight:900;' : ''}">${roomTot}</td>
+        <td style="font-family:monospace;font-weight:700;text-align:center">${_escHtml(r.startIdx)} – ${_escHtml(r.endIdx)}</td>
+      </tr>`;
+    }).join('');
+    const body = _admSpPrintHeaderHtml('Seat Plan — At a Glance', sched, `Total Seated: ${comp.assignments.length} | Rooms: ${Object.keys(comp.byRoom).length}`)
+      + `<table>
+          <thead><tr>
+            <th>SL</th><th>Class</th><th>Category</th><th>Version</th><th>Room No.</th>
+            <th>Start SL</th><th>Starting Index</th><th>End SL</th><th>Ending Index</th>
+            <th>Count</th><th>Room Total</th><th>Index Range</th>
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+          <tfoot><tr style="background:#f1f5f9;font-weight:900">
+            <td colspan="9" style="text-align:right">Grand Total</td>
+            <td style="text-align:center">${comp.assignments.length}</td>
+            <td style="text-align:center">${Object.keys(comp.byRoom).length} rooms</td>
+            <td></td>
+          </tr></tfoot>
+        </table>`;
+    const css = `@page { size: A4 landscape; margin: 10mm; }
+      body, table { font-family: Arial, sans-serif; font-size: 9.5pt; color: #0f172a; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #334155; padding: 4px 6px; }
+      th { background: #1e293b; color: #fff; font-size: 8.5pt; text-transform: uppercase; }
+      tr { page-break-inside: avoid; }`;
+    _gfOpenPrintWindow(`${sched.name} — At a Glance`, body, css);
+  }
+
+  // Excel (.xlsx) export of At a Glance + Packet Info + Full Seat List
+  function _admSpExportExcel() {
+    const sched = _admSpActiveSchedule();
+    if (!sched) return;
+    const comp = _admSpCompute(sched);
+    if (!comp.assignments.length) { showToast('No seated students to export', 'error'); return; }
+    if (typeof XLSX === 'undefined') { showToast('Excel library not loaded — use Print or SMS CSV instead', 'error'); return; }
+    const wb = XLSX.utils.book_new();
+    const glanceData = comp.rows.filter(r => r.actualCount > 0 && r.room).map((r, i) => ({
+      SL: i + 1,
+      Class: r.crit?.cls || '',
+      Category: r.crit?.category || '',
+      Version: r.crit?.version || '',
+      'Room No.': r.room.room_name,
+      Building: comp.roomStates[r.roomId]?.building || '',
+      'Start SL': r.startSl,
+      'Starting Index': r.startIdx,
+      'End SL': r.endSl,
+      'Ending Index': r.endIdx,
+      Count: r.actualCount,
+      'Room Total': comp.roomStates[r.roomId]?.actualUsed || r.actualCount,
+      'Index Range': `${r.startIdx} - ${r.endIdx}`,
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(glanceData), 'At a Glance');
+
+    const packetData = [];
+    Object.values(comp.roomStates).filter(rs => rs.actualUsed > 0)
+      .sort((a, b) => a.room.room_name.localeCompare(b.room.room_name, undefined, { numeric: true }))
+      .forEach(rs => {
+        rs.slices.forEach(sl => {
+          packetData.push({
+            'Room No.': rs.room.room_name,
+            Building: rs.building,
+            Class: sl.cls,
+            Version: sl.version,
+            Category: sl.category,
+            'Index Range': `${sl.startIdx} - ${sl.endIdx}`,
+            'Packet Qty': sl.count,
+            'Room Total': rs.actualUsed,
+            'Shared Room': rs.slices.length > 1 ? 'YES' : 'No',
+          });
+        });
+      });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(packetData), 'Packet Info');
+
+    const listData = comp.assignments.map((a, i) => ({
+      SL: i + 1,
+      'Room No.': a.room_name,
+      Building: a.building,
+      'Seat No.': a.seat_no,
+      'Index / ID': a.display_id,
+      'Tracking ID': a.tracking_id,
+      Name: a.cand.name_english || a.cand.name_bangla || '',
+      Class: a.cls,
+      Version: a.version,
+      Category: a.category,
+      Mobile: _admSpGetPhone(a.cand),
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(listData), 'All Seated List');
+    const safeName = (sched.name || 'SeatPlan').replace(/[^a-zA-Z0-9_-]+/g, '_');
+    XLSX.writeFile(wb, `${safeName}_${sched.exam_date || 'plan'}.xlsx`);
+    showToast('Excel workbook exported', 'success');
+  }
+
+  // Sheet 2: Notice Board at a Glance
+  function _admSpPrintNoticeBoard() {
+    const sched = _admSpActiveSchedule();
+    if (!sched) return;
+    const comp = _admSpCompute(sched);
+    const activeRows = comp.rows.filter(r => r.actualCount > 0 && r.room);
+    if (!activeRows.length) { showToast('No seated students in this schedule yet', 'error'); return; }
+    const pageBreak = !!document.getElementById('admSpNoticePageBreak')?.checked;
+
+    // Building legend from used buildings
+    const usedCodes = {};
+    activeRows.forEach(r => {
+      const rs = comp.roomStates[r.roomId];
+      if (rs) usedCodes[rs.code] = rs.building;
+    });
+    const legendHtml = Object.entries(usedCodes).map(([code, name]) =>
+      `<span style="display:inline-block;padding:3px 10px;border:1.5px solid #1e293b;border-radius:6px;margin:2px 4px;font-weight:800;font-size:10.5pt;background:#f8fafc">${_escHtml(code)} = ${_escHtml(name)}</span>`
+    ).join('');
+
+    // Group rows by criteria
+    const groups = [];
+    const byKey = {};
+    activeRows.forEach(r => {
+      if (!byKey[r.critKey]) {
+        byKey[r.critKey] = { label: r.crit?.label || 'General', cls: r.crit?.cls || '', version: r.crit?.version || '', category: r.crit?.category || '', rows: [], total: 0 };
+        groups.push(byKey[r.critKey]);
+      }
+      byKey[r.critKey].rows.push(r);
+      byKey[r.critKey].total += r.actualCount;
+    });
+
+    const blocksHtml = groups.map((g, gi) => {
+      const trs = g.rows.map((r, ri) => {
+        const rs = comp.roomStates[r.roomId];
+        return `<tr>
+          <td style="text-align:center;width:36px">${ri + 1}</td>
+          <td style="text-align:center;font-size:12pt;font-weight:900;width:110px">${_escHtml(r.room.room_name)}</td>
+          <td style="text-align:center;font-size:10pt">${_escHtml(rs ? rs.building : '')}</td>
+          <td style="text-align:center;font-family:monospace;font-size:12pt;font-weight:900;letter-spacing:0.3px">${_escHtml(r.startIdx)} &nbsp;–&nbsp; ${_escHtml(r.endIdx)}</td>
+          <td style="text-align:center;font-weight:800;width:70px">${r.actualCount}</td>
+        </tr>`;
+      }).join('');
+      const brk = (pageBreak && gi > 0) ? 'page-break-before:always;' : '';
+      return `<div style="margin-bottom:14px;${brk}">
+        <div style="background:#0f172a;color:#fff;padding:6px 12px;font-size:12pt;font-weight:900;display:flex;justify-content:space-between;align-items:center">
+          <span>${_escHtml(g.label)}</span>
+          <span style="font-size:10pt;font-weight:700">Total: ${g.total}</span>
+        </div>
+        <table>
+          <thead><tr><th>SL</th><th>Room No.</th><th>Building</th><th>Index / ID Range</th><th>Students</th></tr></thead>
+          <tbody>${trs}</tbody>
+        </table>
+      </div>`;
+    }).join('');
+
+    const body = _admSpPrintHeaderHtml('NOTICE BOARD — SEAT PLAN AT A GLANCE', sched, `Total Candidates: ${comp.assignments.length}`)
+      + `<div style="text-align:center;margin:8px 0 12px">${legendHtml}</div>`
+      + blocksHtml;
+    const css = `@page { size: A4 portrait; margin: 10mm; }
+      body, table { font-family: Arial, sans-serif; font-size: 10.5pt; color: #0f172a; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1.5px solid #1e293b; padding: 5px 8px; }
+      th { background: #e2e8f0; color: #0f172a; font-size: 9.5pt; text-transform: uppercase; }
+      tr { page-break-inside: avoid; }`;
+    _gfOpenPrintWindow(`${sched.name} — Notice Board`, body, css);
+  }
+
+  // Sheet 3: Packet Info Sheet
+  function _admSpPrintPacketInfo() {
+    const sched = _admSpActiveSchedule();
+    if (!sched) return;
+    const comp = _admSpCompute(sched);
+    const usedRoomStates = Object.values(comp.roomStates).filter(rs => rs.actualUsed > 0)
+      .sort((a, b) => a.room.room_name.localeCompare(b.room.room_name, undefined, { numeric: true }));
+    if (!usedRoomStates.length) { showToast('No seated rooms in this schedule yet', 'error'); return; }
+
+    let slNo = 0;
+    const rowsHtml = usedRoomStates.map(rs => {
+      const isShared = rs.slices.length > 1;
+      return rs.slices.map((s, si) => {
+        slNo++;
+        const roomCells = si === 0
+          ? `<td rowspan="${rs.slices.length}" style="text-align:center;font-weight:900;font-size:11pt;${isShared ? 'background:#fef3c7;' : ''}">${_escHtml(rs.room.room_name)}${isShared ? '<div style="font-size:7.5pt;color:#b45309;font-weight:900">SHARED ROOM</div>' : ''}</td>
+             <td rowspan="${rs.slices.length}" style="font-size:9pt">${_escHtml(rs.building)}</td>`
+          : '';
+        const totCell = si === 0
+          ? `<td rowspan="${rs.slices.length}" style="text-align:center;font-weight:900;font-size:11pt;${isShared ? 'background:#fef3c7;' : ''}">${rs.actualUsed}</td>
+             <td rowspan="${rs.slices.length}" style="width:55px"></td>`
+          : '';
+        return `<tr>
+          <td style="text-align:center">${slNo}</td>
+          ${roomCells}
+          <td><b>${_escHtml(s.cls)}</b> · ${_escHtml(s.version)} · ${_escHtml(s.category)}</td>
+          <td style="text-align:center;font-family:monospace;font-weight:700">${_escHtml(s.startIdx)} – ${_escHtml(s.endIdx)}</td>
+          <td style="text-align:center;font-weight:900;font-size:10.5pt">${s.count}</td>
+          ${totCell}
+        </tr>`;
+      }).join('');
+    }).join('');
+
+    // Summary by criteria (question paper sets needed)
+    const critSummary = comp.criteriaList.filter(c => c.allocated > 0).map(c =>
+      `<tr><td><b>${_escHtml(c.cls)}</b></td><td>${_escHtml(c.version)}</td><td>${_escHtml(c.category)}</td><td style="text-align:center;font-weight:900">${c.allocated}</td></tr>`
+    ).join('');
+
+    const body = _admSpPrintHeaderHtml('Question Paper & Script Packet Info Sheet', sched, `Rooms: ${usedRoomStates.length} | Total Scripts: ${comp.assignments.length}`)
+      + `<table>
+          <thead><tr>
+            <th style="width:32px">SL</th><th>Room No.</th><th>Building</th><th>Criteria (Class · Version · Category)</th>
+            <th>Index Range</th><th>Packet Qty</th><th>Room Total</th><th>Packed ✓</th>
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+          <tfoot><tr style="background:#f1f5f9;font-weight:900">
+            <td colspan="5" style="text-align:right">Grand Total (${usedRoomStates.length} Rooms)</td>
+            <td style="text-align:center">${comp.assignments.length}</td>
+            <td style="text-align:center">${comp.assignments.length}</td>
+            <td></td>
+          </tr></tfoot>
+        </table>
+        <div style="margin-top:14px;page-break-inside:avoid">
+          <div style="font-size:10.5pt;font-weight:900;margin-bottom:4px;text-transform:uppercase">Total Question Paper Requirement by Group</div>
+          <table style="width:65%">
+            <thead><tr><th>Class</th><th>Version</th><th>Category</th><th>Total Papers</th></tr></thead>
+            <tbody>${critSummary}</tbody>
+          </table>
+        </div>`;
+    const css = `@page { size: A4 portrait; margin: 10mm; }
+      body, table { font-family: Arial, sans-serif; font-size: 9.5pt; color: #0f172a; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #334155; padding: 4px 6px; vertical-align: middle; }
+      th { background: #1e293b; color: #fff; font-size: 8.5pt; text-transform: uppercase; }
+      tr { page-break-inside: avoid; }`;
+    _gfOpenPrintWindow(`${sched.name} — Packet Info`, body, css);
+  }
+
+  // Sheet 4: Room Seat Grid (Seat plan in ID / INDEX — 3 columns bench layout)
+  function _admSpPrintRoomSeatGrid() {
+    const sched = _admSpActiveSchedule();
+    if (!sched) return;
+    const comp = _admSpCompute(sched);
+    const roomSel = document.getElementById('admSpGridRoomSel')?.value || 'ALL';
+    const fieldKey = document.getElementById('admSpGridFieldSel')?.value || sched.index_display_col || 'index_id';
+    const colsPerRow = Math.max(2, Math.min(4, parseInt(document.getElementById('admSpGridColsSel')?.value, 10) || 3));
+    const showName = !!document.getElementById('admSpGridShowName')?.checked;
+
+    const roomIds = roomSel === 'ALL'
+      ? Object.keys(comp.byRoom).map(Number).sort((a, b) => (comp.roomStates[a]?.room?.room_name || '').localeCompare(comp.roomStates[b]?.room?.room_name || '', undefined, { numeric: true }))
+      : [parseInt(roomSel, 10)];
+
+    const pages = roomIds.map((rid, rIdx) => {
+      const list = comp.byRoom[rid] || [];
+      const rs = comp.roomStates[rid];
+      if (!list.length || !rs) return '';
+      const critSummary = rs.slices.map(s => `${s.label} (${s.count})`).join('  +  ');
+      let rowsHtml = '';
+      for (let i = 0; i < list.length; i += colsPerRow) {
+        let tds = '';
+        for (let c = 0; c < colsPerRow; c++) {
+          const item = list[i + c];
+          if (!item) {
+            tds += `<td style="background:#f8fafc"></td>`;
+          } else {
+            const labelVal = _admSpGetFieldVal(item.cand, fieldKey) || item.display_id || item.tracking_id;
+            const nameHtml = showName ? `<div style="font-size:8pt;color:#475569;margin-top:2px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:54mm">${_escHtml(item.cand.name_english || item.cand.name_bangla || '')}</div>` : '';
+            tds += `<td style="text-align:center;padding:7px 5px">
+              <div style="font-size:8pt;color:#64748b;font-weight:700">Seat ${item.seat_no}</div>
+              <div style="font-size:13pt;font-weight:900;font-family:monospace;letter-spacing:0.3px;margin-top:1px">${_escHtml(labelVal)}</div>
+              ${nameHtml}
+            </td>`;
+          }
+        }
+        rowsHtml += `<tr>${tds}</tr>`;
+      }
+      const isLast = rIdx === roomIds.length - 1;
+      return `<div style="${isLast ? '' : 'page-break-after:always;'}">
+        <div style="display:flex;justify-content:space-between;align-items:center;border:2px solid #0f172a;padding:8px 12px;margin-bottom:8px;background:#f8fafc">
+          <div>
+            <div style="font-size:18pt;font-weight:900">ROOM: ${_escHtml(rs.room.room_name)}</div>
+            <div style="font-size:9.5pt;color:#334155;font-weight:700">${_escHtml(rs.building)} · ${_escHtml(critSummary)}</div>
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:14pt;font-weight:900">Total: ${list.length}</div>
+            <div style="font-size:9pt;color:#475569;font-weight:700">${_escHtml([sched.name, sched.exam_date, sched.start_time].filter(Boolean).join(' · '))}</div>
+          </div>
+        </div>
+        <table><tbody>${rowsHtml}</tbody></table>
+      </div>`;
+    }).filter(Boolean);
+
+    if (!pages.length) { showToast('No seated students in the selected room(s)', 'error'); return; }
+    const css = `@page { size: A4 portrait; margin: 10mm; }
+      body, table { font-family: Arial, sans-serif; color: #0f172a; }
+      table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+      td { border: 1.5px solid #1e293b; vertical-align: middle; }
+      tr { page-break-inside: avoid; }`;
+    _gfOpenPrintWindow(`${sched.name} — Room Seat Grid`, pages.join(''), css);
+  }
+
+  // Sheet 5: Room Signature Sheet (with on-demand photo fetch ONLY for printed room(s))
+  async function _admSpPrintSignatureSheet() {
+    const sched = _admSpActiveSchedule();
+    if (!sched) return;
+    const comp = _admSpCompute(sched);
+    const roomSel = document.getElementById('admSpSigRoomSel')?.value || 'ALL';
+    const includePhotos = !!document.getElementById('admSpSigIncludePhotos')?.checked;
+    const roomIds = roomSel === 'ALL'
+      ? Object.keys(comp.byRoom).map(Number).sort((a, b) => (comp.roomStates[a]?.room?.room_name || '').localeCompare(comp.roomStates[b]?.room?.room_name || '', undefined, { numeric: true }))
+      : [parseInt(roomSel, 10)];
+    const validRoomIds = roomIds.filter(rid => (comp.byRoom[rid] || []).length > 0);
+    if (!validRoomIds.length) { showToast('No seated students in the selected room(s)', 'error'); return; }
+
+    let photoById = {};
+    if (includePhotos) {
+      const btn = document.getElementById('admSpSigPrintBtn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Loading Photos…'; }
+      try {
+        const needIds = [];
+        validRoomIds.forEach(rid => {
+          (comp.byRoom[rid] || []).forEach(a => {
+            const ef = a.cand.extra_fields || {};
+            const hasUrl = !!(ef.photo_url || ef.PhotoPathS || ef.photo);
+            if (!hasUrl) needIds.push(a.id);
+          });
+        });
+        if (needIds.length) {
+          const res = await _admCandFetch('getSeatPlanPhotosByIds', { circular_id: _admCandActiveCircularId, ids: needIds });
+          photoById = (res && res.photos) || {};
+        }
+      } catch (e) {} finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Print Signature Sheet'; }
+      }
+    }
+
+    const pages = validRoomIds.map((rid, rIdx) => {
+      const list = comp.byRoom[rid] || [];
+      const rs = comp.roomStates[rid];
+      const critSummary = rs ? rs.slices.map(s => `${s.label} (${s.count})`).join(' + ') : '';
+      const rowsHtml = list.map((a, idx) => {
+        const c = a.cand;
+        const ef = c.extra_fields || {};
+        const photoSrc = photoById[a.id] || ef.photo_url || ef.PhotoPathS || ef.photo || '';
+        const photoCell = includePhotos
+          ? `<td style="text-align:center;width:48px;padding:3px">${photoSrc
+            ? `<img src="${_escHtml(photoSrc)}" style="width:40px;height:48px;object-fit:cover;border:1px solid #cbd5e1;border-radius:3px">`
+            : `<div style="width:40px;height:48px;border:1px dashed #cbd5e1;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:8pt;color:#94a3b8;font-weight:700">Photo</div>`}</td>`
+          : '';
+        const phone = _admSpGetPhone(c);
+        const fName = c.father_name || ef.father_name || ef.FatherName || '';
+        const mName = c.mother_name || ef.mother_name || ef.MotherName || '';
+        return `<tr>
+          <td style="text-align:center;font-weight:800;width:28px">${idx + 1}</td>
+          <td style="text-align:center;font-family:monospace;font-size:8.5pt;width:72px">${_escHtml(a.tracking_id)}</td>
+          <td style="text-align:center;font-family:monospace;font-weight:900;font-size:9.5pt;width:78px">${_escHtml(a.display_id)}</td>
+          <td style="font-size:8.5pt;line-height:1.3">
+            <div style="font-weight:900;font-size:9.5pt">${_escHtml(c.name_english || c.name_bangla || '')}</div>
+            ${fName ? `<div>F: ${_escHtml(fName)}${mName ? ` · M: ${_escHtml(mName)}` : ''}</div>` : (mName ? `<div>M: ${_escHtml(mName)}</div>` : '')}
+            <div style="color:#334155">${_escHtml([a.cls, a.version, a.category].filter(Boolean).join(' - '))}${phone ? ` · Ph: ${_escHtml(phone)}` : ''}</div>
+          </td>
+          ${photoCell}
+          <td style="width:110px"></td>
+          <td style="width:65px"></td>
+        </tr>`;
+      }).join('');
+      const isLast = rIdx === validRoomIds.length - 1;
+      return `<div style="${isLast ? '' : 'page-break-after:always;'}">
+        ${_admSpPrintHeaderHtml(`Attendance & Signature Sheet — Room ${rs ? rs.room.room_name : rid}`, sched, `${rs ? rs.building : ''} · ${critSummary}`)}
+        <div style="display:flex;justify-content:space-between;font-size:9pt;font-weight:800;margin-bottom:6px;padding:4px 8px;background:#f8fafc;border:1px solid #cbd5e1">
+          <span>Room: ${_escHtml(rs ? rs.room.room_name : '')}</span>
+          <span>Total Allotted: ${list.length}</span>
+          <span>Present: ________</span>
+          <span>Absent: ________</span>
+        </div>
+        <table>
+          <thead><tr>
+            <th>SL</th><th>Tracking ID</th><th>Index / Roll</th><th>Student's Information</th>
+            ${includePhotos ? '<th>Photo</th>' : ''}
+            <th>Candidate Signature</th><th>Remarks</th>
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+        <div style="display:flex;justify-content:space-between;margin-top:26px;padding:0 10px;font-size:9pt;font-weight:700;page-break-inside:avoid">
+          <div style="text-align:center"><div style="border-top:1px solid #0f172a;width:160px;padding-top:3px">Invigilator 1 Signature &amp; Date</div></div>
+          <div style="text-align:center"><div style="border-top:1px solid #0f172a;width:160px;padding-top:3px">Invigilator 2 Signature &amp; Date</div></div>
+          <div style="text-align:center"><div style="border-top:1px solid #0f172a;width:160px;padding-top:3px">Hall Superintendent</div></div>
+        </div>
+      </div>`;
+    });
+
+    const css = `@page { size: A4 portrait; margin: 9mm; }
+      body, table { font-family: Arial, sans-serif; font-size: 9pt; color: #0f172a; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #334155; padding: 4px 5px; vertical-align: middle; }
+      th { background: #1e293b; color: #fff; font-size: 8pt; text-transform: uppercase; }
+      tr { page-break-inside: avoid; }`;
+    _gfOpenPrintWindow(`${sched.name} — Signature Sheet`, pages.join(''), css);
+  }
+
+  // Sheet 6: Booth Lookup Directory (compact multi-column Sl | Index/ID | Room)
+  function _admSpPrintBoothDirectory() {
+    const sched = _admSpActiveSchedule();
+    if (!sched) return;
+    const comp = _admSpCompute(sched);
+    const critFilter = document.getElementById('admSpBoothCritSel')?.value || 'ALL';
+    const fieldKey = document.getElementById('admSpBoothFieldSel')?.value || sched.index_display_col || 'index_id';
+    const colPairs = Math.max(2, Math.min(3, parseInt(document.getElementById('admSpBoothColPairs')?.value, 10) || 3));
+
+    let items = comp.assignments.filter(a => critFilter === 'ALL' || a.crit_key === critFilter).map(a => ({
+      idVal: _admSpGetFieldVal(a.cand, fieldKey) || a.display_id || a.tracking_id,
+      room: a.room_name,
+      seat: a.seat_no,
+    }));
+    if (!items.length) { showToast('No seated students match this filter', 'error'); return; }
+    items.sort((a, b) => String(a.idVal).localeCompare(String(b.idVal), undefined, { numeric: true, sensitivity: 'base' }));
+
+    // Paginate into balanced multi-column tables (45 rows per column per page -> 135 students/page in 3-col mode!)
+    const rowsPerCol = 42;
+    const perPage = rowsPerCol * colPairs;
+    const pages = [];
+    const filterLabel = critFilter === 'ALL' ? 'All Groups' : (comp.criteriaMap[critFilter]?.label || '');
+    for (let p = 0; p < items.length; p += perPage) {
+      const slice = items.slice(p, p + perPage);
+      const numRows = Math.ceil(slice.length / colPairs);
+      let headCells = '';
+      for (let c = 0; c < colPairs; c++) {
+        headCells += `<th style="width:26px">SL</th><th>Index / ID</th><th>Room</th>${c < colPairs - 1 ? '<th style="width:6px;background:#fff;border:none"></th>' : ''}`;
+      }
+      let bodyRows = '';
+      for (let r = 0; r < numRows; r++) {
+        let tr = '';
+        for (let c = 0; c < colPairs; c++) {
+          const idx = c * numRows + r;
+          const it = slice[idx];
+          if (it) {
+            tr += `<td style="text-align:center;color:#64748b;font-size:8pt">${p + idx + 1}</td>
+              <td style="text-align:center;font-family:monospace;font-weight:800">${_escHtml(it.idVal)}</td>
+              <td style="text-align:center;font-weight:900">${_escHtml(it.room)}</td>`;
+          } else {
+            tr += `<td></td><td></td><td></td>`;
+          }
+          if (c < colPairs - 1) tr += `<td style="border:none;background:#fff"></td>`;
+        }
+        bodyRows += `<tr>${tr}</tr>`;
+      }
+      const isLast = p + perPage >= items.length;
+      pages.push(`<div style="${isLast ? '' : 'page-break-after:always;'}">
+        ${_admSpPrintHeaderHtml(`Booth Lookup Directory — ${filterLabel}`, sched, `Total: ${items.length} | Page ${Math.floor(p / perPage) + 1} of ${Math.ceil(items.length / perPage)}`)}
+        <table><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table>
+      </div>`);
+    }
+    const css = `@page { size: A4 portrait; margin: 8mm; }
+      body, table { font-family: Arial, sans-serif; font-size: 8.5pt; color: #0f172a; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #334155; padding: 2.5px 4px; }
+      th { background: #1e293b; color: #fff; font-size: 7.5pt; text-transform: uppercase; }`;
+    _gfOpenPrintWindow(`${sched.name} — Booth Directory`, pages.join(''), css);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // BULK SEAT PLAN SMS (BulkSMSBD)
+  // ══════════════════════════════════════════════════════════════════════════
+  function _admSpRenderSmsText(tpl, item, sched) {
+    const c = item.cand;
+    const map = {
+      '{name}': c.name_english || c.name_bangla || '',
+      '{room}': item.room_name || '',
+      '{seat}': String(item.seat_no || ''),
+      '{building}': item.building || '',
+      '{exam_date}': sched.exam_date || '',
+      '{time}': sched.start_time || '',
+      '{index_id}': item.display_id || '',
+      '{tracking_id}': item.tracking_id || '',
+      '{class}': item.cls || '',
+      '{version}': item.version || '',
+      '{category}': item.category || '',
+      '{schedule}': sched.name || '',
+    };
+    let out = String(tpl || ADM_SP_DEFAULT_SMS_TPL);
+    Object.entries(map).forEach(([k, v]) => { out = out.split(k).join(v); });
+    return out;
+  }
+  function _admSpSmsPartsInfo(txt) {
+    const s = String(txt || '');
+    const isUnicode = /[^\x00-\x7F]/.test(s);
+    const single = isUnicode ? 70 : 160;
+    const multi = isUnicode ? 67 : 153;
+    const parts = s.length <= single ? (s.length ? 1 : 0) : Math.ceil(s.length / multi);
+    return { chars: s.length, parts, isUnicode };
+  }
+  function _admSpRenderSmsPanelHtml(sched, comp) {
+    const tpl = sched.sms_template || ADM_SP_DEFAULT_SMS_TPL;
+    const smsLog = sched.sms_log || {};
+    const allSeated = comp.assignments;
+    const sentItems = allSeated.filter(a => smsLog[String(a.id)] && String(smsLog[String(a.id)].code) === '202');
+    const failedItems = allSeated.filter(a => smsLog[String(a.id)] && String(smsLog[String(a.id)].code) !== '202');
+    const unsentItems = allSeated.filter(a => !smsLog[String(a.id)] || String(smsLog[String(a.id)].code) !== '202');
+
+    const usedRooms = Object.keys(comp.byRoom).map(rid => comp.roomStates[rid]?.room).filter(Boolean)
+      .sort((a, b) => a.room_name.localeCompare(b.room_name, undefined, { numeric: true }));
+
+    const q = (_admSpSmsSearch || '').trim().toLowerCase();
+    const filtered = allSeated.filter(a => {
+      const log = smsLog[String(a.id)];
+      const isSent = log && String(log.code) === '202';
+      const isFailed = log && String(log.code) !== '202';
+      if (_admSpSmsFilter === 'unsent' && isSent) return false;
+      if (_admSpSmsFilter === 'sent' && !isSent) return false;
+      if (_admSpSmsFilter === 'failed' && !isFailed) return false;
+      if (_admSpSmsRoomFilter && String(a.room_id) !== String(_admSpSmsRoomFilter)) return false;
+      if (q) {
+        const hay = `${a.display_id} ${a.tracking_id} ${a.cand.name_english || ''} ${a.room_name} ${_admSpGetPhone(a.cand)}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    const sampleItem = allSeated[0];
+    const samplePreview = sampleItem ? _admSpRenderSmsText(tpl, sampleItem, sched) : 'Assign students to rooms first to preview SMS.';
+    const info = _admSpSmsPartsInfo(samplePreview);
+    const tokens = ['{name}', '{index_id}', '{tracking_id}', '{room}', '{building}', '{seat}', '{exam_date}', '{time}', '{class}', '{version}', '{category}', '{schedule}'];
+
+    const rowsHtml = filtered.slice(0, 200).map((a, i) => {
+      const phone = _admSpGetPhone(a.cand);
+      const msg = _admSpRenderSmsText(tpl, a, sched);
+      const log = smsLog[String(a.id)];
+      let badge = '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[10px] font-black">Pending</span>';
+      if (log) {
+        if (String(log.code) === '202') {
+          badge = `<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-black" title="${_escHtml(log.meaning || '')}">202 Sent</span>`;
+        } else {
+          badge = `<span class="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-[10px] font-black" title="${_escHtml(log.meaning || '')}">${_escHtml(log.code || 'ERR')}: ${_escHtml(log.meaning || 'Failed')}</span>`;
+        }
+      }
+      return `<tr class="border-t border-slate-100">
+        <td class="px-2.5 py-2 text-[11px] font-mono text-slate-400">${i + 1}</td>
+        <td class="px-2.5 py-2 text-[11px] font-mono font-black text-slate-700">${_escHtml(a.display_id)}</td>
+        <td class="px-2.5 py-2 text-xs font-bold text-slate-800">${_escHtml(a.cand.name_english || a.cand.name_bangla || '')}</td>
+        <td class="px-2.5 py-2 text-xs font-black text-blue-700 whitespace-nowrap">${_escHtml(a.room_name)} <span class="text-slate-400 font-bold">#${a.seat_no}</span></td>
+        <td class="px-2.5 py-2 text-xs font-mono ${phone ? 'text-slate-700' : 'text-red-500 font-bold'}">${_escHtml(phone || 'No phone')}</td>
+        <td class="px-2.5 py-2 text-[10px] text-slate-500 max-w-xs truncate" title="${_escHtml(msg)}">${_escHtml(msg.replace(/\n/g, ' ↵ '))}</td>
+        <td class="px-2.5 py-2 text-right whitespace-nowrap">${badge}</td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="7" class="p-8 text-center text-xs text-slate-400">No recipients match this filter.</td></tr>';
+
+    const cappedNote = filtered.length > 200 ? `<p class="text-[10px] text-slate-400 mt-2 text-right font-bold">Showing first 200 of ${filtered.length} matching recipients (Send / Export uses all ${filtered.length}).</p>` : '';
+
+    return `
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-4">
+        <!-- Template Composer -->
+        <div class="lg:col-span-7 bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="font-black text-slate-800 text-xs uppercase tracking-wider">Seat Plan SMS Template</h4>
+            <span id="admSpSmsCharInfo" class="text-[10px] font-black text-slate-500">${info.chars} chars · ${info.parts} SMS part${info.parts === 1 ? '' : 's'}${info.isUnicode ? ' (Unicode)' : ''}</span>
+          </div>
+          <div class="flex flex-wrap gap-1 mb-2">
+            ${tokens.map(t => `<button type="button" onclick="_admSpSmsInsertToken('${t}')" class="px-2 py-0.5 rounded-md bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 text-[10px] font-mono font-bold transition-colors">${t}</button>`).join('')}
+          </div>
+          <textarea id="admSpSmsTplInput" rows="4" ${_admSpCanEdit ? '' : 'disabled'} oninput="_admSpSmsTemplateInput(this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:bg-white focus:border-blue-500 outline-none">${_escHtml(tpl)}</textarea>
+          <div class="mt-2 p-2.5 bg-emerald-50/70 border border-emerald-200 rounded-xl">
+            <div class="text-[9px] font-black uppercase text-emerald-700 mb-1">Live Preview (1st Seated Student)</div>
+            <pre id="admSpSmsPreviewBox" class="text-[11px] font-sans text-slate-700 whitespace-pre-wrap m-0">${_escHtml(samplePreview)}</pre>
+          </div>
+        </div>
+
+        <!-- BulkSMSBD Gateway Settings -->
+        <div class="lg:col-span-5 bg-white rounded-2xl shadow-sm border border-slate-100 p-4 flex flex-col justify-between gap-3">
+          <div>
+            <h4 class="font-black text-slate-800 text-xs uppercase tracking-wider mb-1">BulkSMSBD Gateway Settings</h4>
+            <p class="text-[11px] text-slate-400 mb-3">Sends via <code>bulksmsbd.net/api/smsapi</code> from the server and records exact response codes (<code>202</code> = Sent, <code>1001–1032</code>) so already-sent applicants are never double-messaged.</p>
+            <div class="space-y-2.5">
+              <div>
+                <label class="text-[9px] uppercase text-slate-400 font-black">BulkSMSBD API Key</label>
+                <input type="password" id="admSpSmsApiKey" value="${_escHtml(_admSpSmsConfig.api_key || '')}" placeholder="${_admSpSmsConfig.has_api_key ? '•••••••• (saved)' : 'Enter BulkSMSBD API key'}" ${_admSpCanEdit ? '' : 'disabled'} class="w-full mt-0.5 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono">
+              </div>
+              <div>
+                <label class="text-[9px] uppercase text-slate-400 font-black">Sender ID</label>
+                <input type="text" id="admSpSmsSenderId" value="${_escHtml(_admSpSmsConfig.sender_id || '8809617611050')}" placeholder="e.g. 8809617611050" ${_admSpCanEdit ? '' : 'disabled'} class="w-full mt-0.5 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono">
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center justify-between gap-2 pt-3 border-t border-slate-100">
+            ${_admSpCanEdit ? `<button type="button" onclick="_admSpSmsSaveConfig()" class="px-3 py-2 bg-slate-800 text-white rounded-xl text-[10px] font-black uppercase hover:bg-black">Save Gateway</button>` : '<span></span>'}
+            <button type="button" onclick="_admSpSmsExportCsv()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase hover:bg-slate-50">Export SMS CSV</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recipient Queue & Send Controls -->
+      <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <button type="button" onclick="_admSpSmsSetFilter('unsent')" class="px-2.5 py-1.5 rounded-lg text-[10px] font-black ${_admSpSmsFilter === 'unsent' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}">Unsent (${unsentItems.length})</button>
+            <button type="button" onclick="_admSpSmsSetFilter('sent')" class="px-2.5 py-1.5 rounded-lg text-[10px] font-black ${_admSpSmsFilter === 'sent' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600'}">Sent 202 (${sentItems.length})</button>
+            <button type="button" onclick="_admSpSmsSetFilter('failed')" class="px-2.5 py-1.5 rounded-lg text-[10px] font-black ${_admSpSmsFilter === 'failed' ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-600'}">Failed (${failedItems.length})</button>
+            <button type="button" onclick="_admSpSmsSetFilter('all')" class="px-2.5 py-1.5 rounded-lg text-[10px] font-black ${_admSpSmsFilter === 'all' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}">All Seated (${allSeated.length})</button>
+            <select onchange="_admSpSmsRoomFilterChange(this.value)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold">
+              <option value="">All Rooms</option>
+              ${usedRooms.map(r => `<option value="${r.id}" ${String(r.id) === String(_admSpSmsRoomFilter) ? 'selected' : ''}>${_escHtml(r.room_name)}</option>`).join('')}
+            </select>
+            <input type="text" value="${_escHtml(_admSpSmsSearch)}" oninput="_admSpSmsSearchInput(this.value)" placeholder="Search name / index / phone…" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs w-44">
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            ${_admSpCanEdit && !_admSpSmsRunning ? `
+              <button type="button" onclick="_admSpSmsSendBatch('unsent')" class="px-4 py-2 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-black transition-all">Send to Filtered Unsent (${filtered.filter(a => !(smsLog[String(a.id)] && String(smsLog[String(a.id)].code) === '202')).length})</button>
+              ${failedItems.length ? `<button type="button" onclick="_admSpSmsSendBatch('failed')" class="px-3 py-2 bg-amber-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-black">Retry Failed (${failedItems.length})</button>` : ''}
+            ` : ''}
+            ${_admSpSmsRunning ? `<button type="button" onclick="_admSpSmsStopSending()" class="px-4 py-2 bg-red-600 text-white rounded-xl text-[10px] font-black uppercase">Stop Sending</button>` : ''}
+          </div>
+        </div>
+        <div id="admSpSmsProgressBar" class="hidden mb-3 p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs font-bold text-blue-800"></div>
+        <div class="overflow-x-auto rounded-xl border border-slate-100">
+          <table class="w-full text-left">
+            <thead><tr class="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-wider">
+              <th class="px-2.5 py-2 w-10">#</th>
+              <th class="px-2.5 py-2">Index / ID</th>
+              <th class="px-2.5 py-2">Student Name</th>
+              <th class="px-2.5 py-2">Room / Seat</th>
+              <th class="px-2.5 py-2">Phone</th>
+              <th class="px-2.5 py-2">SMS Preview</th>
+              <th class="px-2.5 py-2 text-right">Status</th>
+            </tr></thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </div>
+        ${cappedNote}
+      </div>
+    `;
+  }
+
+  function _admSpSmsInsertToken(tok) {
+    const ta = document.getElementById('admSpSmsTplInput');
+    if (!ta) return;
+    const start = ta.selectionStart || 0;
+    const end = ta.selectionEnd || 0;
+    const v = ta.value;
+    ta.value = v.slice(0, start) + tok + v.slice(end);
+    ta.focus();
+    ta.selectionStart = ta.selectionEnd = start + tok.length;
+    _admSpSmsTemplateInput(ta.value);
+  }
+  function _admSpSmsTemplateInput(val) {
+    const cur = _admSpActiveSchedule();
+    if (!cur) return;
+    cur.sms_template = val;
+    _admSpMarkDirty();
+    const comp = _admSpCompute(cur);
+    const sample = comp.assignments[0];
+    const preview = sample ? _admSpRenderSmsText(val, sample, cur) : '';
+    const box = document.getElementById('admSpSmsPreviewBox');
+    if (box) box.textContent = preview || 'Assign students to rooms first to preview SMS.';
+    const info = _admSpSmsPartsInfo(preview);
+    const ci = document.getElementById('admSpSmsCharInfo');
+    if (ci) ci.textContent = `${info.chars} chars · ${info.parts} SMS part${info.parts === 1 ? '' : 's'}${info.isUnicode ? ' (Unicode)' : ''}`;
+  }
+  function _admSpSmsSetFilter(f) { _admSpSmsFilter = f; _admSpRenderStudio(); }
+  function _admSpSmsRoomFilterChange(rid) { _admSpSmsRoomFilter = rid; _admSpRenderStudio(); }
+  function _admSpSmsSearchInput(val) { _admSpSmsSearch = val; _admSpRenderStudio(); }
+  async function _admSpSmsSaveConfig() {
+    const api_key = (document.getElementById('admSpSmsApiKey')?.value || '').trim();
+    const sender_id = (document.getElementById('admSpSmsSenderId')?.value || '').trim();
+    if (!sender_id) { showToast('Enter a Sender ID', 'error'); return; }
+    try {
+      const payload = { circular_id: _admCandActiveCircularId, sender_id };
+      if (api_key) payload.api_key = api_key;
+      const res = await _admCandFetch('saveSeatPlanSmsConfig', payload);
+      if (res.error) { showToast(res.error, 'error'); return; }
+      _admSpSmsConfig.sender_id = sender_id;
+      if (api_key) { _admSpSmsConfig.api_key = api_key; _admSpSmsConfig.has_api_key = true; }
+      showToast('BulkSMSBD gateway saved', 'success');
+    } catch (e) { showToast(e.message || 'Save failed', 'error'); }
+  }
+  function _admSpSmsStopSending() { _admSpSmsStop = true; }
+  async function _admSpSmsSendBatch(mode) {
+    const cur = _admSpActiveSchedule();
+    if (!cur) return;
+    const comp = _admSpCompute(cur);
+    const smsLog = cur.sms_log || {};
+    const q = (_admSpSmsSearch || '').trim().toLowerCase();
+    const targets = comp.assignments.filter(a => {
+      const log = smsLog[String(a.id)];
+      const isSent = log && String(log.code) === '202';
+      const isFailed = log && String(log.code) !== '202';
+      if (mode === 'failed') return isFailed;
+      if (isSent) return false;
+      if (_admSpSmsRoomFilter && String(a.room_id) !== String(_admSpSmsRoomFilter)) return false;
+      if (q) {
+        const hay = `${a.display_id} ${a.tracking_id} ${a.cand.name_english || ''} ${a.room_name} ${_admSpGetPhone(a.cand)}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+    if (!targets.length) { showToast('No eligible unsent recipients to message', 'error'); return; }
+    const apiKeyInput = (document.getElementById('admSpSmsApiKey')?.value || '').trim();
+    const senderIdInput = (document.getElementById('admSpSmsSenderId')?.value || '').trim();
+    if (!apiKeyInput && !_admSpSmsConfig.has_api_key) { showToast('Enter & save your BulkSMSBD API Key first', 'error'); return; }
+
+    // Ensure schedule is saved before sending so sms_log attaches to persisted schedule
+    showConfirm(`Send Seat Plan SMS via BulkSMSBD to ${targets.length} recipient(s)?\n(Already-sent "202" students are automatically skipped.)`, async () => {
+      _admSpSmsRunning = true;
+      _admSpSmsStop = false;
+      _admSpRenderStudio();
+      const prog = document.getElementById('admSpSmsProgressBar');
+      if (prog) { prog.classList.remove('hidden'); prog.textContent = `Saving schedule & preparing ${targets.length} SMS…`; }
+      try {
+        await _admCandFetch('saveSeatPlanSchedules', { circular_id: _admCandActiveCircularId, schedules: _admSpSchedules });
+        const tpl = cur.sms_template || ADM_SP_DEFAULT_SMS_TPL;
+        const BATCH = 15;
+        let done = 0, sent = 0, failed = 0, skipped = 0;
+        for (let i = 0; i < targets.length; i += BATCH) {
+          if (_admSpSmsStop) break;
+          const part = targets.slice(i, i + BATCH).map(a => ({
+            id: a.id,
+            phone: _admSpGetPhone(a.cand),
+            message: _admSpRenderSmsText(tpl, a, cur),
+          }));
+          const res = await _admCandFetch('sendSeatPlanSmsBatch', {
+            circular_id: _admCandActiveCircularId,
+            schedule_id: cur.id,
+            items: part,
+            api_key: apiKeyInput || undefined,
+            sender_id: senderIdInput || undefined,
+            force: mode === 'failed',
+          });
+          if (res.error) { showToast(res.error, 'error'); break; }
+          sent += res.sent || 0;
+          failed += res.failed || 0;
+          skipped += res.skipped || 0;
+          done += part.length;
+          if (res.sms_log) cur.sms_log = res.sms_log;
+          if (prog) prog.textContent = `Sending… ${done} / ${targets.length} processed (${sent} sent, ${failed} failed, ${skipped} skipped)`;
+        }
+        showToast(_admSpSmsStop ? `Stopped: ${sent} sent, ${failed} failed` : `Bulk SMS done: ${sent} sent, ${failed} failed, ${skipped} skipped`, failed ? 'error' : 'success');
+      } catch (e) {
+        showToast(e.message || 'SMS batch failed', 'error');
+      } finally {
+        _admSpSmsRunning = false;
+        _admSpSmsStop = false;
+        _admSpDirty = false;
+        _admSpRenderStudio();
+      }
+    });
+  }
+  function _admSpSmsExportCsv() {
+    const cur = _admSpActiveSchedule();
+    if (!cur) return;
+    const comp = _admSpCompute(cur);
+    if (!comp.assignments.length) { showToast('No seated students to export', 'error'); return; }
+    const tpl = cur.sms_template || ADM_SP_DEFAULT_SMS_TPL;
+    const smsLog = cur.sms_log || {};
+    const header = ['SL', 'Index_ID', 'Tracking_ID', 'Name', 'Room', 'Seat', 'Phone', 'Message', 'SMS_Code', 'SMS_Status'];
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = [header.map(esc).join(',')];
+    comp.assignments.forEach((a, i) => {
+      const log = smsLog[String(a.id)] || {};
+      lines.push([
+        i + 1,
+        a.display_id,
+        a.tracking_id,
+        a.cand.name_english || a.cand.name_bangla || '',
+        a.room_name,
+        a.seat_no,
+        _admSpGetPhone(a.cand),
+        _admSpRenderSmsText(tpl, a, cur),
+        log.code || '',
+        log.meaning || 'Pending',
+      ].map(esc).join(','));
+    });
+    const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${(cur.name || 'SeatPlan').replace(/[^a-zA-Z0-9_-]+/g, '_')}_SMS.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
 
   // ── Form/Admit Card template assignment per class/version/category
