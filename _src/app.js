@@ -33996,16 +33996,31 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="display:block;background:${bg};"><rect width="${w}" height="${h}" fill="${bg}"/>${rects}${textEl}</svg>`;
   }
+  let _admTokenSampleRow = null;
   async function _admOpenTokenDesignerModal() {
-    const data = await _admFetchExportCols();
-    if (!data) return;
-    _admTokenCols = data.cols || [];
-    _admTokenItems = data.items || [];
-    const res = await _admAdminFetch('getSettings', {});
-    const raw = res && res.settings && res.settings.lottery_token_templates;
-    _admTokenTemplates = Array.isArray(raw) ? raw : [];
-    ensureQRCodeGen().catch(() => {});
-    _admTokenRenderSelectModal();
+    const apps = _admLastFiltered.length ? _admLastFiltered : (_admAllApps || []);
+    try {
+      const [sampleRes, res] = await Promise.all([
+        apps.length
+          ? _admAdminFetch('getApplicationsFullById', { circular_id: _admCandActiveCircularId, ids: [apps[0].id] }).catch(() => null)
+          : Promise.resolve(null),
+        _admAdminFetch('getSettings', {}),
+      ]);
+      const settings = (res && res.settings) || {};
+      if (Array.isArray(settings.custom_merged_columns)) _admCustomMergedCols = settings.custom_merged_columns;
+      const sampleFull = (sampleRes && Array.isArray(sampleRes.applications) && sampleRes.applications[0]) || apps[0] || null;
+      const colRows = sampleFull ? [sampleFull, ...apps.slice(1, 50)] : [];
+      const built = _admBuildExportColsFromRows(colRows);
+      _admTokenCols = built.cols || [];
+      _admTokenItems = apps;
+      _admTokenSampleRow = sampleFull;
+      const raw = settings.lottery_token_templates;
+      _admTokenTemplates = Array.isArray(raw) ? raw : [];
+      ensureQRCodeGen().catch(() => {});
+      _admTokenRenderSelectModal();
+    } catch (e) {
+      showToast(e.message || 'Could not open Lottery Token Designer', 'error');
+    }
   }
   function _admTokenRenderSelectModal() {
     const modal = document.getElementById('diarySimpleModal');
@@ -34381,7 +34396,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admTokenRedrawCanvas() {
     const canvas = document.getElementById('admTokCanvas');
     if (!canvas || !_admTokenDraft) return;
-    const sampleRow = _admTokenItems[0] || null;
+    const sampleRow = _admTokenSampleRow || _admTokenItems[0] || null;
     const ow = Math.max(1, Math.round(2 / _admTokenZoom));
     const dw = Math.max(1, Math.round(1 / _admTokenZoom));
     const hs = Math.max(9, Math.round(10 / _admTokenZoom));
@@ -34781,6 +34796,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!tpl) { showToast('Select or create a token template first', 'error'); return; }
     if (!_admTokenItems.length) { showToast('No applicants to print', 'error'); return; }
     try { await ensureQRCodeGen(); } catch (_) {}
+    let printItems;
+    try { printItems = await _admEnsureFullRowsIfNeeded(tpl, _admTokenItems); }
+    catch (e) { showToast(e.message || 'Could not load applicant data for print', 'error'); return; }
 
     const paperKey = document.getElementById('admTokPaper')?.value || 'a4_p';
     const paperMap = {
@@ -34872,9 +34890,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
     const perPage = cols * rows;
     let pagesHtml = '';
-    for (let i = 0; i < _admTokenItems.length; i += perPage) {
-      const slice = _admTokenItems.slice(i, i + perPage);
-      const isLast = i + perPage >= _admTokenItems.length;
+    for (let i = 0; i < printItems.length; i += perPage) {
+      const slice = printItems.slice(i, i + perPage);
+      const isLast = i + perPage >= printItems.length;
       pagesHtml += `<div class="tok-page" style="width:${pageInnerW.toFixed(2)}mm;height:${pageInnerH.toFixed(2)}mm;display:grid;grid-template-columns:repeat(${cols},${cellW_mm.toFixed(2)}mm);grid-template-rows:repeat(${rows},${cellH_mm.toFixed(2)}mm);gap:${gap}mm;overflow:hidden;${isLast ? '' : 'break-after:page;page-break-after:always;'}">${slice.map(renderToken).join('')}</div>`;
     }
     const css = `
@@ -34969,16 +34987,31 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const pxPerMm = 96 / 25.4;
     return { wMm, hMm, wPx: Math.round(wMm * pxPerMm), hPx: Math.round(hMm * pxPerMm) };
   }
+  let _admTopSampleRow = null;
   async function _admOpenTopPageModal() {
-    const data = await _admFetchExportCols();
-    if (!data) return;
-    _admTopCols = data.cols || [];
-    _admTopItems = data.items || [];
-    const res = await _admAdminFetch('getSettings', {});
-    const raw = res && res.settings && res.settings.written_top_page_templates;
-    _admTopTemplates = Array.isArray(raw) ? raw : [];
-    ensureQRCodeGen().catch(() => {});
-    _admTopRenderSelectModal();
+    const apps = _admLastFiltered.length ? _admLastFiltered : (_admAllApps || []);
+    try {
+      const [sampleRes, res] = await Promise.all([
+        apps.length
+          ? _admAdminFetch('getApplicationsFullById', { circular_id: _admCandActiveCircularId, ids: [apps[0].id] }).catch(() => null)
+          : Promise.resolve(null),
+        _admAdminFetch('getSettings', {}),
+      ]);
+      const settings = (res && res.settings) || {};
+      if (Array.isArray(settings.custom_merged_columns)) _admCustomMergedCols = settings.custom_merged_columns;
+      const sampleFull = (sampleRes && Array.isArray(sampleRes.applications) && sampleRes.applications[0]) || apps[0] || null;
+      const colRows = sampleFull ? [sampleFull, ...apps.slice(1, 50)] : [];
+      const built = _admBuildExportColsFromRows(colRows);
+      _admTopCols = built.cols || [];
+      _admTopItems = apps;
+      _admTopSampleRow = sampleFull;
+      const raw = settings.written_top_page_templates;
+      _admTopTemplates = Array.isArray(raw) ? raw : [];
+      ensureQRCodeGen().catch(() => {});
+      _admTopRenderSelectModal();
+    } catch (e) {
+      showToast(e.message || 'Could not open Top Page Coder', 'error');
+    }
   }
   function _admTopRenderSelectModal() {
     const isAdmin = _ccpcTplIsAdmin();
@@ -35850,7 +35883,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const canvas = document.getElementById('admTopCanvas');
     if (!canvas || !_admTopDraft) return;
     const d = _admTopDraft;
-    const sampleRow = _admTopItems[0] || null;
+    const sampleRow = _admTopSampleRow || _admTopItems[0] || null;
     canvas.style.background = d.bg_color || '#ffffff';
     const borderFrameHtml = _admTopBuildPageBorderHtml(d);
     const ow = Math.max(1, Math.round(2 / _admTopZoom));
@@ -36381,11 +36414,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!tpl) { showToast('Select or create a top page template first', 'error'); return; }
     if (!_admTopItems.length) { showToast('No applicants to print', 'error'); return; }
     try { await ensureQRCodeGen(); } catch (_) {}
+    let printItems;
+    try { printItems = await _admEnsureFullRowsIfNeeded(tpl, _admTopItems); }
+    catch (e) { showToast(e.message || 'Could not load applicant data for print', 'error'); return; }
 
     const { wMm, hMm, wPx, hPx } = _admTopPaperPx(tpl.paper);
     const borderFrameHtml = _admTopBuildPageBorderHtml(tpl);
 
-    const pagesHtml = _admTopItems.map((row, idx) => {
+    const pagesHtml = printItems.map((row, idx) => {
       const inner = (tpl.elements || []).map(el => {
         const z = el.type === 'table' ? 'z-index:1;' : (el.type === 'shape' ? 'z-index:2;' : 'z-index:10;');
         if (el.type === 'qr') {
@@ -36413,7 +36449,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const txt = _escHtml(_admTopEvalElement(el, row)).replace(/\r\n|\r|\n/g, '<br>');
         return `<div style="position:absolute;left:${el.x}px;top:${el.y}px;${z}${_admTopTextCss(el)}">${txt}</div>`;
       }).join('');
-      const isLast = idx === _admTopItems.length - 1;
+      const isLast = idx === printItems.length - 1;
       return `<div style="position:relative;width:${wPx}px;height:${hPx}px;overflow:hidden;background:${_escHtml(tpl.bg_color || '#ffffff')};${isLast ? '' : 'page-break-after:always;'}">${borderFrameHtml}${inner}</div>`;
     }).join('');
 
@@ -50037,27 +50073,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // DB column plus one human-readable column per Scan Option, see
   // _ccpcCsvColumnsFromRows/the scanCols loop below), so this is the one
   // place that logic lives rather than two copies that could drift apart.
-  async function _admFetchExportCols() {
-    const apps = _admLastFiltered;
-    if (!apps.length) { showToast('No applications to export', 'error'); return null; }
-    let full;
-    try {
-      const res = await _admAdminFetch('getApplicationsFullById', { circular_id: _admCandActiveCircularId, ids: apps.map(a => a.id) });
-      if (res.error) throw new Error(res.error);
-      full = res.applications || [];
-    } catch (e) { showToast(e.message || 'Could not prepare export', 'error'); return null; }
-    if (!full.length) { showToast('No applications to export', 'error'); return null; }
-    // extra_fields is flattened into one column per actual sub-key (with a
-    // Form Field's own label when one exists), and any column -- real or
-    // flattened -- whose Form Field definition is marked type:'phone' gets
-    // the digit-normalized, Excel-text-forced treatment too, not just
-    // columns whose NAME happens to contain phone/mobile/contact.
-    const dataCols = _ccpcCsvColumnsFromRows(full, _admCandFormFieldDefs);
-    // Part 10: on top of every real DB column above, one extra
-    // human-readable column per Scan Option so scanned/tagged/marks data is
-    // easy to read at a glance, not just buried inside the raw scan_values
-    // jsonb (which _ccpcCsvColumnsFromRows already excludes -- see
-    // CCPC_CSV_RAW_JSON_COLS).
+  function _admBuildExportColsFromRows(rows) {
+    const dataCols = _ccpcCsvColumnsFromRows(rows, _admCandFormFieldDefs);
     const scanCols = [];
     (_admCandScanOptions || []).forEach(o => {
       if (o.behavior === 'form') {
@@ -50072,17 +50089,37 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           },
         });
       }
-      // One "Scanned At" column per option (not per field -- a scan event
-      // has one timestamp regardless of how many fields a 'form' option
-      // collects), formatted dd MMM, yy hh:mm:ss AM/PM in the viewer's own
-      // local time, from the most recent entry in scan_dates[o.key].
       scanCols.push({ header: `${o.label} - Scanned At`, get: a => _ccpcFmtScanDate(_ccpcLastScanDate(a, o.key)) });
     });
-    // Kept separate (not just one combined `cols` array) so a caller can
-    // apply the active-filter column omission to dataCols only -- scan
-    // columns must never be omitted, even if a Scan Option happens to share
-    // a name with a filterable field like "Status".
-    return { items: full, dataCols, scanCols, cols: [...dataCols, ...scanCols] };
+    return { items: rows, dataCols, scanCols, cols: [...dataCols, ...scanCols] };
+  }
+  async function _admEnsureFullRowsIfNeeded(tpl, apps) {
+    const HEAVY_COLS = ['student_photo', 'father_photo', 'mother_photo', 'guardian_photo', 'academic_records', 'siblings'];
+    const json = JSON.stringify(tpl || {});
+    const needsHeavy = HEAVY_COLS.some(k => json.includes(k));
+    if (!needsHeavy) return apps;
+    showToast(`Loading full records for ${apps.length} applicants…`, 'info');
+    const out = [];
+    const BATCH = 200;
+    for (let i = 0; i < apps.length; i += BATCH) {
+      const ids = apps.slice(i, i + BATCH).map(a => a.id);
+      const res = await _admAdminFetch('getApplicationsFullById', { circular_id: _admCandActiveCircularId, ids });
+      if (res && res.error) throw new Error(res.error);
+      if (res && Array.isArray(res.applications)) out.push(...res.applications);
+    }
+    return out.length ? out : apps;
+  }
+  async function _admFetchExportCols() {
+    const apps = _admLastFiltered;
+    if (!apps.length) { showToast('No applications to export', 'error'); return null; }
+    let full;
+    try {
+      const res = await _admAdminFetch('getApplicationsFullById', { circular_id: _admCandActiveCircularId, ids: apps.map(a => a.id) });
+      if (res.error) throw new Error(res.error);
+      full = res.applications || [];
+    } catch (e) { showToast(e.message || 'Could not prepare export', 'error'); return null; }
+    if (!full.length) { showToast('No applications to export', 'error'); return null; }
+    return _admBuildExportColsFromRows(full);
   }
   // A Set-based Applications-tab filter (class/category/version/status/
   // source) pins every currently-matching row to the exact same value for
