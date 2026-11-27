@@ -34717,6 +34717,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _admTopDraft = null;
   let _admTopSelectedElId = null;
   let _admTopZoom = 0.75;
+  let _admTopMergeStaging = [];
 
   const ADM_TOP_PAPER_MAP = {
     a4_p: [210, 297, 'A4 Portrait (210 × 297 mm)'],
@@ -34823,6 +34824,18 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const raw = col && row ? _ccpcPlainCell(col.get(row), col.isPhone) : `[${el.header}]`;
       const sliced = col && row ? _admTopSliceVal(raw, el.slice_mode, el.slice_n, el.slice_from, el.slice_to) : raw;
       return el.show_label ? `${el.header}: ${sliced}` : sliced;
+    }
+    if (el.type === 'merged') {
+      const delim = el.delimiter ?? '';
+      return (el.parts || []).map(p => {
+        if (p.kind === 'text') return p.text || '';
+        const col = byHeader[p.header];
+        const raw = col && row ? _ccpcPlainCell(col.get(row), col.isPhone) : `[${p.header}]`;
+        if (p.kind === 'slice') {
+          return col && row ? _admTopSliceVal(raw, p.slice_mode, p.slice_n, p.slice_from, p.slice_to) : raw;
+        }
+        return raw;
+      }).join(delim);
     }
     if (el.type === 'qr') {
       return String(el.pattern || '').replace(/\{([^}]+)\}/g, (_, h) => {
@@ -34998,6 +35011,34 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
           </div>
 
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-2 space-y-1.5">
+            <p class="text-[9px] font-black text-slate-400 uppercase">Merge Values (Text + Column + Portion)</p>
+            <div class="flex gap-1">
+              <input id="admTopMergeTxt" placeholder="Custom text e.g. Roll: " class="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs">
+              <button type="button" onclick="_admTopMergeAddPart('text')" class="px-2 py-1 bg-slate-600 text-white rounded text-[10px] font-black uppercase">+ Text</button>
+            </div>
+            <div class="flex gap-1">
+              <select id="admTopMergeCol" class="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs">${colOpts}</select>
+              <button type="button" onclick="_admTopMergeAddPart('field')" class="px-2 py-1 bg-indigo-600 text-white rounded text-[10px] font-black uppercase">+ Col</button>
+            </div>
+            <div class="flex gap-1 items-center flex-wrap">
+              <select id="admTopMergeSliceMode" onchange="_admTopMergeSliceModeChange()" class="px-1.5 py-1 bg-white border border-slate-200 rounded text-[11px]">
+                <option value="first">First N</option>
+                <option value="last">Last N</option>
+                <option value="range">From X to Y</option>
+              </select>
+              <input id="admTopMergeSliceN" type="number" min="1" value="2" class="w-12 px-1.5 py-1 bg-white border border-slate-200 rounded text-xs">
+              <input id="admTopMergeSliceFrom" type="number" min="1" value="4" class="hidden w-12 px-1.5 py-1 bg-white border border-slate-200 rounded text-xs">
+              <input id="admTopMergeSliceTo" type="number" min="1" value="6" class="hidden w-12 px-1.5 py-1 bg-white border border-slate-200 rounded text-xs">
+              <button type="button" onclick="_admTopMergeAddPart('slice')" class="flex-1 px-2 py-1 bg-violet-600 text-white rounded text-[10px] font-black uppercase">+ Portion</button>
+            </div>
+            <div id="admTopMergeStagingBox" class="flex flex-wrap gap-1 min-h-[22px] p-1 bg-white border border-slate-200 rounded text-[10px]"></div>
+            <div class="flex gap-1 items-center">
+              <input id="admTopMergeDelim" placeholder="Delimiter (optional, e.g. - or space)" class="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs">
+              <button type="button" onclick="_admTopAddMerged()" class="px-2.5 py-1 bg-amber-600 text-white rounded text-[10px] font-black uppercase whitespace-nowrap">+ Place Merge</button>
+            </div>
+          </div>
+
           <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
             <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Add Border-Only Table (place fields inside)</p>
             <div class="flex gap-1 items-center">
@@ -35068,10 +35109,122 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     _admTopRedrawCanvas();
     _admTopRenderInspector();
+    _admTopMergeRenderStaging();
   }
   function _admTopPaperChange(paperKey) {
     _admTopDraft.paper = paperKey;
     _admTopRenderBuilder();
+  }
+  function _admTopMergeSliceModeChange() {
+    const m = document.getElementById('admTopMergeSliceMode')?.value;
+    document.getElementById('admTopMergeSliceN')?.classList.toggle('hidden', m === 'range');
+    document.getElementById('admTopMergeSliceFrom')?.classList.toggle('hidden', m !== 'range');
+    document.getElementById('admTopMergeSliceTo')?.classList.toggle('hidden', m !== 'range');
+  }
+  function _admTopMergePartLabel(p) {
+    if (p.kind === 'text') return `"${p.text || ''}"`;
+    if (p.kind === 'field') return `{${p.header}}`;
+    if (p.slice_mode === 'first') return `First ${p.slice_n} of {${p.header}}`;
+    if (p.slice_mode === 'last') return `Last ${p.slice_n} of {${p.header}}`;
+    return `${p.slice_from}-${p.slice_to} of {${p.header}}`;
+  }
+  function _admTopMergeAddPart(kind) {
+    if (kind === 'text') {
+      const inp = document.getElementById('admTopMergeTxt');
+      const text = inp ? inp.value : '';
+      if (!text) { showToast('Enter custom text first', 'error'); return; }
+      _admTopMergeStaging.push({ kind: 'text', text });
+      if (inp) inp.value = '';
+    } else if (kind === 'field') {
+      const header = document.getElementById('admTopMergeCol')?.value;
+      if (!header) return;
+      _admTopMergeStaging.push({ kind: 'field', header });
+    } else if (kind === 'slice') {
+      const header = document.getElementById('admTopMergeCol')?.value;
+      const mode = document.getElementById('admTopMergeSliceMode')?.value || 'first';
+      if (!header) return;
+      _admTopMergeStaging.push({
+        kind: 'slice',
+        header,
+        slice_mode: mode,
+        slice_n: Math.max(1, parseInt(document.getElementById('admTopMergeSliceN')?.value, 10) || 2),
+        slice_from: Math.max(1, parseInt(document.getElementById('admTopMergeSliceFrom')?.value, 10) || 4),
+        slice_to: Math.max(1, parseInt(document.getElementById('admTopMergeSliceTo')?.value, 10) || 6),
+      });
+    }
+    _admTopMergeRenderStaging();
+  }
+  function _admTopMergeRemovePart(idx) {
+    _admTopMergeStaging.splice(idx, 1);
+    _admTopMergeRenderStaging();
+  }
+  function _admTopMergeRenderStaging() {
+    const box = document.getElementById('admTopMergeStagingBox');
+    if (!box) return;
+    if (!_admTopMergeStaging.length) {
+      box.innerHTML = '<span class="text-slate-400">Add text, column, or portion parts above…</span>';
+      return;
+    }
+    box.innerHTML = _admTopMergeStaging.map((p, i) =>
+      `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 border border-amber-200 text-amber-900 rounded font-bold">${_escHtml(_admTopMergePartLabel(p))}<button type="button" onclick="_admTopMergeRemovePart(${i})" class="text-red-500 font-black">×</button></span>`
+    ).join('');
+  }
+  function _admTopAddMerged() {
+    if (!_admTopMergeStaging.length) { showToast('Add at least one part to merge', 'error'); return; }
+    const delimiter = document.getElementById('admTopMergeDelim')?.value ?? '';
+    const el = {
+      id: 'el_' + Date.now(),
+      type: 'merged',
+      parts: _admTopMergeStaging.map(p => ({ ...p })),
+      delimiter,
+      x: 40,
+      y: 40 + (_admTopDraft.elements.length * 20) % 260,
+      width: 0,
+      font_size: 11,
+      font_family: 'Arial, sans-serif',
+      bold: true,
+      italic: false,
+      underline: false,
+      align: 'left',
+      color: '#0f172a',
+      letter_spacing: 0,
+      curve: 0,
+    };
+    _admTopDraft.elements.push(el);
+    _admTopMergeStaging = [];
+    _admTopSelectedElId = el.id;
+    _admTopMergeRenderStaging();
+    _admTopRedrawCanvas();
+    _admTopRenderInspector();
+  }
+  function _admTopElMergeRemovePart(elId, idx) {
+    const el = _admTopDraft && _admTopDraft.elements.find(e => e.id === elId);
+    if (!el || !Array.isArray(el.parts)) return;
+    el.parts.splice(idx, 1);
+    _admTopRedrawCanvas();
+    _admTopRenderInspector();
+  }
+  function _admTopElMergeAddPart(elId, kind) {
+    const el = _admTopDraft && _admTopDraft.elements.find(e => e.id === elId);
+    if (!el) return;
+    if (!Array.isArray(el.parts)) el.parts = [];
+    if (kind === 'text') {
+      const txt = document.getElementById('admTopInspMergeTxt')?.value;
+      if (!txt) return;
+      el.parts.push({ kind: 'text', text: txt });
+    } else if (kind === 'field') {
+      const h = document.getElementById('admTopInspMergeCol')?.value;
+      if (h) el.parts.push({ kind: 'field', header: h });
+    } else if (kind === 'slice') {
+      const h = document.getElementById('admTopInspMergeCol')?.value;
+      const mode = document.getElementById('admTopInspMergeMode')?.value || 'first';
+      const n = Math.max(1, parseInt(document.getElementById('admTopInspMergeN')?.value, 10) || 2);
+      const from = Math.max(1, parseInt(document.getElementById('admTopInspMergeFrom')?.value, 10) || 4);
+      const to = Math.max(1, parseInt(document.getElementById('admTopInspMergeTo')?.value, 10) || 6);
+      if (h) el.parts.push({ kind: 'slice', header: h, slice_mode: mode, slice_n: n, slice_from: from, slice_to: to });
+    }
+    _admTopRedrawCanvas();
+    _admTopRenderInspector();
   }
   function _admTopPageProp(prop, val) {
     _admTopDraft[prop] = val;
@@ -35238,7 +35391,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const pe = el.locked ? 'pointer-events:none;' : 'cursor:move;';
         return `<div data-top-el="${el.id}" onmousedown="_admTopStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;${z}${pe}user-select:none;${sel}">${_admTopRenderTableHtml(el, sampleRow)}</div>`;
       }
-      if (el.type === 'text' && (parseInt(el.curve, 10) || 0) !== 0) {
+      if ((el.type === 'text' || el.type === 'merged') && (parseInt(el.curve, 10) || 0) !== 0) {
         return `<div data-top-el="${el.id}" onmousedown="_admTopStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;${z}cursor:move;user-select:none;${sel}">${_admTopRenderCurvedTextSvg(el, _admTopEvalElement(el, sampleRow))}</div>`;
       }
       const txt = _escHtml(_admTopEvalElement(el, sampleRow)).replace(/\r\n|\r|\n/g, '<br>');
@@ -35261,6 +35414,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         : el.type === 'qr' ? 'QR'
         : el.type === 'photo_field' ? `Photo:${el.header}`
         : el.type === 'image' ? 'Image/Logo'
+        : el.type === 'merged' ? `Merge (${(el.parts || []).length})`
         : el.type === 'text' ? (el.text || 'Text').slice(0, 14)
         : (el.header || el.type);
       return `<button type="button" onclick="_admTopSelectEl('${el.id}')" class="px-2 py-0.5 rounded text-[10px] font-bold border ${active ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-400'}">${_escHtml(lbl)}</button>`;
@@ -35359,7 +35513,27 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div class="space-y-1">${gridInputs}</div>`;
       return;
     }
-    const title = el.type === 'text' ? 'Custom Text' : (el.type === 'col_header' ? `Header: ${el.header}` : (el.type === 'slice' ? `Portion: ${el.header}` : `Value: ${el.header}`));
+    const title = el.type === 'text' ? 'Custom Text' : (el.type === 'merged' ? 'Merged Value' : (el.type === 'col_header' ? `Header: ${el.header}` : (el.type === 'slice' ? `Portion: ${el.header}` : `Value: ${el.header}`)));
+    const mergeColOpts = _admTopCols.map(c => `<option value="${_escHtml(c.header)}">${_escHtml(c.header)}</option>`).join('');
+    const mergeExtra = el.type === 'merged' ? `
+      <div class="mt-1.5 pt-1.5 border-t border-slate-200 space-y-1">
+        <div class="flex gap-1 items-center flex-wrap">
+          <span class="text-[9px] font-black text-slate-400 uppercase">Parts:</span>
+          ${(el.parts || []).map((p, i) => `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 border border-amber-200 text-amber-900 rounded text-[10px] font-bold">${_escHtml(_admTopMergePartLabel(p))}<button type="button" onclick="_admTopElMergeRemovePart('${el.id}',${i})" class="text-red-500 font-black">×</button></span>`).join('')}
+        </div>
+        <div class="flex gap-1 items-center flex-wrap">
+          <input value="${_escHtml(el.delimiter ?? '')}" placeholder="Delimiter" oninput="_admTopUpdateEl('${el.id}','delimiter',this.value)" class="w-20 px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[11px]">
+          <input id="admTopInspMergeTxt" placeholder="Text…" class="w-24 px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[11px]">
+          <button type="button" onclick="_admTopElMergeAddPart('${el.id}','text')" class="px-1.5 py-0.5 bg-slate-600 text-white rounded text-[9px] font-black uppercase">+Txt</button>
+          <select id="admTopInspMergeCol" class="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[11px]">${mergeColOpts}</select>
+          <button type="button" onclick="_admTopElMergeAddPart('${el.id}','field')" class="px-1.5 py-0.5 bg-indigo-600 text-white rounded text-[9px] font-black uppercase">+Col</button>
+          <select id="admTopInspMergeMode" class="px-1 py-0.5 bg-white border border-slate-200 rounded text-[10px]"><option value="first">First</option><option value="last">Last</option><option value="range">Range</option></select>
+          <input id="admTopInspMergeN" type="number" min="1" value="2" title="N" class="w-10 px-1 py-0.5 bg-white border border-slate-200 rounded text-[10px]">
+          <input id="admTopInspMergeFrom" type="number" min="1" value="4" title="From" class="w-10 px-1 py-0.5 bg-white border border-slate-200 rounded text-[10px]">
+          <input id="admTopInspMergeTo" type="number" min="1" value="6" title="To" class="w-10 px-1 py-0.5 bg-white border border-slate-200 rounded text-[10px]">
+          <button type="button" onclick="_admTopElMergeAddPart('${el.id}','slice')" class="px-1.5 py-0.5 bg-violet-600 text-white rounded text-[9px] font-black uppercase">+Portion</button>
+        </div>
+      </div>` : '';
     box.innerHTML = `
       <div class="flex items-center justify-between mb-1"><span class="text-[10px] font-black text-indigo-700 uppercase truncate">${_escHtml(title)}</span><button type="button" onclick="_admTopDeleteEl('${el.id}')" class="px-2 py-0.5 text-[10px] font-black text-red-500 border border-red-200 rounded">Delete</button></div>
       <div class="grid grid-cols-7 gap-1 items-end mb-1.5">
@@ -35386,11 +35560,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.italic ? 'checked' : ''} onchange="_admTopUpdateEl('${el.id}','italic',this.checked)"> Italic</label>
         <label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.underline ? 'checked' : ''} onchange="_admTopUpdateEl('${el.id}','underline',this.checked)"> Underline</label>
         ${(el.type === 'field' || el.type === 'slice') ? `<label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.show_label ? 'checked' : ''} onchange="_admTopUpdateEl('${el.id}','show_label',this.checked)"> Show Label</label>` : ''}
-        ${el.type === 'text' ? `
-          <label class="text-[10px] font-bold text-slate-700 flex items-center gap-1">Curve: <input type="range" min="-90" max="90" value="${el.curve || 0}" oninput="_admTopUpdateEl('${el.id}','curve',+this.value||0)" class="w-20"><span class="text-indigo-600">${el.curve || 0}</span></label>
-          <input value="${_escHtml(el.text || '')}" oninput="_admTopUpdateEl('${el.id}','text',this.value)" class="flex-1 min-w-[140px] px-2 py-0.5 bg-white border border-slate-200 rounded text-xs">
-        ` : ''}
-      </div>`;
+        ${(el.type === 'text' || el.type === 'merged') ? `<label class="text-[10px] font-bold text-slate-700 flex items-center gap-1">Curve: <input type="range" min="-90" max="90" value="${el.curve || 0}" oninput="_admTopUpdateEl('${el.id}','curve',+this.value||0)" class="w-20"><span class="text-indigo-600">${el.curve || 0}</span></label>` : ''}
+        ${el.type === 'text' ? `<input value="${_escHtml(el.text || '')}" oninput="_admTopUpdateEl('${el.id}','text',this.value)" class="flex-1 min-w-[140px] px-2 py-0.5 bg-white border border-slate-200 rounded text-xs">` : ''}
+      </div>${mergeExtra}`;
   }
   function _admTopSetTableCell(elId, r, c, val) {
     const el = _admTopDraft && _admTopDraft.elements.find(e => e.id === elId);
@@ -35467,7 +35639,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         if (el.type === 'table') {
           return `<div style="position:absolute;left:${el.x}px;top:${el.y}px;${z}">${_admTopRenderTableHtml(el, row)}</div>`;
         }
-        if (el.type === 'text' && (parseInt(el.curve, 10) || 0) !== 0) {
+        if ((el.type === 'text' || el.type === 'merged') && (parseInt(el.curve, 10) || 0) !== 0) {
           return `<div style="position:absolute;left:${el.x}px;top:${el.y}px;${z}">${_admTopRenderCurvedTextSvg(el, _admTopEvalElement(el, row))}</div>`;
         }
         const txt = _escHtml(_admTopEvalElement(el, row)).replace(/\r\n|\r|\n/g, '<br>');
