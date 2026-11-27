@@ -34320,6 +34320,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <div id="admTokCanvas" ondragover="event.preventDefault()" ondrop="_admTokenCanvasDrop(event)" style="position:absolute;left:0;top:0;overflow:hidden;width:${d.canvas_w}px;height:${d.canvas_h}px;transform:scale(${_admTokenZoom});transform-origin:top left;background:${_escHtml(d.bg_color || '#ffffff')};border:${d.border_w}px ${d.border_style || 'solid'} ${_escHtml(d.border_color || '#0f172a')};border-radius:${d.border_radius || 0}px;"></div>
             </div>
           </div>
+          <div id="admTokLayers" class="flex flex-wrap gap-1 items-center"></div>
           <div id="admTokInspector" class="bg-slate-50 border border-slate-200 rounded-xl p-2.5"></div>
           <div class="flex gap-2">
             <button type="button" onclick="_admTokenRenderSelectModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-xs font-black uppercase text-slate-600">Back</button>
@@ -34401,21 +34402,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const dw = Math.max(1, Math.round(1 / _admTokenZoom));
     const hs = Math.max(9, Math.round(10 / _admTokenZoom));
     const half = Math.round(hs / 2);
-    canvas.innerHTML = _admTokenDraft.elements.map(el => {
+    canvas.innerHTML = _admTokenDraft.elements.map((el, elIdx) => {
       const isSel = el.id === _admTokenSelectedElId;
       const sel = isSel ? `outline:${ow}px solid #4f46e5;outline-offset:${dw}px;` : `outline:${dw}px dashed rgba(148,163,184,0.6);`;
-      const handle = isSel ? `<div onmousedown="_admTokenStartResize(event,'${el.id}')" title="Drag to resize" style="position:absolute;right:-${half}px;bottom:-${half}px;width:${hs}px;height:${hs}px;background:#4f46e5;border:${dw}px solid #fff;border-radius:2px;cursor:nwse-resize;z-index:10;"></div>` : '';
+      const z = `z-index:${elIdx + 1};`;
+      const handle = isSel ? `<div onmousedown="_admTokenStartResize(event,'${el.id}')" title="Drag to resize" style="position:absolute;right:-${half}px;bottom:-${half}px;width:${hs}px;height:${hs}px;background:#4f46e5;border:${dw}px solid #fff;border-radius:2px;cursor:nwse-resize;z-index:9999;"></div>` : '';
       if (el.type === 'qr') {
         const qrText = _admTokenEvalElement(el, sampleRow);
         const svg = _admTokenMakeQrSvg(qrText, el.size || 64);
-        return `<div data-tok-el="${el.id}" onmousedown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;cursor:move;user-select:none;${sel}">${svg}${handle}</div>`;
+        return `<div data-tok-el="${el.id}" onmousedown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;${z}cursor:move;user-select:none;${sel}">${svg}${handle}</div>`;
       }
       if (el.type === 'barcode') {
         const bcText = _admTokenEvalElement(el, sampleRow);
         const w = el.width || 160, h = el.height || 44;
         const rot = el.rotate ? `transform:rotate(${el.rotate}deg);` : '';
         const svg = _admMakeBarcodeSvg(bcText, w, h, { showText: el.show_text !== false, color: el.color || '#0f172a' });
-        return `<div data-tok-el="${el.id}" onmousedown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;width:${w}px;height:${h}px;cursor:move;user-select:none;${rot}${sel}">${svg}${handle}</div>`;
+        return `<div data-tok-el="${el.id}" onmousedown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;width:${w}px;height:${h}px;${z}cursor:move;user-select:none;${rot}${sel}">${svg}${handle}</div>`;
       }
       if (el.type === 'photo_field' || el.type === 'image') {
         const src = _admTokenEvalElement(el, sampleRow);
@@ -34423,11 +34425,79 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const inner = src
           ? `<img src="${_escHtml(src)}" draggable="false" style="width:100%;height:100%;object-fit:${fit};display:block;border-radius:${rad}px;pointer-events:none;">`
           : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#e2e8f0;color:#64748b;font-size:8px;font-weight:700;border-radius:${rad}px;">PHOTO</div>`;
-        return `<div data-tok-el="${el.id}" onmousedown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;width:${w}px;height:${h}px;cursor:move;user-select:none;${sel}">${inner}${handle}</div>`;
+        return `<div data-tok-el="${el.id}" onmousedown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;width:${w}px;height:${h}px;${z}cursor:move;user-select:none;${sel}">${inner}${handle}</div>`;
       }
       const txt = _escHtml(_admTokenEvalElement(el, sampleRow)).replace(/\r\n|\r|\n/g, '<br>');
-      return `<div data-tok-el="${el.id}" onmousedown="_admTokenStartDrag(event,'${el.id}')" style="${_admTokenTextCss(el)}cursor:move;user-select:none;${sel}">${txt || '&nbsp;'}${handle}</div>`;
+      return `<div data-tok-el="${el.id}" onmousedown="_admTokenStartDrag(event,'${el.id}')" style="${_admTokenTextCss(el)}${z}cursor:move;user-select:none;${sel}">${txt || '&nbsp;'}${handle}</div>`;
     }).join('');
+    _admTokenRenderLayers();
+  }
+  let _admTokenLayerDragIdx = -1;
+  function _admTokenRenderLayers() {
+    const bar = document.getElementById('admTokLayers');
+    if (!bar || !_admTokenDraft) return;
+    const els = _admTokenDraft.elements || [];
+    if (!els.length) { bar.innerHTML = ''; return; }
+    const selIdx = els.findIndex(e => e.id === _admTokenSelectedElId);
+    const moveBtns = selIdx >= 0
+      ? `<button type="button" onclick="_admTokenMoveLayer(-1)" ${selIdx === 0 ? 'disabled' : ''} title="Send backward" class="px-1.5 py-0.5 rounded text-[9px] font-black border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-35">◀ Back</button><button type="button" onclick="_admTokenMoveLayer(1)" ${selIdx === els.length - 1 ? 'disabled' : ''} title="Bring forward" class="px-1.5 py-0.5 rounded text-[9px] font-black border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-35">Front ▶</button>`
+      : '';
+    bar.innerHTML = `<span class="text-[9px] font-black text-slate-400 uppercase mr-0.5">Layers (back → front, drag):</span>${moveBtns}` + els.map((el, i) => {
+      const active = el.id === _admTokenSelectedElId;
+      const lbl = el.type === 'qr' ? 'QR'
+        : el.type === 'barcode' ? 'Barcode'
+        : el.type === 'photo_field' ? `Photo:${el.header}`
+        : el.type === 'image' ? 'Image/Logo'
+        : el.type === 'merge' ? (el.label || 'Merged')
+        : el.type === 'text' ? (el.text || 'Text').slice(0, 14)
+        : (el.header || el.type);
+      return `<button type="button" draggable="true" ondragstart="_admTokenLayerDragStart(event,${i})" ondragover="_admTokenLayerDragOver(event)" ondragleave="_admTokenLayerDragLeave(event)" ondrop="_admTokenLayerDrop(event,${i})" ondragend="_admTokenLayerDragEnd(event)" onclick="_admTokenSelectEl('${el.id}')" title="Click to select · drag to reorder layer" class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border cursor-grab active:cursor-grabbing select-none ${active ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-400'}"><span class="opacity-50">⋮⋮</span>${_escHtml(lbl)}</button>`;
+    }).join('');
+  }
+  function _admTokenSelectEl(elId) {
+    _admTokenSelectedElId = elId;
+    _admTokenRedrawCanvas();
+    _admTokenRenderInspector();
+  }
+  function _admTokenMoveLayer(delta) {
+    if (!_admTokenDraft || !_admTokenSelectedElId) return;
+    const els = _admTokenDraft.elements || [];
+    const idx = els.findIndex(e => e.id === _admTokenSelectedElId);
+    const toIdx = idx + delta;
+    if (idx < 0 || toIdx < 0 || toIdx >= els.length) return;
+    const [moved] = els.splice(idx, 1);
+    els.splice(toIdx, 0, moved);
+    _admTokenRedrawCanvas();
+  }
+  function _admTokenLayerDragStart(evt, idx) {
+    _admTokenLayerDragIdx = idx;
+    if (evt.dataTransfer) { evt.dataTransfer.effectAllowed = 'move'; evt.dataTransfer.setData('text/plain', String(idx)); }
+    evt.currentTarget.style.opacity = '0.45';
+  }
+  function _admTokenLayerDragOver(evt) {
+    evt.preventDefault();
+    if (evt.dataTransfer) evt.dataTransfer.dropEffect = 'move';
+    evt.currentTarget.classList.add('ring-2', 'ring-indigo-500');
+  }
+  function _admTokenLayerDragLeave(evt) {
+    evt.currentTarget.classList.remove('ring-2', 'ring-indigo-500');
+  }
+  function _admTokenLayerDrop(evt, toIdx) {
+    evt.preventDefault();
+    evt.currentTarget.classList.remove('ring-2', 'ring-indigo-500');
+    const fromIdx = _admTokenLayerDragIdx >= 0 ? _admTokenLayerDragIdx : parseInt(evt.dataTransfer && evt.dataTransfer.getData('text/plain'), 10);
+    _admTokenLayerDragIdx = -1;
+    const els = (_admTokenDraft && _admTokenDraft.elements) || [];
+    if (Number.isNaN(fromIdx) || fromIdx < 0 || fromIdx >= els.length || fromIdx === toIdx) return;
+    const [moved] = els.splice(fromIdx, 1);
+    els.splice(toIdx, 0, moved);
+    _admTokenSelectedElId = moved.id;
+    _admTokenRedrawCanvas();
+    _admTokenRenderInspector();
+  }
+  function _admTokenLayerDragEnd(evt) {
+    _admTokenLayerDragIdx = -1;
+    evt.currentTarget.style.opacity = '';
   }
   function _admTokenStartResize(evt, elId) {
     evt.preventDefault();
@@ -35890,11 +35960,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const dw = Math.max(1, Math.round(1 / _admTopZoom));
     const hs = Math.max(8, Math.round(9 / _admTopZoom));
     const half = Math.round(hs / 2);
-    const elemsHtml = (d.elements || []).map(el => {
+    const elemsHtml = (d.elements || []).map((el, elIdx) => {
       const isSel = el.id === _admTopSelectedElId;
       const sel = isSel ? `outline:${ow}px solid #4f46e5;outline-offset:${dw}px;` : `outline:${dw}px dashed rgba(148,163,184,0.55);`;
-      const z = el.type === 'table' ? 'z-index:1;' : (el.type === 'shape' ? 'z-index:2;' : 'z-index:10;');
-      const handle = (isSel && el.type !== 'table') ? `<div onmousedown="_admTopStartResize(event,'${el.id}')" title="Drag to resize" style="position:absolute;right:-${half}px;bottom:-${half}px;width:${hs}px;height:${hs}px;background:#4f46e5;border:${dw}px solid #fff;border-radius:2px;cursor:nwse-resize;z-index:20;"></div>` : '';
+      const z = `z-index:${elIdx + 1};`;
+      const handle = (isSel && el.type !== 'table') ? `<div onmousedown="_admTopStartResize(event,'${el.id}')" title="Drag to resize" style="position:absolute;right:-${half}px;bottom:-${half}px;width:${hs}px;height:${hs}px;background:#4f46e5;border:${dw}px solid #fff;border-radius:2px;cursor:nwse-resize;z-index:9999;"></div>` : '';
       if (el.type === 'qr') {
         const svg = _admTokenMakeQrSvg(_admTopEvalElement(el, sampleRow), el.size || 72);
         return `<div data-top-el="${el.id}" onmousedown="_admTopStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;${z}cursor:move;user-select:none;${sel}">${svg}${handle}</div>`;
@@ -35968,12 +36038,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   }
+  let _admTopLayerDragIdx = -1;
   function _admTopRenderLayers() {
     const bar = document.getElementById('admTopLayers');
     if (!bar || !_admTopDraft) return;
     const els = _admTopDraft.elements || [];
     if (!els.length) { bar.innerHTML = ''; return; }
-    bar.innerHTML = `<span class="text-[9px] font-black text-slate-400 uppercase mr-1">Elements:</span>` + els.map(el => {
+    const selIdx = els.findIndex(e => e.id === _admTopSelectedElId);
+    const moveBtns = selIdx >= 0
+      ? `<button type="button" onclick="_admTopMoveLayer(-1)" ${selIdx === 0 ? 'disabled' : ''} title="Send backward" class="px-1.5 py-0.5 rounded text-[9px] font-black border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-35">◀ Back</button><button type="button" onclick="_admTopMoveLayer(1)" ${selIdx === els.length - 1 ? 'disabled' : ''} title="Bring forward" class="px-1.5 py-0.5 rounded text-[9px] font-black border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-35">Front ▶</button>`
+      : '';
+    bar.innerHTML = `<span class="text-[9px] font-black text-slate-400 uppercase mr-0.5">Layers (back → front, drag):</span>${moveBtns}` + els.map((el, i) => {
       const active = el.id === _admTopSelectedElId;
       const lbl = el.type === 'table' ? `Table ${el.rows}×${el.cols}${el.locked ? ' 🔒' : ''}`
         : el.type === 'qr' ? 'QR'
@@ -35984,8 +36059,48 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         : el.type === 'merged' ? `Merge (${(el.parts || []).length})`
         : el.type === 'text' ? (el.text || 'Text').slice(0, 14)
         : (el.header || el.type);
-      return `<button type="button" onclick="_admTopSelectEl('${el.id}')" class="px-2 py-0.5 rounded text-[10px] font-bold border ${active ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-400'}">${_escHtml(lbl)}</button>`;
+      return `<button type="button" draggable="true" ondragstart="_admTopLayerDragStart(event,${i})" ondragover="_admTopLayerDragOver(event)" ondragleave="_admTopLayerDragLeave(event)" ondrop="_admTopLayerDrop(event,${i})" ondragend="_admTopLayerDragEnd(event)" onclick="_admTopSelectEl('${el.id}')" title="Click to select · drag to reorder layer" class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border cursor-grab active:cursor-grabbing select-none ${active ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-400'}"><span class="opacity-50">⋮⋮</span>${_escHtml(lbl)}</button>`;
     }).join('');
+  }
+  function _admTopMoveLayer(delta) {
+    if (!_admTopDraft || !_admTopSelectedElId) return;
+    const els = _admTopDraft.elements || [];
+    const idx = els.findIndex(e => e.id === _admTopSelectedElId);
+    const toIdx = idx + delta;
+    if (idx < 0 || toIdx < 0 || toIdx >= els.length) return;
+    const [moved] = els.splice(idx, 1);
+    els.splice(toIdx, 0, moved);
+    _admTopRedrawCanvas();
+  }
+  function _admTopLayerDragStart(evt, idx) {
+    _admTopLayerDragIdx = idx;
+    if (evt.dataTransfer) { evt.dataTransfer.effectAllowed = 'move'; evt.dataTransfer.setData('text/plain', String(idx)); }
+    evt.currentTarget.style.opacity = '0.45';
+  }
+  function _admTopLayerDragOver(evt) {
+    evt.preventDefault();
+    if (evt.dataTransfer) evt.dataTransfer.dropEffect = 'move';
+    evt.currentTarget.classList.add('ring-2', 'ring-indigo-500');
+  }
+  function _admTopLayerDragLeave(evt) {
+    evt.currentTarget.classList.remove('ring-2', 'ring-indigo-500');
+  }
+  function _admTopLayerDrop(evt, toIdx) {
+    evt.preventDefault();
+    evt.currentTarget.classList.remove('ring-2', 'ring-indigo-500');
+    const fromIdx = _admTopLayerDragIdx >= 0 ? _admTopLayerDragIdx : parseInt(evt.dataTransfer && evt.dataTransfer.getData('text/plain'), 10);
+    _admTopLayerDragIdx = -1;
+    const els = (_admTopDraft && _admTopDraft.elements) || [];
+    if (Number.isNaN(fromIdx) || fromIdx < 0 || fromIdx >= els.length || fromIdx === toIdx) return;
+    const [moved] = els.splice(fromIdx, 1);
+    els.splice(toIdx, 0, moved);
+    _admTopSelectedElId = moved.id;
+    _admTopRedrawCanvas();
+    _admTopRenderInspector();
+  }
+  function _admTopLayerDragEnd(evt) {
+    _admTopLayerDragIdx = -1;
+    evt.currentTarget.style.opacity = '';
   }
   function _admTopSelectEl(elId) {
     _admTopSelectedElId = elId;
@@ -36422,8 +36537,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const borderFrameHtml = _admTopBuildPageBorderHtml(tpl);
 
     const pagesHtml = printItems.map((row, idx) => {
-      const inner = (tpl.elements || []).map(el => {
-        const z = el.type === 'table' ? 'z-index:1;' : (el.type === 'shape' ? 'z-index:2;' : 'z-index:10;');
+      const inner = (tpl.elements || []).map((el, elIdx) => {
+        const z = `z-index:${elIdx + 1};`;
         if (el.type === 'qr') {
           return `<div style="position:absolute;left:${el.x}px;top:${el.y}px;${z}">${_admTokenMakeQrSvg(_admTopEvalElement(el, row), el.size || 72)}</div>`;
         }
