@@ -1,0 +1,31 @@
+# Dependencies & local build artifacts
+node_modules
+.next
+.vercel
+
+# Version control & CI
+.git
+.gitignore
+.github
+
+# Local environment files (secrets are injected by Coolify/runtime)
+.env
+.env.*
+
+# Capacitor / Android mobile app assets (not used by Next.js server)
+android
+android-shell
+resources
+capacitor.config.json
+
+# Documentation, database migration scripts & standalone Apps Script
+docs
+*.md
+*.sql
+appscript.gs
+logo.jpg
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.log
