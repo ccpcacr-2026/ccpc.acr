@@ -34767,6 +34767,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     ['solid', 'Solid'],
     ['dashed', 'Dashed'],
     ['dotted', 'Dotted'],
+    ['scissors', '✂ Cut Line'],
+    ['scissors-mid', '✂ Center Cut'],
     ['double', 'Double'],
     ['thick-thin', 'Thick + Thin'],
     ['fade', 'Fade Ends'],
@@ -34970,6 +34972,29 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         body = `<line x1="0" y1="${cy}" x2="${L}" y2="${cy}" stroke="${bc}" stroke-width="${sw}" stroke-dasharray="${sw * 4} ${sw * 2.5}" stroke-linecap="${cap}"/>`;
       } else if (design === 'dotted') {
         body = `<line x1="${sw}" y1="${cy}" x2="${Math.max(sw, L - sw)}" y2="${cy}" stroke="${bc}" stroke-width="${sw}" stroke-dasharray="0.5 ${Math.max(3, sw * 2.4)}" stroke-linecap="round"/>`;
+      } else if (design === 'scissors' || design === 'scissors-mid') {
+        const s = Math.max(14, Math.min(30, sw * 5 + 10));
+        const sc = +(s / 24).toFixed(3);
+        const dash = `${Math.max(5, sw * 4)} ${Math.max(3, sw * 2.5)}`;
+        const iconInner = `<circle cx="5.5" cy="6.5" r="3.2" fill="none" stroke="${bc}" stroke-width="2"/>`
+          + `<circle cx="5.5" cy="17.5" r="3.2" fill="none" stroke="${bc}" stroke-width="2"/>`
+          + `<line x1="8.2" y1="8.2" x2="22" y2="16.2" stroke="${bc}" stroke-width="2" stroke-linecap="round"/>`
+          + `<line x1="8.2" y1="15.8" x2="22" y2="7.8" stroke="${bc}" stroke-width="2" stroke-linecap="round"/>`
+          + `<circle cx="14.75" cy="12" r="1.1" fill="${bc}"/>`;
+        if (design === 'scissors') {
+          const sx0 = 2;
+          const dashStart = sx0 + s + 4;
+          body = `<g transform="translate(${sx0},${(cy - s / 2).toFixed(2)}) scale(${sc})">${iconInner}</g>`
+            + (dashStart < L ? `<line x1="${dashStart.toFixed(2)}" y1="${cy}" x2="${L}" y2="${cy}" stroke="${bc}" stroke-width="${sw}" stroke-dasharray="${dash}" stroke-linecap="${cap}"/>` : '');
+        } else {
+          const mid = L / 2;
+          const sx0 = mid - s / 2;
+          const leftEnd = sx0 - 4;
+          const rightStart = sx0 + s + 4;
+          body = (leftEnd > 2 ? `<line x1="0" y1="${cy}" x2="${leftEnd.toFixed(2)}" y2="${cy}" stroke="${bc}" stroke-width="${sw}" stroke-dasharray="${dash}" stroke-linecap="${cap}"/>` : '')
+            + `<g transform="translate(${sx0.toFixed(2)},${(cy - s / 2).toFixed(2)}) scale(${sc})">${iconInner}</g>`
+            + (rightStart < L - 2 ? `<line x1="${rightStart.toFixed(2)}" y1="${cy}" x2="${L}" y2="${cy}" stroke="${bc}" stroke-width="${sw}" stroke-dasharray="${dash}" stroke-linecap="${cap}"/>` : '');
+        }
       } else if (design === 'double') {
         const gap = Math.max(sw + 2, 4);
         const sub = Math.max(1, +(sw * 0.7).toFixed(2));
