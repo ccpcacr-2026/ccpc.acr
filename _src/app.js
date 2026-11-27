@@ -35963,6 +35963,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // columns already carry that value, so the raw jsonb underneath it adds
   // nothing but noise.
   const CCPC_CSV_RAW_JSON_COLS = new Set(['scan_values', 'scan_dates', 'tags', 'marks']);
+  let _admCustomMergedCols = [];
+  let _admCustomColStaging = [];
+  let _admCustomColEditId = null;
+  let _admCustomColAvailHeaders = [];
+  function _ccpcEvalCustomCol(colDef, row, colsByHeader) {
+    if (!colDef || !row) return '';
+    const delim = colDef.delimiter ?? '';
+    return (colDef.parts || []).map(p => {
+      if (p.kind === 'text') return p.text || '';
+      const col = colsByHeader && colsByHeader[p.header];
+      let raw = '';
+      if (col) raw = _ccpcPlainCell(col.get(row), col.isPhone);
+      else if (row[p.header] !== undefined && row[p.header] !== null) raw = String(row[p.header]);
+      else if (row.extra_fields && row.extra_fields[p.header] !== undefined) raw = String(row.extra_fields[p.header] ?? '');
+      if (p.kind === 'slice') return _admTopSliceVal(raw, p.slice_mode, p.slice_n, p.slice_from, p.slice_to);
+      return raw;
+    }).join(delim);
+  }
   function _ccpcCsvColumnsFromRows(rows, formFieldDefs) {
     const defByKey = {};
     (formFieldDefs || []).forEach(f => { defByKey[f.key] = f; });
@@ -35997,7 +36015,170 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       usedHeaders.add(header);
       cols.push({ header, isPhone: isPhoneKey(k), get: r => (r.extra_fields || {})[k] });
     });
+    if (_admCustomMergedCols.length) {
+      const byHeader = {};
+      cols.forEach(c => { byHeader[c.header] = c; });
+      _admCustomMergedCols.forEach(cd => {
+        if (!cd || !cd.header) return;
+        let h = cd.header;
+        if (usedHeaders.has(h)) h += ' (custom)';
+        usedHeaders.add(h);
+        cols.push({ header: h, isPhone: false, isCustomMerged: true, get: r => _ccpcEvalCustomCol(cd, r, byHeader) });
+      });
+    }
     return cols;
+  }
+  async function _admOpenCustomColsModal() {
+    const res = await _admAdminFetch('getSettings', {});
+    const raw = res && res.settings && res.settings.custom_merged_columns;
+    _admCustomMergedCols = Array.isArray(raw) ? raw : [];
+    const baseCols = _admLastFiltered.length
+      ? _ccpcCsvColumnsFromRows(_admLastFiltered, _admCandFormFieldDefs).filter(c => !c.isCustomMerged).map(c => c.header)
+      : ADM_APP_FIELD_CATALOG_BUILTIN.map(f => f.key);
+    _admCustomColAvailHeaders = Array.from(new Set(baseCols));
+    _admCustomColEditId = null;
+    _admCustomColStaging = [];
+    _admCustomColRenderModal('', '');
+  }
+  function _admCustomColRenderModal(initHeader, initDelim) {
+    const existing = _admCustomMergedCols.map(c => `
+      <div class="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-xs">
+        <div class="min-w-0">
+          <span class="font-black text-slate-800">${_escHtml(c.header)}</span>
+          <span class="text-[10px] text-slate-400 ml-1">${(c.parts || []).map(p => _escHtml(_admTopMergePartLabel(p))).join(' · ')}</span>
+        </div>
+        <div class="flex gap-1 shrink-0">
+          <button type="button" onclick="_admCustomColEdit('${_escHtml(c.id)}')" class="px-2 py-0.5 border border-slate-200 rounded text-[10px] font-black">Edit</button>
+          <button type="button" onclick="_admCustomColDelete('${_escHtml(c.id)}')" class="px-2 py-0.5 border border-red-200 text-red-500 rounded text-[10px] font-black">Del</button>
+        </div>
+      </div>`).join('') || '<p class="text-[11px] text-slate-400">No custom merged columns yet.</p>';
+    const colOpts = _admCustomColAvailHeaders.map(h => `<option value="${_escHtml(h)}">${_escHtml(h)}</option>`).join('');
+    const chips = _admCustomColStaging.length
+      ? _admCustomColStaging.map((p, i) => `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-indigo-50 border border-indigo-200 text-indigo-800 rounded text-[10px] font-bold">${_escHtml(_admTopMergePartLabel(p))}<button type="button" onclick="_admCustomColRemovePart(${i})" class="text-red-500 font-black">×</button></span>`).join('')
+      : '<span class="text-[10px] text-slate-400">Add custom text, column value, or portion below…</span>';
+    _diaryShowSimpleModal('Custom Columns (Applicant Data)', `
+      <div class="space-y-3">
+        <div>
+          <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Saved Custom Columns</p>
+          <div class="space-y-1.5 max-h-36 overflow-y-auto">${existing}</div>
+        </div>
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+          <p class="text-[10px] font-black text-indigo-700 uppercase">${_admCustomColEditId ? 'Edit Custom Column' : 'New Custom Column'}</p>
+          <div class="grid grid-cols-2 gap-2">
+            <div><label class="text-[9px] text-slate-500 block">Column Name / Header</label><input id="admCustomColName" value="${_escHtml(initHeader || '')}" placeholder="e.g. Roll Code" class="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold"></div>
+            <div><label class="text-[9px] text-slate-500 block">Delimiter (optional)</label><input id="admCustomColDelim" value="${_escHtml(initDelim || '')}" placeholder="e.g. - or space" class="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs"></div>
+          </div>
+          <div class="flex gap-1">
+            <input id="admCustomColTxt" placeholder="Custom text e.g. CCPC-" class="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs">
+            <button type="button" onclick="_admCustomColAddPart('text')" class="px-2.5 py-1 bg-slate-700 text-white rounded text-[10px] font-black uppercase">+ Text</button>
+          </div>
+          <div class="flex gap-1">
+            <select id="admCustomColPick" class="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs">${colOpts}</select>
+            <button type="button" onclick="_admCustomColAddPart('field')" class="px-2.5 py-1 bg-indigo-600 text-white rounded text-[10px] font-black uppercase">+ Col Value</button>
+          </div>
+          <div class="flex gap-1 items-center">
+            <select id="admCustomColSliceMode" onchange="_admCustomColSliceModeChange()" class="px-2 py-1 bg-white border border-slate-200 rounded text-xs">
+              <option value="first">First N</option>
+              <option value="last">Last N</option>
+              <option value="range">From X to Y</option>
+            </select>
+            <input id="admCustomColSliceN" type="number" min="1" value="2" class="w-16 px-2 py-1 bg-white border border-slate-200 rounded text-xs">
+            <input id="admCustomColSliceFrom" type="number" min="1" value="4" class="hidden w-16 px-2 py-1 bg-white border border-slate-200 rounded text-xs">
+            <input id="admCustomColSliceTo" type="number" min="1" value="6" class="hidden w-16 px-2 py-1 bg-white border border-slate-200 rounded text-xs">
+            <button type="button" onclick="_admCustomColAddPart('slice')" class="flex-1 px-2.5 py-1 bg-violet-600 text-white rounded text-[10px] font-black uppercase">+ Portion</button>
+          </div>
+          <div class="flex flex-wrap gap-1 p-2 bg-white border border-slate-200 rounded-lg min-h-[30px]">${chips}</div>
+          <label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" id="admCustomColShowTbl" checked> Show in Applicant List Table (also available in Export, Templates, Tokens &amp; Top Page Coder)</label>
+          <button type="button" onclick="_admCustomColSave()" class="w-full px-4 py-2 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black transition-all">Save Custom Column</button>
+        </div>
+      </div>
+    `);
+  }
+  function _admCustomColSliceModeChange() {
+    const m = document.getElementById('admCustomColSliceMode')?.value;
+    document.getElementById('admCustomColSliceN')?.classList.toggle('hidden', m === 'range');
+    document.getElementById('admCustomColSliceFrom')?.classList.toggle('hidden', m !== 'range');
+    document.getElementById('admCustomColSliceTo')?.classList.toggle('hidden', m !== 'range');
+  }
+  function _admCustomColAddPart(kind) {
+    const curName = document.getElementById('admCustomColName')?.value || '';
+    const curDelim = document.getElementById('admCustomColDelim')?.value || '';
+    if (kind === 'text') {
+      const txt = document.getElementById('admCustomColTxt')?.value;
+      if (!txt) { showToast('Enter custom text first', 'error'); return; }
+      _admCustomColStaging.push({ kind: 'text', text: txt });
+    } else if (kind === 'field') {
+      const h = document.getElementById('admCustomColPick')?.value;
+      if (h) _admCustomColStaging.push({ kind: 'field', header: h });
+    } else if (kind === 'slice') {
+      const h = document.getElementById('admCustomColPick')?.value;
+      const mode = document.getElementById('admCustomColSliceMode')?.value || 'first';
+      if (h) _admCustomColStaging.push({
+        kind: 'slice',
+        header: h,
+        slice_mode: mode,
+        slice_n: Math.max(1, parseInt(document.getElementById('admCustomColSliceN')?.value, 10) || 2),
+        slice_from: Math.max(1, parseInt(document.getElementById('admCustomColSliceFrom')?.value, 10) || 4),
+        slice_to: Math.max(1, parseInt(document.getElementById('admCustomColSliceTo')?.value, 10) || 6),
+      });
+    }
+    _admCustomColRenderModal(curName, curDelim);
+  }
+  function _admCustomColRemovePart(idx) {
+    const curName = document.getElementById('admCustomColName')?.value || '';
+    const curDelim = document.getElementById('admCustomColDelim')?.value || '';
+    _admCustomColStaging.splice(idx, 1);
+    _admCustomColRenderModal(curName, curDelim);
+  }
+  function _admCustomColEdit(id) {
+    const cd = _admCustomMergedCols.find(c => String(c.id) === String(id));
+    if (!cd) return;
+    _admCustomColEditId = cd.id;
+    _admCustomColStaging = (cd.parts || []).map(p => ({ ...p }));
+    _admCustomColRenderModal(cd.header || '', cd.delimiter ?? '');
+  }
+  async function _admCustomColDelete(id) {
+    if (!confirm('Delete this custom column?')) return;
+    _admCustomMergedCols = _admCustomMergedCols.filter(c => String(c.id) !== String(id));
+    await _admAdminFetch('saveSettings', { key: 'custom_merged_columns', value: _admCustomMergedCols });
+    const fkey = 'custom_merge:' + id;
+    if (_admAppColumns.some(col => (col.fields || []).includes(fkey))) {
+      _admAppColumns = _admAppColumns.map(col => ({ ...col, fields: (col.fields || []).filter(f => f !== fkey) })).filter(col => col.fields.length || col.label !== _admCustomMergedCols.find(x => x.id === id)?.header);
+      _admAdminFetch('saveApplicantColumns', { circular_id: _admCandActiveCircularId, columns: _admAppColumns }).catch(() => {});
+      _admRenderTableHead();
+      _admFilterApps();
+    }
+    showToast('Deleted', 'success');
+    _admCustomColEditId = null;
+    _admCustomColStaging = [];
+    _admCustomColRenderModal('', '');
+  }
+  async function _admCustomColSave() {
+    const header = (document.getElementById('admCustomColName')?.value || '').trim();
+    const delimiter = document.getElementById('admCustomColDelim')?.value ?? '';
+    const showTbl = !!document.getElementById('admCustomColShowTbl')?.checked;
+    if (!header) { showToast('Enter column name', 'error'); return; }
+    if (!_admCustomColStaging.length) { showToast('Add at least one part', 'error'); return; }
+    const id = _admCustomColEditId || ('ccol_' + Date.now());
+    const obj = { id, header, delimiter, parts: _admCustomColStaging.map(p => ({ ...p })) };
+    const idx = _admCustomMergedCols.findIndex(c => String(c.id) === String(id));
+    if (idx >= 0) _admCustomMergedCols[idx] = obj;
+    else _admCustomMergedCols.push(obj);
+    const res = await _admAdminFetch('saveSettings', { key: 'custom_merged_columns', value: _admCustomMergedCols });
+    if (res && res.error) { showToast(res.error, 'error'); return; }
+    if (showTbl) {
+      const fkey = 'custom_merge:' + id;
+      if (!_admAppColumns.some(col => (col.fields || []).includes(fkey))) {
+        _admAppColumns.push({ label: header, fields: [fkey] });
+        await _admAdminFetch('saveApplicantColumns', { circular_id: _admCandActiveCircularId, columns: _admAppColumns }).catch(() => {});
+      }
+      _admRenderTableHead();
+      _admFilterApps();
+    }
+    showToast('Custom column saved', 'success');
+    _admCustomColEditId = null;
+    _admCustomColStaging = [];
+    _admCustomColRenderModal('', '');
   }
   function _gfOpenPrintWindow(title, bodyHtml, pageCss) {
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${_escHtml(title)}</title><style>
@@ -46566,6 +46747,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button onclick="_admOpenTopPageModal()" title="Full-page A4/Legal/Letter written copy top page coder with tables, curved text, slices, QR, and photos" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="file-text" class="h-3.5 w-3.5"></i> Top Page Coder
           </button>
+          <button onclick="_admOpenCustomColsModal()" title="Create custom applicant columns by merging custom text, column values, and portions of column values" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
+            <i data-lucide="plus-square" class="h-3.5 w-3.5"></i> Custom Columns
+          </button>
           <label title="Hide active-filter columns and show filter value on top in Print and Export CSV" class="flex items-center gap-1.5 px-3 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl cursor-pointer select-none hover:bg-slate-50 transition-all">
             <input type="checkbox" id="admHideFilteredColChk" ${_admHideFilteredCol ? 'checked' : ''} onchange="_admToggleHideFilteredCol(this.checked)">
             <span>Hide Filtered Col</span>
@@ -48106,7 +48290,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       label: f.label,
       render: a => { const v = (a.extra_fields || {})[f.key]; return (v !== undefined && v !== null && v !== '') ? `<p class="text-xs text-slate-600">${_escHtml(String(v))}</p>` : ''; },
     }));
-    return ADM_APP_FIELD_CATALOG_BUILTIN.concat(_admAppFieldAutoCatalog()).concat(_admScanOptionCatalog()).concat(customs);
+    const mergedCustoms = (_admCustomMergedCols || []).map(cd => ({
+      key: 'custom_merge:' + cd.id,
+      label: cd.header,
+      render: a => {
+        const byHeader = {};
+        _ccpcCsvColumnsFromRows([a], _admCandFormFieldDefs).forEach(c => { byHeader[c.header] = c; });
+        const v = _ccpcEvalCustomCol(cd, a, byHeader);
+        return v ? `<p class="text-xs font-bold text-indigo-700">${_escHtml(v)}</p>` : '';
+      },
+    }));
+    return ADM_APP_FIELD_CATALOG_BUILTIN.concat(_admAppFieldAutoCatalog()).concat(_admScanOptionCatalog()).concat(customs).concat(mergedCustoms);
   }
   function _admAppFieldLabel(key) { const f = _admAppFieldCatalog().find(x => x.key === key); return f ? f.label : key; }
   function _admAppFieldRender(key, a) { const f = _admAppFieldCatalog().find(x => x.key === key); return f ? (f.render(a) || '') : ''; }
@@ -48176,6 +48370,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               ${ADM_APP_FIELD_CATALOG_BUILTIN.concat(_admAppFieldAutoCatalog()).map(f => `<option value="${f.key}">${_escHtml(f.label)}</option>`).join('')}
               ${(_admCandScanOptions || []).length ? `<optgroup label="Scan Options (Value / Timestamp)">${_admScanOptionCatalog().map(f => `<option value="${_escHtml(f.key)}">${_escHtml(f.label)}</option>`).join('')}</optgroup>` : ''}
               ${_admCandFormFieldDefs.some(f => !f.built_in) ? `<optgroup label="Custom (mapped)">${_admCandFormFieldDefs.filter(f => !f.built_in).map(f => `<option value="extra:${_escHtml(f.key)}">${_escHtml(f.label)}</option>`).join('')}</optgroup>` : ''}
+              ${(_admCustomMergedCols || []).length ? `<optgroup label="Custom Merged Columns">${_admCustomMergedCols.map(cd => `<option value="custom_merge:${_escHtml(cd.id)}">${_escHtml(cd.header)}</option>`).join('')}</optgroup>` : ''}
             </select>
           </div>`).join('')}
         <button type="button" onclick="_admAppColumnsAddColumn()" class="flex items-center justify-center px-4 py-8 bg-white border border-dashed border-slate-300 rounded-xl text-xs font-bold text-slate-400 hover:text-slate-600" style="width:120px">+ Add Column</button>
@@ -51040,6 +51235,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     // Session/Circular management just because this lookup hiccuped.
     try { _admCandMyAccess = await _admCandFetch('getMyCommitteeAccess', {}); }
     catch (e) { _admCandMyAccess = { is_full_admin: true, circulars: {} }; }
+    _admAdminFetch('getSettings', {}).then(res => {
+      const raw = res && res.settings && res.settings.custom_merged_columns;
+      if (Array.isArray(raw)) _admCustomMergedCols = raw;
+    }).catch(() => {});
     if (_admCandMyAccess.is_full_admin) _admCandLoadSessions();
     else _admCandShowMyCircularsGate();
   }
