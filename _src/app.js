@@ -35074,8 +35074,80 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     return { wMm, hMm, wPx: Math.round(wMm * pxPerMm), hPx: Math.round(hMm * pxPerMm) };
   }
   let _admTopSampleRow = null;
-  async function _admOpenTopPageModal() {
-    const apps = _admLastFiltered.length ? _admLastFiltered : (_admAllApps || []);
+  let _admTopSourceLabel = '';
+  let _admTopSelectedRoom = 'ALL';
+  function _admTopResolveRoomName(a) {
+    if (!a) return '';
+    if (a.room_name) return String(a.room_name).trim();
+    if (a.room_no) return String(a.room_no).trim();
+    if (a.room_id) {
+      const pool = (_admSpRooms && _admSpRooms.length) ? _admSpRooms : (_admCandRooms || []);
+      const r = pool.find(x => String(x.id) === String(a.room_id));
+      if (r && r.room_name) return String(r.room_name).trim();
+    }
+    return '';
+  }
+  function _admTopEnrichRoomFields(rows) {
+    const pool = (_admSpRooms && _admSpRooms.length) ? _admSpRooms : (_admCandRooms || []);
+    const byId = {};
+    pool.forEach(r => { byId[String(r.id)] = r; });
+    return (rows || []).map(a => {
+      if (!a) return a;
+      const r = a.room_id ? byId[String(a.room_id)] : null;
+      const rName = a.room_name || a.room_no || (r ? r.room_name : '');
+      const bldg = a.building || (r ? _admCandRoomBuildingLabel(r) : '');
+      if (a.room_name === rName && a.room_no === rName && (!bldg || a.building === bldg)) return a;
+      return { ...a, room_name: rName || '', room_no: rName || '', building: bldg || '' };
+    });
+  }
+  function _admTopGetRoomGroups() {
+    const counts = {};
+    let seated = 0, unassigned = 0;
+    (_admTopItems || []).forEach(a => {
+      const rn = _admTopResolveRoomName(a);
+      if (rn) { counts[rn] = (counts[rn] || 0) + 1; seated++; }
+      else unassigned++;
+    });
+    const rooms = Object.keys(counts).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).map(name => ({ name, count: counts[name] }));
+    return { rooms, seated, unassigned, total: (_admTopItems || []).length };
+  }
+  function _admTopGetFilteredItems(sortByRoomSeat) {
+    const sel = _admTopSelectedRoom || 'ALL';
+    let list = (_admTopItems || []).filter(a => {
+      const rn = _admTopResolveRoomName(a);
+      if (sel === 'ALL') return true;
+      if (sel === 'SEATED') return !!rn;
+      if (sel === 'UNASSIGNED') return !rn;
+      return rn === sel;
+    });
+    if (sortByRoomSeat) {
+      list = list.slice().sort((a, b) => {
+        const ra = _admTopResolveRoomName(a);
+        const rb = _admTopResolveRoomName(b);
+        if (ra !== rb) {
+          if (!ra) return 1;
+          if (!rb) return -1;
+          return ra.localeCompare(rb, undefined, { numeric: true });
+        }
+        return (parseInt(a.seat_no, 10) || 0) - (parseInt(b.seat_no, 10) || 0);
+      });
+    }
+    return list;
+  }
+  function _admTopRoomChange(val) {
+    _admTopSelectedRoom = val || 'ALL';
+    const filtered = _admTopGetFilteredItems(false);
+    const btn = document.getElementById('admTopPrintBtn');
+    if (btn) btn.textContent = `Print Top Pages (${filtered.length})`;
+    const lbl = document.getElementById('admTopCountLabel');
+    if (lbl) lbl.textContent = `${filtered.length} applicant${filtered.length === 1 ? '' : 's'} selected`;
+    if (filtered.length) _admTopSampleRow = filtered[0];
+  }
+  async function _admOpenTopPageModal(overrideApps, opts) {
+    const rawApps = Array.isArray(overrideApps) ? overrideApps : (_admLastFiltered.length ? _admLastFiltered : (_admAllApps || []));
+    const apps = _admTopEnrichRoomFields(rawApps);
+    _admTopSourceLabel = (opts && opts.sourceLabel) || '';
+    _admTopSelectedRoom = (opts && opts.preselectRoom) || 'ALL';
     try {
       const [sampleRes, res] = await Promise.all([
         apps.length
@@ -35085,7 +35157,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       ]);
       const settings = (res && res.settings) || {};
       if (Array.isArray(settings.custom_merged_columns)) _admCustomMergedCols = settings.custom_merged_columns;
-      const sampleFull = (sampleRes && Array.isArray(sampleRes.applications) && sampleRes.applications[0]) || apps[0] || null;
+      const fetchedSample = (sampleRes && Array.isArray(sampleRes.applications) && sampleRes.applications[0]) || null;
+      const sampleFull = fetchedSample
+        ? { ...fetchedSample, room_id: apps[0].room_id ?? fetchedSample.room_id, room_name: apps[0].room_name || fetchedSample.room_name || '', room_no: apps[0].room_no || fetchedSample.room_no || '', building: apps[0].building || '', seat_no: apps[0].seat_no ?? fetchedSample.seat_no }
+        : (apps[0] || null);
       const colRows = sampleFull ? [sampleFull, ...apps.slice(1, 50)] : [];
       const built = _admBuildExportColsFromRows(colRows);
       _admTopCols = built.cols || [];
@@ -35102,8 +35177,39 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admTopRenderSelectModal() {
     const isAdmin = _ccpcTplIsAdmin();
     const opts = _admTopTemplates.map(t => `<option value="${_escHtml(t.id)}">${_escHtml(t.name)}</option>`).join('');
+    const rg = _admTopGetRoomGroups();
+    if (_admTopSelectedRoom !== 'ALL' && _admTopSelectedRoom !== 'SEATED' && _admTopSelectedRoom !== 'UNASSIGNED' && !rg.rooms.some(r => r.name === _admTopSelectedRoom)) {
+      _admTopSelectedRoom = 'ALL';
+    }
+    const filtered = _admTopGetFilteredItems(false);
+    const roomOptsHtml = [
+      `<option value="ALL" ${_admTopSelectedRoom === 'ALL' ? 'selected' : ''}>All ${rg.rooms.length ? 'Rooms / ' : ''}Applicants (${rg.total})</option>`,
+      (rg.rooms.length && rg.unassigned > 0) ? `<option value="SEATED" ${_admTopSelectedRoom === 'SEATED' ? 'selected' : ''}>All Seated Rooms Only (${rg.seated})</option>` : '',
+      ...rg.rooms.map(r => `<option value="${_escHtml(r.name)}" ${_admTopSelectedRoom === r.name ? 'selected' : ''}>Room ${_escHtml(r.name)} (${r.count} students)</option>`),
+      (rg.rooms.length && rg.unassigned > 0) ? `<option value="UNASSIGNED" ${_admTopSelectedRoom === 'UNASSIGNED' ? 'selected' : ''}>Unassigned (${rg.unassigned})</option>` : '',
+    ].filter(Boolean).join('');
+
+    const roomPickerHtml = rg.rooms.length ? `
+      <div class="mb-4 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+        <div class="flex items-center justify-between mb-1">
+          <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest">Room Selection</label>
+          <span id="admTopCountLabel" class="text-[10px] font-black text-indigo-600">${filtered.length} applicant${filtered.length === 1 ? '' : 's'} selected</span>
+        </div>
+        <select id="admTopRoomSelect" onchange="_admTopRoomChange(this.value)" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold">
+          ${roomOptsHtml}
+        </select>
+        <div class="flex items-center gap-4 flex-wrap mt-2.5">
+          <label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 cursor-pointer">
+            <input type="checkbox" id="admTopSortByRoomSeat" checked class="rounded border-slate-300"> Order by Room &amp; Seat No.
+          </label>
+          <label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 cursor-pointer">
+            <input type="checkbox" id="admTopRoomCoverPage" class="rounded border-slate-300"> Insert Room Cover Page
+          </label>
+        </div>
+      </div>` : '';
+
     _diaryShowSimpleModal('Written Copy Top Page Coder', `
-      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Top Page Template (${_admTopItems.length} applicants)</p>
+      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Top Page Template${_admTopSourceLabel ? ` · ${_escHtml(_admTopSourceLabel)}` : ''} (${_admTopItems.length} total)</p>
       <div class="flex gap-2 items-center mb-3 flex-wrap">
         <select id="admTopSelect" class="flex-1 min-w-[180px] px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs">
           ${_admTopTemplates.length ? opts : '<option value="">— No top page templates yet —</option>'}
@@ -35115,7 +35221,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <button onclick="_admTopDuplicateSelected()" class="flex-1 px-3 py-1.5 border border-indigo-200 text-indigo-600 rounded-lg text-[10px] font-black uppercase">Duplicate</button>
         <button onclick="_admTopDeleteSelected()" class="flex-1 px-3 py-1.5 border border-red-200 text-red-500 rounded-lg text-[10px] font-black uppercase">Delete</button>
       </div>` : ''}
-      <button onclick="_admTopPrintAll()" class="w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black transition-all">Print Top Pages</button>
+      ${roomPickerHtml}
+      <button id="admTopPrintBtn" onclick="_admTopPrintAll()" class="w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black transition-all">Print Top Pages (${filtered.length})</button>
     `);
   }
   function _admTopEditSelected() {
@@ -36604,16 +36711,50 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const id = document.getElementById('admTopSelect')?.value;
     const tpl = _admTopTemplates.find(t => String(t.id) === String(id));
     if (!tpl) { showToast('Select or create a top page template first', 'error'); return; }
-    if (!_admTopItems.length) { showToast('No applicants to print', 'error'); return; }
+    const sortByRoom = !!document.getElementById('admTopSortByRoomSeat')?.checked;
+    const includeCover = !!document.getElementById('admTopRoomCoverPage')?.checked;
+    const targetItems = _admTopGetFilteredItems(sortByRoom);
+    if (!targetItems.length) { showToast('No applicants to print for the selected room', 'error'); return; }
     try { await ensureQRCodeGen(); } catch (_) {}
     let printItems;
-    try { printItems = await _admEnsureFullRowsIfNeeded(tpl, _admTopItems); }
+    try { printItems = await _admEnsureFullRowsIfNeeded(tpl, targetItems); }
     catch (e) { showToast(e.message || 'Could not load applicant data for print', 'error'); return; }
 
     const { wMm, hMm, wPx, hPx } = _admTopPaperPx(tpl.paper);
     const borderFrameHtml = _admTopBuildPageBorderHtml(tpl);
 
-    const pagesHtml = printItems.map((row, idx) => {
+    // Precompute room summaries when Insert Room Cover Page is enabled
+    const roomMeta = {};
+    if (includeCover) {
+      printItems.forEach(r => {
+        const rn = _admTopResolveRoomName(r) || 'Unassigned';
+        if (!roomMeta[rn]) roomMeta[rn] = { name: rn, building: r.building || '', count: 0, firstId: '', lastId: '' };
+        const idVal = String(r.index_id || r.tracking_id || r.token || r.external_key || '').trim();
+        roomMeta[rn].count++;
+        if (!roomMeta[rn].firstId && idVal) roomMeta[rn].firstId = idVal;
+        if (idVal) roomMeta[rn].lastId = idVal;
+      });
+    }
+
+    let lastRoomSeen = null;
+    const pages = [];
+    printItems.forEach((row, idx) => {
+      if (includeCover) {
+        const rn = _admTopResolveRoomName(row) || 'Unassigned';
+        if (rn !== lastRoomSeen) {
+          lastRoomSeen = rn;
+          const rm = roomMeta[rn];
+          pages.push(`<div style="position:relative;width:${wPx}px;height:${hPx}px;overflow:hidden;background:#ffffff;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:48px;page-break-after:always;">
+            <div style="border:3px solid #0f172a;border-radius:16px;padding:42px 54px;width:82%">
+              <div style="font-size:14px;font-weight:800;letter-spacing:2px;color:#475569;text-transform:uppercase">${_escHtml(_admTopSourceLabel || 'Written Copy Top Pages')}</div>
+              <div style="font-size:52px;font-weight:900;color:#0f172a;margin:18px 0 8px">ROOM: ${_escHtml(rm.name)}</div>
+              ${rm.building ? `<div style="font-size:18px;font-weight:700;color:#334155;margin-bottom:18px">${_escHtml(rm.building)}</div>` : ''}
+              <div style="font-size:24px;font-weight:900;color:#1d4ed8;margin-top:12px">Total Top Pages: ${rm.count}</div>
+              ${rm.firstId ? `<div style="font-size:16px;font-family:monospace;font-weight:800;color:#0f172a;margin-top:10px">Range: ${_escHtml(rm.firstId)} — ${_escHtml(rm.lastId)}</div>` : ''}
+            </div>
+          </div>`);
+        }
+      }
       const inner = (tpl.elements || []).map((el, elIdx) => {
         const z = `z-index:${elIdx + 1};`;
         if (el.type === 'qr') {
@@ -36642,11 +36783,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         return `<div style="position:absolute;left:${el.x}px;top:${el.y}px;${z}${_admTopTextCss(el)}">${txt}</div>`;
       }).join('');
       const isLast = idx === printItems.length - 1;
-      return `<div style="position:relative;width:${wPx}px;height:${hPx}px;overflow:hidden;background:${_escHtml(tpl.bg_color || '#ffffff')};${isLast ? '' : 'page-break-after:always;'}">${borderFrameHtml}${inner}</div>`;
-    }).join('');
+      pages.push(`<div style="position:relative;width:${wPx}px;height:${hPx}px;overflow:hidden;background:${_escHtml(tpl.bg_color || '#ffffff')};${isLast ? '' : 'page-break-after:always;'}">${borderFrameHtml}${inner}</div>`);
+    });
+    const pagesHtml = pages.join('');
 
+    const titleSuffix = (_admTopSelectedRoom && _admTopSelectedRoom !== 'ALL' && _admTopSelectedRoom !== 'SEATED' && _admTopSelectedRoom !== 'UNASSIGNED')
+      ? ` — Room ${_admTopSelectedRoom}` : '';
     const css = `@page { size: ${wMm}mm ${hMm}mm; margin: 0; } body { margin: 0; font-family: Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; } * { box-sizing: border-box; }`;
-    _gfOpenPrintWindow('Written Copy Top Pages', pagesHtml, css);
+    _gfOpenPrintWindow(`Written Copy Top Pages${titleSuffix}`, pagesHtml, css);
   }
 
   // Shared by both the CSV formatter below and import-time normalization
@@ -50299,7 +50443,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (res && res.error) throw new Error(res.error);
       if (res && Array.isArray(res.applications)) out.push(...res.applications);
     }
-    return out.length ? out : apps;
+    if (!out.length) return apps;
+    const byId = {};
+    out.forEach(r => { byId[r.id] = r; });
+    return apps.map(orig => {
+      const full = byId[orig.id];
+      if (!full) return orig;
+      const merged = { ...full };
+      if (orig.room_id !== undefined) merged.room_id = orig.room_id;
+      if (orig.room_name) merged.room_name = orig.room_name;
+      if (orig.room_no) merged.room_no = orig.room_no;
+      if (orig.building) merged.building = orig.building;
+      if (orig.seat_no !== undefined && orig.seat_no !== null && orig.seat_no !== '') merged.seat_no = orig.seat_no;
+      return merged;
+    });
   }
   async function _admFetchExportCols() {
     const apps = _admLastFiltered;
@@ -56128,6 +56285,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <button type="button" onclick="_admSpPrintBoothDirectory()" class="w-full px-3 py-2 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-black transition-all">Print Booth Directory</button>
             </div>
           </div>
+
+          <!-- 7. Written Copy Top Page Coder (Linked to shared Top Page Designer popup) -->
+          <div class="bg-white rounded-2xl shadow-sm border border-indigo-200 p-5 flex flex-col justify-between gap-3 md:col-span-2 lg:col-span-3">
+            <div class="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[9px] font-black uppercase">Top Page Coder</span>
+                  <span class="text-[10px] font-bold text-slate-400">Room-wise Written Copy Cover / Top Sheet</span>
+                </div>
+                <h4 class="font-black text-slate-800 text-sm">Written Copy Top Page (Room-wise)</h4>
+                <p class="text-xs text-slate-400 mt-0.5">Opens the shared <b>Top Page Coder</b> popup pre-loaded with this exam date's seated students — pick any single room or all rooms in room &amp; seat order, with optional room cover pages.</p>
+              </div>
+              <button type="button" onclick="_admSpOpenTopPageModal()" class="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shrink-0">Open Top Page Coder</button>
+            </div>
+          </div>
         </div>
       `;
     } else if (_admSpActiveSubView === 'sms') {
@@ -56144,6 +56316,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <div class="flex items-center gap-2 flex-wrap">
             <span id="admSpDirtyBadge" class="${_admSpDirty ? '' : 'hidden'} px-2 py-1 rounded-lg bg-amber-100 text-amber-800 text-[10px] font-black uppercase">Unsaved Changes</span>
+            <button type="button" onclick="_admSpOpenTopPageModal()" class="px-3 py-2 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded-xl text-[10px] font-black uppercase hover:bg-indigo-600 hover:text-white transition-all" title="Open Written Copy Top Page Coder for this schedule's seated rooms">Top Page Coder</button>
             <button type="button" onclick="_admSpInit()" class="px-2.5 py-2 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase hover:bg-slate-50" title="Reload latest candidates & rooms">↻ Refresh</button>
             ${_admSpCanEdit ? `
               <button type="button" onclick="_admSpSaveDraft()" class="px-3 py-2 border border-slate-200 text-slate-700 rounded-xl text-[10px] font-black uppercase hover:bg-slate-50">Save Draft</button>
@@ -56229,6 +56402,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // ══════════════════════════════════════════════════════════════════════════
   // 6 EXAM-DAY PRINT SHEETS & EXCEL EXPORT
   // ══════════════════════════════════════════════════════════════════════════
+  function _admSpOpenTopPageModal() {
+    const sched = _admSpActiveSchedule();
+    if (!sched) { _admOpenTopPageModal(); return; }
+    const comp = _admSpCompute(sched);
+    const items = comp.assignments.length
+      ? comp.assignments.map(a => ({
+        ...a.cand,
+        room_id: a.room_id,
+        room_name: a.room_name,
+        room_no: a.room_name,
+        building: a.building,
+        seat_no: String(a.seat_no),
+      }))
+      : _admSpCandidates;
+    _admOpenTopPageModal(items, { sourceLabel: sched.name || 'Seat Plan' });
+  }
   function _admSpPrintHeaderHtml(title, sched, extraSub) {
     const titleLine = [_admSpSessionName, _admSpCircularName].filter(Boolean).join(' — ');
     const metaParts = [
