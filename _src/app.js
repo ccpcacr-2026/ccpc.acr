@@ -34040,8 +34040,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         ${isAdmin ? `<button onclick="_admTokenBuilderOpen()" class="px-3 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase whitespace-nowrap">+ New</button>` : ''}
       </div>
       ${isAdmin ? `<div class="flex gap-2 mb-3">
-        <button onclick="_admTokenEditSelected()" class="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-[10px] font-black uppercase">Edit Token</button>
-        <button onclick="_admTokenDeleteSelected()" class="flex-1 px-3 py-1.5 border border-red-200 text-red-500 rounded-lg text-[10px] font-black uppercase">Delete Token</button>
+        <button onclick="_admTokenEditSelected()" class="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-[10px] font-black uppercase">Edit</button>
+        <button onclick="_admTokenDuplicateSelected()" class="flex-1 px-3 py-1.5 border border-indigo-200 text-indigo-600 rounded-lg text-[10px] font-black uppercase">Duplicate</button>
+        <button onclick="_admTokenDeleteSelected()" class="flex-1 px-3 py-1.5 border border-red-200 text-red-500 rounded-lg text-[10px] font-black uppercase">Delete</button>
       </div>` : ''}
 
       <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Page &amp; Grid Auto-Resize</p>
@@ -34086,6 +34087,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const id = document.getElementById('admTokSelect')?.value;
     if (!id) { showToast('Pick a token template first', 'error'); return; }
     _admTokenBuilderOpen(id);
+  }
+  async function _admTokenDuplicateSelected() {
+    const id = document.getElementById('admTokSelect')?.value;
+    const tpl = _admTokenTemplates.find(t => String(t.id) === String(id));
+    if (!tpl) { showToast('Pick a token template first', 'error'); return; }
+    const copy = JSON.parse(JSON.stringify(tpl));
+    copy.id = 'tok_' + Date.now();
+    copy.name = (tpl.name || 'Token Template') + ' (Copy)';
+    _admTokenTemplates.push(copy);
+    const res = await _admAdminFetch('saveSettings', { key: 'lottery_token_templates', value: _admTokenTemplates });
+    if (res && res.error) { _admTokenTemplates.pop(); showToast(res.error, 'error'); return; }
+    showToast('Token template duplicated', 'success');
+    _admTokenRenderSelectModal();
+    const sel = document.getElementById('admTokSelect');
+    if (sel) sel.value = copy.id;
   }
   async function _admTokenDeleteSelected() {
     const id = document.getElementById('admTokSelect')?.value;
@@ -35095,8 +35111,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         ${isAdmin ? `<button onclick="_admTopBuilderOpen()" class="px-3 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase whitespace-nowrap">+ New</button>` : ''}
       </div>
       ${isAdmin ? `<div class="flex gap-2 mb-4">
-        <button onclick="_admTopEditSelected()" class="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-[10px] font-black uppercase">Edit Template</button>
-        <button onclick="_admTopDeleteSelected()" class="flex-1 px-3 py-1.5 border border-red-200 text-red-500 rounded-lg text-[10px] font-black uppercase">Delete Template</button>
+        <button onclick="_admTopEditSelected()" class="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-[10px] font-black uppercase">Edit</button>
+        <button onclick="_admTopDuplicateSelected()" class="flex-1 px-3 py-1.5 border border-indigo-200 text-indigo-600 rounded-lg text-[10px] font-black uppercase">Duplicate</button>
+        <button onclick="_admTopDeleteSelected()" class="flex-1 px-3 py-1.5 border border-red-200 text-red-500 rounded-lg text-[10px] font-black uppercase">Delete</button>
       </div>` : ''}
       <button onclick="_admTopPrintAll()" class="w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black transition-all">Print Top Pages</button>
     `);
@@ -35105,6 +35122,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const id = document.getElementById('admTopSelect')?.value;
     if (!id) { showToast('Pick a template first', 'error'); return; }
     _admTopBuilderOpen(id);
+  }
+  async function _admTopDuplicateSelected() {
+    const id = document.getElementById('admTopSelect')?.value;
+    const tpl = _admTopTemplates.find(t => String(t.id) === String(id));
+    if (!tpl) { showToast('Pick a template first', 'error'); return; }
+    const copy = JSON.parse(JSON.stringify(tpl));
+    copy.id = 'top_' + Date.now();
+    copy.name = (tpl.name || 'Top Page Template') + ' (Copy)';
+    _admTopTemplates.push(copy);
+    const res = await _admAdminFetch('saveSettings', { key: 'written_top_page_templates', value: _admTopTemplates });
+    if (res && res.error) { _admTopTemplates.pop(); showToast(res.error, 'error'); return; }
+    showToast('Top page template duplicated', 'success');
+    _admTopRenderSelectModal();
+    const sel = document.getElementById('admTopSelect');
+    if (sel) sel.value = copy.id;
   }
   async function _admTopDeleteSelected() {
     const id = document.getElementById('admTopSelect')?.value;
