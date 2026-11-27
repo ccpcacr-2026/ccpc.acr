@@ -34707,6 +34707,733 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _gfOpenPrintWindow('Lottery Tokens', pagesHtml, css);
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  //  WRITTEN COPY TOP PAGE CODER (Full A4/Legal/Letter Page Designer & Print)
+  // ══════════════════════════════════════════════════════════════════════════
+  let _admTopTemplates = [];
+  let _admTopCols = [];
+  let _admTopItems = [];
+  let _admTopEditId = null;
+  let _admTopDraft = null;
+  let _admTopSelectedElId = null;
+  let _admTopZoom = 0.75;
+
+  const ADM_TOP_PAPER_MAP = {
+    a4_p: [210, 297, 'A4 Portrait (210 × 297 mm)'],
+    a4_l: [297, 210, 'A4 Landscape (297 × 210 mm)'],
+    legal_p: [216, 356, 'Legal Portrait (216 × 356 mm)'],
+    legal_l: [356, 216, 'Legal Landscape (356 × 216 mm)'],
+    letter_p: [216, 279, 'Letter Portrait (216 × 279 mm)'],
+    letter_l: [279, 216, 'Letter Landscape (279 × 216 mm)'],
+  };
+  function _admTopPaperPx(paperKey) {
+    const [wMm, hMm] = ADM_TOP_PAPER_MAP[paperKey] || ADM_TOP_PAPER_MAP.a4_p;
+    const pxPerMm = 96 / 25.4;
+    return { wMm, hMm, wPx: Math.round(wMm * pxPerMm), hPx: Math.round(hMm * pxPerMm) };
+  }
+  async function _admOpenTopPageModal() {
+    const data = await _admFetchExportCols();
+    if (!data) return;
+    _admTopCols = data.cols || [];
+    _admTopItems = data.items || [];
+    const res = await _admAdminFetch('getSettings', {});
+    const raw = res && res.settings && res.settings.written_top_page_templates;
+    _admTopTemplates = Array.isArray(raw) ? raw : [];
+    ensureQRCodeGen().catch(() => {});
+    _admTopRenderSelectModal();
+  }
+  function _admTopRenderSelectModal() {
+    const isAdmin = _ccpcTplIsAdmin();
+    const opts = _admTopTemplates.map(t => `<option value="${_escHtml(t.id)}">${_escHtml(t.name)}</option>`).join('');
+    _diaryShowSimpleModal('Written Copy Top Page Coder', `
+      <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Top Page Template (${_admTopItems.length} applicants)</p>
+      <div class="flex gap-2 items-center mb-3 flex-wrap">
+        <select id="admTopSelect" class="flex-1 min-w-[180px] px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+          ${_admTopTemplates.length ? opts : '<option value="">— No top page templates yet —</option>'}
+        </select>
+        ${isAdmin ? `<button onclick="_admTopBuilderOpen()" class="px-3 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase whitespace-nowrap">+ New</button>` : ''}
+      </div>
+      ${isAdmin ? `<div class="flex gap-2 mb-4">
+        <button onclick="_admTopEditSelected()" class="flex-1 px-3 py-1.5 border border-slate-200 rounded-lg text-[10px] font-black uppercase">Edit Template</button>
+        <button onclick="_admTopDeleteSelected()" class="flex-1 px-3 py-1.5 border border-red-200 text-red-500 rounded-lg text-[10px] font-black uppercase">Delete Template</button>
+      </div>` : ''}
+      <button onclick="_admTopPrintAll()" class="w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black transition-all">Print Top Pages</button>
+    `);
+  }
+  function _admTopEditSelected() {
+    const id = document.getElementById('admTopSelect')?.value;
+    if (!id) { showToast('Pick a template first', 'error'); return; }
+    _admTopBuilderOpen(id);
+  }
+  async function _admTopDeleteSelected() {
+    const id = document.getElementById('admTopSelect')?.value;
+    if (!id) { showToast('Pick a template first', 'error'); return; }
+    if (!confirm('Delete this top page template?')) return;
+    _admTopTemplates = _admTopTemplates.filter(t => String(t.id) !== String(id));
+    await _admAdminFetch('saveSettings', { key: 'written_top_page_templates', value: _admTopTemplates });
+    showToast('Deleted', 'success');
+    _admTopRenderSelectModal();
+  }
+  function _admTopBuilderOpen(editId) {
+    const tpl = editId ? _admTopTemplates.find(t => String(t.id) === String(editId)) : null;
+    _admTopEditId = tpl ? tpl.id : null;
+    _admTopDraft = tpl
+      ? JSON.parse(JSON.stringify(tpl))
+      : {
+          id: 'top_' + Date.now(),
+          name: '',
+          paper: 'a4_p',
+          border_w: 2,
+          border_style: 'solid',
+          border_color: '#0f172a',
+          border_radius: 0,
+          border_inset: 8,
+          bg_color: '#ffffff',
+          elements: [],
+        };
+    _admTopSelectedElId = _admTopDraft.elements[0]?.id || null;
+    _admTopRenderBuilder();
+  }
+  function _admTopResolvePattern(pat, row) {
+    const byHeader = {}; _admTopCols.forEach(c => { byHeader[c.header] = c; });
+    return String(pat || '').replace(/\{([^}]+)\}/g, (_, h) => {
+      const col = byHeader[h];
+      return col && row ? _ccpcPlainCell(col.get(row), col.isPhone) : `[${h}]`;
+    });
+  }
+  function _admTopSliceVal(str, mode, n, fromIdx, toIdx) {
+    const s = String(str || '');
+    if (mode === 'first') return s.slice(0, Math.max(1, n || 2));
+    if (mode === 'last') return s.slice(-Math.max(1, n || 2));
+    const start = Math.max(0, (parseInt(fromIdx, 10) || 1) - 1);
+    const end = Math.max(start + 1, parseInt(toIdx, 10) || start + 2);
+    return s.slice(start, end);
+  }
+  function _admTopEvalElement(el, row) {
+    const byHeader = {}; _admTopCols.forEach(c => { byHeader[c.header] = c; });
+    if (el.type === 'text') return el.text || '';
+    if (el.type === 'col_header') return el.header || '';
+    if (el.type === 'field') {
+      const col = byHeader[el.header];
+      const val = col && row ? _ccpcPlainCell(col.get(row), col.isPhone) : `[${el.header}]`;
+      return el.show_label ? `${el.header}: ${val}` : val;
+    }
+    if (el.type === 'slice') {
+      const col = byHeader[el.header];
+      const raw = col && row ? _ccpcPlainCell(col.get(row), col.isPhone) : `[${el.header}]`;
+      const sliced = col && row ? _admTopSliceVal(raw, el.slice_mode, el.slice_n, el.slice_from, el.slice_to) : raw;
+      return el.show_label ? `${el.header}: ${sliced}` : sliced;
+    }
+    if (el.type === 'qr') {
+      return String(el.pattern || '').replace(/\{([^}]+)\}/g, (_, h) => {
+        const col = byHeader[h];
+        return col && row ? _ccpcPlainCell(col.get(row), col.isPhone) : '';
+      });
+    }
+    if (el.type === 'photo_field') {
+      const col = byHeader[el.header];
+      return col && row ? String(col.get(row) || '').trim() : '';
+    }
+    if (el.type === 'image') return el.src || '';
+    return '';
+  }
+  function _admTopRenderCurvedTextSvg(el, text) {
+    const w = Math.max(140, el.width || 280);
+    const curve = parseInt(el.curve, 10) || 0;
+    const h = Math.max(60, Math.abs(curve) + (el.font_size || 14) * 2.5);
+    const midY = curve >= 0 ? h - 14 : 18;
+    const ctrlY = curve >= 0 ? midY - curve * 1.4 : midY - curve * 1.4;
+    const pid = 'topCurve_' + el.id + '_' + Math.floor(Math.random() * 10000);
+    const ff = _escHtml(el.font_family || 'Arial, sans-serif');
+    const fs = el.font_size || 14;
+    const fw = el.bold ? 'bold' : 'normal';
+    const fst = el.italic ? 'italic' : 'normal';
+    const td = el.underline ? 'underline' : 'none';
+    const ls = el.letter_spacing || 0;
+    const fill = _escHtml(el.color || '#0f172a');
+    return `<svg width="${w}" height="${Math.round(h)}" viewBox="0 0 ${w} ${Math.round(h)}" style="overflow:visible;display:block;">
+      <defs><path id="${pid}" d="M 10,${midY} Q ${w / 2},${ctrlY} ${w - 10},${midY}" /></defs>
+      <text fill="${fill}" font-family="${ff}" font-size="${fs}pt" font-weight="${fw}" font-style="${fst}" text-decoration="${td}" letter-spacing="${ls}px" text-anchor="middle">
+        <textPath href="#${pid}" startOffset="50%">${_escHtml(text)}</textPath>
+      </text>
+    </svg>`;
+  }
+  function _admTopRenderTableHtml(el, row) {
+    const rCount = Math.max(1, el.rows || 3);
+    const cCount = Math.max(1, el.cols || 3);
+    const cw = Math.max(24, el.cell_w || 80);
+    const ch = Math.max(16, el.cell_h || 26);
+    const bw = el.border_w ?? 1;
+    const bc = _escHtml(el.border_color || '#0f172a');
+    const fs = el.font_size || 9;
+    const hdrBg = _escHtml(el.header_bg || '#f1f5f9');
+    let trs = '';
+    for (let r = 0; r < rCount; r++) {
+      let tds = '';
+      for (let c = 0; c < cCount; c++) {
+        const raw = (el.cells && el.cells[r] && el.cells[r][c]) || '';
+        const val = row ? _admTopResolvePattern(raw, row) : raw;
+        const bg = (r === 0 && el.header_row) ? `background:${hdrBg};font-weight:700;` : '';
+        tds += `<td style="width:${cw}px;height:${ch}px;border:${bw}px solid ${bc};padding:2px 4px;font-size:${fs}pt;text-align:center;vertical-align:middle;${bg}">${_escHtml(val).replace(/\r\n|\r|\n/g, '<br>')}</td>`;
+      }
+      trs += `<tr>${tds}</tr>`;
+    }
+    return `<table style="border-collapse:collapse;background:#ffffff;">${trs}</table>`;
+  }
+  function _admTopSetZoom(z) {
+    _admTopZoom = Math.max(0.4, Math.min(2, Number(z) || 0.75));
+    const { wPx, hPx } = _admTopPaperPx(_admTopDraft.paper);
+    const scaler = document.getElementById('admTopCanvasScaler');
+    const canvas = document.getElementById('admTopCanvas');
+    const lbl = document.getElementById('admTopZoomLbl');
+    if (scaler) { scaler.style.width = Math.round(wPx * _admTopZoom) + 'px'; scaler.style.height = Math.round(hPx * _admTopZoom) + 'px'; }
+    if (canvas) { canvas.style.transform = `scale(${_admTopZoom})`; canvas.style.transformOrigin = 'top left'; }
+    if (lbl) lbl.textContent = Math.round(_admTopZoom * 100) + '%';
+  }
+  function _admTopColDragStart(evt, header) {
+    if (!evt.dataTransfer) return;
+    evt.dataTransfer.setData('text/plain', header);
+    evt.dataTransfer.effectAllowed = 'copy';
+  }
+  function _admTopCanvasDrop(evt) {
+    evt.preventDefault();
+    const header = evt.dataTransfer && evt.dataTransfer.getData('text/plain');
+    const canvas = document.getElementById('admTopCanvas');
+    if (!header || !canvas || !_admTopDraft) return;
+    const { wPx, hPx } = _admTopPaperPx(_admTopDraft.paper);
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.max(0, Math.min(wPx - 20, Math.round((evt.clientX - rect.left) / _admTopZoom)));
+    const y = Math.max(0, Math.min(hPx - 16, Math.round((evt.clientY - rect.top) / _admTopZoom)));
+    const isPhotoCol = /photo|avatar|image/i.test(header);
+    const el = isPhotoCol
+      ? { id: 'el_' + Date.now(), type: 'photo_field', header, x, y, width: 72, height: 84, radius: 4, fit: 'cover' }
+      : { id: 'el_' + Date.now(), type: 'field', header, x, y, width: 0, font_size: 11, font_family: 'Arial, sans-serif', bold: false, italic: false, underline: false, align: 'left', color: '#0f172a', show_label: true };
+    _admTopDraft.elements.push(el);
+    _admTopSelectedElId = el.id;
+    _admTopRedrawCanvas();
+    _admTopRenderInspector();
+  }
+  function _admTopRenderBuilder() {
+    const d = _admTopDraft;
+    const { wPx, hPx } = _admTopPaperPx(d.paper);
+    const colOpts = _admTopCols.map(c => `<option value="${_escHtml(c.header)}">${_escHtml(c.header)}</option>`).join('');
+    const photoColDefault = (_admTopCols.find(c => /photo_url|^photo$/i.test(c.header)) || _admTopCols.find(c => /photo|image|avatar/i.test(c.header)) || _admTopCols[0] || {}).header || '';
+    const photoColOpts = _admTopCols.map(c => `<option value="${_escHtml(c.header)}" ${c.header === photoColDefault ? 'selected' : ''}>${_escHtml(c.header)}</option>`).join('');
+    const dragCols = _admTopCols.map(c =>
+      `<span draggable="true" ondragstart="_admTopColDragStart(event,'${_escHtml(c.header).replace(/'/g, "\\'")}')" onclick="_admTopQuickAddCol('${_escHtml(c.header).replace(/'/g, "\\'")}')" title="Drag onto page or click to add" class="inline-flex items-center px-2 py-0.5 bg-white border border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 text-slate-700 rounded text-[10px] font-bold cursor-grab select-none">${_escHtml(c.header)}</span>`
+    ).join('');
+    const qrChips = _admTopCols.slice(0, 16).map(c =>
+      `<button type="button" onclick="_admTopInsertQrToken('${_escHtml(c.header).replace(/'/g, "\\'")}')" class="px-1.5 py-0.5 bg-slate-100 hover:bg-indigo-100 text-slate-700 rounded text-[9px] font-bold">{${_escHtml(c.header)}}</button>`
+    ).join('');
+
+    _diaryShowSimpleModal(_admTopEditId ? 'Edit Written Copy Top Page' : 'New Written Copy Top Page', `
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-3">
+        <!-- Left controls -->
+        <div class="lg:col-span-4 space-y-2 max-h-[78vh] overflow-y-auto pr-1">
+          <div class="grid grid-cols-2 gap-1.5">
+            <div>
+              <label class="text-[9px] font-black text-slate-400 uppercase block mb-0.5">Template Name</label>
+              <input id="admTopName" value="${_escHtml(d.name || '')}" oninput="_admTopDraft.name=this.value" placeholder="e.g. Written Top Sheet" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold">
+            </div>
+            <div>
+              <label class="text-[9px] font-black text-slate-400 uppercase block mb-0.5">Paper Size</label>
+              <select onchange="_admTopPaperChange(this.value)" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold">
+                ${Object.entries(ADM_TOP_PAPER_MAP).map(([k, v]) => `<option value="${k}" ${d.paper === k ? 'selected' : ''}>${v[2]}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
+            <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Page Border &amp; Background</p>
+            <div class="grid grid-cols-5 gap-1">
+              <div><label class="text-[9px] text-slate-500 block">Border</label><input type="number" min="0" max="20" value="${d.border_w}" oninput="_admTopPageProp('border_w',Math.max(0,+this.value||0))" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+              <div><label class="text-[9px] text-slate-500 block">Inset(mm)</label><input type="number" min="0" max="30" value="${d.border_inset ?? 8}" oninput="_admTopPageProp('border_inset',Math.max(0,+this.value||0))" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+              <div>
+                <label class="text-[9px] text-slate-500 block">Style</label>
+                <select onchange="_admTopPageProp('border_style',this.value)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-[11px]">
+                  ${['solid', 'dashed', 'dotted', 'double'].map(s => `<option value="${s}" ${d.border_style === s ? 'selected' : ''}>${s}</option>`).join('')}
+                </select>
+              </div>
+              <div><label class="text-[9px] text-slate-500 block">Color</label><input type="color" value="${_escHtml(d.border_color || '#0f172a')}" oninput="_admTopPageProp('border_color',this.value)" class="w-full h-7 p-0 border border-slate-200 rounded"></div>
+              <div><label class="text-[9px] text-slate-500 block">BG</label><input type="color" value="${_escHtml(d.bg_color || '#ffffff')}" oninput="_admTopPageProp('bg_color',this.value)" class="w-full h-7 p-0 border border-slate-200 rounded"></div>
+            </div>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
+            <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Drag or Click Column Value / Header</p>
+            <input placeholder="Search columns…" oninput="_admTopFilterDragCols(this.value)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded text-[11px] mb-1">
+            <div id="admTopDragCols" class="flex flex-wrap gap-1 max-h-20 overflow-y-auto mb-1.5">${dragCols}</div>
+            <div class="flex gap-1">
+              <select id="admTopFieldPick" class="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs">${colOpts}</select>
+              <button type="button" onclick="_admTopAddField()" class="px-2 py-1 bg-indigo-600 text-white rounded text-[10px] font-black uppercase">+ Value</button>
+              <button type="button" onclick="_admTopAddColHeader()" class="px-2 py-1 bg-slate-600 text-white rounded text-[10px] font-black uppercase">+ Header</button>
+            </div>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
+            <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Add Portion of Column Value</p>
+            <div class="flex gap-1 mb-1">
+              <select id="admTopSliceCol" class="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs">${colOpts}</select>
+              <select id="admTopSliceMode" onchange="_admTopSliceModeChange()" class="px-1.5 py-1 bg-white border border-slate-200 rounded text-[11px]">
+                <option value="first">First N</option>
+                <option value="last">Last N</option>
+                <option value="range">From X to Y</option>
+              </select>
+            </div>
+            <div class="flex gap-1 items-center">
+              <input id="admTopSliceN" type="number" min="1" value="2" placeholder="N" class="w-16 px-2 py-1 bg-white border border-slate-200 rounded text-xs">
+              <input id="admTopSliceFrom" type="number" min="1" value="4" placeholder="From" class="hidden w-16 px-2 py-1 bg-white border border-slate-200 rounded text-xs">
+              <input id="admTopSliceTo" type="number" min="1" value="6" placeholder="To" class="hidden w-16 px-2 py-1 bg-white border border-slate-200 rounded text-xs">
+              <button type="button" onclick="_admTopAddSlice()" class="flex-1 px-2.5 py-1 bg-violet-600 text-white rounded text-[10px] font-black uppercase">+ Add Portion</button>
+            </div>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
+            <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Add Custom Text (supports Curving)</p>
+            <div class="flex gap-1">
+              <input id="admTopStaticTxt" placeholder="e.g. ADMISSION TEST 2027" class="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs">
+              <button type="button" onclick="_admTopAddText()" class="px-2.5 py-1 bg-slate-700 text-white rounded text-[10px] font-black uppercase">+ Text</button>
+            </div>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
+            <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Add Custom Table</p>
+            <div class="flex gap-1 items-center">
+              <input id="admTopTblRows" type="number" min="1" max="20" value="3" title="Rows" class="w-14 px-2 py-1 bg-white border border-slate-200 rounded text-xs">
+              <span class="text-[10px] text-slate-400 font-bold">×</span>
+              <input id="admTopTblCols" type="number" min="1" max="12" value="4" title="Cols" class="w-14 px-2 py-1 bg-white border border-slate-200 rounded text-xs">
+              <button type="button" onclick="_admTopAddTable()" class="flex-1 px-2.5 py-1 bg-teal-600 text-white rounded text-[10px] font-black uppercase">+ Add Table</button>
+            </div>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
+            <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Add Photo(s) / Logo</p>
+            <div class="flex gap-1 mb-1">
+              <select id="admTopPhotoPick" class="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs">${photoColOpts}</select>
+              <button type="button" onclick="_admTopAddPhotoField()" class="px-2 py-1 bg-pink-600 text-white rounded text-[10px] font-black uppercase whitespace-nowrap">+ Applicant Photo</button>
+            </div>
+            <div class="flex gap-1 flex-wrap">
+              <button type="button" onclick="_admTopAddLogo()" class="px-2 py-1 bg-slate-700 text-white rounded text-[10px] font-black uppercase">+ School Logo</button>
+              <label class="px-2 py-1 bg-amber-600 text-white rounded text-[10px] font-black uppercase cursor-pointer">
+                + Upload Photo<input type="file" accept="image/*" class="hidden" onchange="_admTopUploadImage(this)">
+              </label>
+            </div>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
+            <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Add QR Code (Text + Columns)</p>
+            <div class="flex gap-1 mb-1">
+              <input id="admTopQrPattern" placeholder="e.g. CCPC-{tracking_id}-{name_en}" class="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs">
+              <input id="admTopQrSize" type="number" min="24" max="260" value="72" class="w-14 px-1.5 py-1 bg-white border border-slate-200 rounded text-xs">
+              <button type="button" onclick="_admTopAddQr()" class="px-2 py-1 bg-emerald-600 text-white rounded text-[10px] font-black uppercase">+ QR</button>
+            </div>
+            <div class="flex flex-wrap gap-1">${qrChips}</div>
+          </div>
+        </div>
+
+        <!-- Right: Full-Page Zoomable Canvas + Inspector -->
+        <div class="lg:col-span-8 flex flex-col gap-2">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Page Canvas (${wPx} × ${hPx} px) · Zoom <span id="admTopZoomLbl" class="text-indigo-600">${Math.round(_admTopZoom * 100)}%</span></span>
+            <div class="flex items-center gap-1">
+              ${[0.5, 0.75, 1, 1.25, 1.5].map(z => `<button type="button" onclick="_admTopSetZoom(${z})" class="px-2 py-0.5 border border-slate-200 bg-white hover:bg-indigo-50 rounded text-[10px] font-black">${Math.round(z * 100)}%</button>`).join('')}
+            </div>
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl bg-slate-200/70 p-4 flex items-start justify-center min-h-[400px] max-h-[58vh]">
+            <div id="admTopCanvasScaler" style="position:relative;flex-shrink:0;width:${Math.round(wPx * _admTopZoom)}px;height:${Math.round(hPx * _admTopZoom)}px;">
+              <div id="admTopCanvas" ondragover="event.preventDefault()" ondrop="_admTopCanvasDrop(event)" style="position:absolute;left:0;top:0;overflow:hidden;width:${wPx}px;height:${hPx}px;transform:scale(${_admTopZoom});transform-origin:top left;background:${_escHtml(d.bg_color || '#ffffff')};box-shadow:0 4px 16px rgba(0,0,0,0.12);"></div>
+            </div>
+          </div>
+          <div id="admTopInspector" class="bg-slate-50 border border-slate-200 rounded-xl p-2.5 max-h-[24vh] overflow-y-auto"></div>
+          <div class="flex gap-2">
+            <button type="button" onclick="_admTopRenderSelectModal()" class="px-4 py-2 border border-slate-200 rounded-xl text-xs font-black uppercase text-slate-600">Back</button>
+            <button type="button" onclick="_admTopSave()" class="flex-1 px-4 py-2 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black transition-all">Save Top Page Template</button>
+          </div>
+        </div>
+      </div>
+    `);
+    const modal = document.getElementById('diaryModalWrap');
+    const card = modal && modal.firstElementChild;
+    if (card) {
+      card.style.width = '96vw';
+      card.style.maxWidth = '98vw';
+      card.style.height = '92vh';
+      card.style.minWidth = '520px';
+      card.style.minHeight = '420px';
+      card.style.resize = 'both';
+      card.style.overflow = 'auto';
+    }
+    _admTopRedrawCanvas();
+    _admTopRenderInspector();
+  }
+  function _admTopPaperChange(paperKey) {
+    _admTopDraft.paper = paperKey;
+    _admTopRenderBuilder();
+  }
+  function _admTopPageProp(prop, val) {
+    _admTopDraft[prop] = val;
+    _admTopRedrawCanvas();
+  }
+  function _admTopSliceModeChange() {
+    const m = document.getElementById('admTopSliceMode')?.value;
+    document.getElementById('admTopSliceN')?.classList.toggle('hidden', m === 'range');
+    document.getElementById('admTopSliceFrom')?.classList.toggle('hidden', m !== 'range');
+    document.getElementById('admTopSliceTo')?.classList.toggle('hidden', m !== 'range');
+  }
+  function _admTopFilterDragCols(term) {
+    const q = term.trim().toLowerCase();
+    const box = document.getElementById('admTopDragCols');
+    if (!box) return;
+    box.querySelectorAll('span').forEach(sp => {
+      sp.classList.toggle('hidden', !!q && !sp.textContent.toLowerCase().includes(q));
+    });
+  }
+  function _admTopQuickAddCol(header) {
+    const isPhotoCol = /photo|avatar|image/i.test(header);
+    const el = isPhotoCol
+      ? { id: 'el_' + Date.now(), type: 'photo_field', header, x: 40, y: 40, width: 72, height: 84, radius: 4, fit: 'cover' }
+      : { id: 'el_' + Date.now(), type: 'field', header, x: 40, y: 40 + (_admTopDraft.elements.length * 22) % 300, width: 0, font_size: 11, font_family: 'Arial, sans-serif', bold: false, italic: false, underline: false, align: 'left', color: '#0f172a', show_label: true };
+    _admTopDraft.elements.push(el);
+    _admTopSelectedElId = el.id;
+    _admTopRedrawCanvas();
+    _admTopRenderInspector();
+  }
+  function _admTopAddField() {
+    const h = document.getElementById('admTopFieldPick')?.value;
+    if (h) _admTopQuickAddCol(h);
+  }
+  function _admTopAddColHeader() {
+    const h = document.getElementById('admTopFieldPick')?.value;
+    if (!h) return;
+    const el = { id: 'el_' + Date.now(), type: 'col_header', header: h, x: 40, y: 40 + (_admTopDraft.elements.length * 20) % 240, width: 0, font_size: 11, font_family: 'Arial, sans-serif', bold: true, italic: false, underline: false, align: 'left', color: '#0f172a' };
+    _admTopDraft.elements.push(el);
+    _admTopSelectedElId = el.id;
+    _admTopRedrawCanvas();
+    _admTopRenderInspector();
+  }
+  function _admTopAddSlice() {
+    const h = document.getElementById('admTopSliceCol')?.value;
+    const mode = document.getElementById('admTopSliceMode')?.value || 'first';
+    if (!h) return;
+    const el = {
+      id: 'el_' + Date.now(), type: 'slice', header: h,
+      slice_mode: mode,
+      slice_n: Math.max(1, parseInt(document.getElementById('admTopSliceN')?.value, 10) || 2),
+      slice_from: Math.max(1, parseInt(document.getElementById('admTopSliceFrom')?.value, 10) || 4),
+      slice_to: Math.max(1, parseInt(document.getElementById('admTopSliceTo')?.value, 10) || 6),
+      x: 40, y: 40 + (_admTopDraft.elements.length * 20) % 240,
+      width: 0, font_size: 11, font_family: 'Arial, sans-serif', bold: true, italic: false, underline: false, align: 'left', color: '#0f172a', show_label: false,
+    };
+    _admTopDraft.elements.push(el);
+    _admTopSelectedElId = el.id;
+    _admTopRedrawCanvas();
+    _admTopRenderInspector();
+  }
+  function _admTopAddText() {
+    const text = document.getElementById('admTopStaticTxt')?.value.trim();
+    if (!text) { showToast('Enter text first', 'error'); return; }
+    const el = { id: 'el_' + Date.now(), type: 'text', text, x: 60, y: 40, width: 320, font_size: 16, font_family: 'Arial, sans-serif', bold: true, italic: false, underline: false, align: 'center', color: '#0f172a', letter_spacing: 0, curve: 0 };
+    _admTopDraft.elements.push(el);
+    document.getElementById('admTopStaticTxt').value = '';
+    _admTopSelectedElId = el.id;
+    _admTopRedrawCanvas();
+    _admTopRenderInspector();
+  }
+  function _admTopAddTable() {
+    const rows = Math.max(1, Math.min(20, parseInt(document.getElementById('admTopTblRows')?.value, 10) || 3));
+    const cols = Math.max(1, Math.min(12, parseInt(document.getElementById('admTopTblCols')?.value, 10) || 4));
+    const cells = Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => r === 0 ? `Col ${c + 1}` : ''));
+    const el = { id: 'el_' + Date.now(), type: 'table', rows, cols, cell_w: 85, cell_h: 26, border_w: 1, border_color: '#0f172a', header_row: true, header_bg: '#f1f5f9', font_size: 9, cells, x: 40, y: 120 };
+    _admTopDraft.elements.push(el);
+    _admTopSelectedElId = el.id;
+    _admTopRedrawCanvas();
+    _admTopRenderInspector();
+  }
+  function _admTopAddPhotoField() {
+    const header = document.getElementById('admTopPhotoPick')?.value;
+    if (!header) return;
+    const el = { id: 'el_' + Date.now(), type: 'photo_field', header, x: 40, y: 40, width: 72, height: 84, radius: 4, fit: 'cover' };
+    _admTopDraft.elements.push(el);
+    _admTopSelectedElId = el.id;
+    _admTopRedrawCanvas();
+    _admTopRenderInspector();
+  }
+  function _admTopAddLogo() {
+    const el = { id: 'el_' + Date.now(), type: 'image', src: window.location.origin + '/logo.jpg', x: 40, y: 30, width: 56, height: 56, radius: 4, fit: 'contain' };
+    _admTopDraft.elements.push(el);
+    _admTopSelectedElId = el.id;
+    _admTopRedrawCanvas();
+    _admTopRenderInspector();
+  }
+  function _admTopUploadImage(inp) {
+    const file = inp && inp.files && inp.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 360;
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.width * scale));
+        c.height = Math.max(1, Math.round(img.height * scale));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        const el = { id: 'el_' + Date.now(), type: 'image', src: c.toDataURL('image/png'), x: 40, y: 40, width: 72, height: 72, radius: 4, fit: 'contain' };
+        _admTopDraft.elements.push(el);
+        _admTopSelectedElId = el.id;
+        _admTopRedrawCanvas();
+        _admTopRenderInspector();
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+    inp.value = '';
+  }
+  function _admTopInsertQrToken(header) {
+    const inp = document.getElementById('admTopQrPattern');
+    if (!inp) return;
+    inp.value = (inp.value || '') + `{${header}}`;
+    inp.focus();
+  }
+  function _admTopAddQr() {
+    const pattern = document.getElementById('admTopQrPattern')?.value.trim();
+    if (!pattern) { showToast('Enter QR pattern (text + {column})', 'error'); return; }
+    const size = Math.max(24, parseInt(document.getElementById('admTopQrSize')?.value, 10) || 72);
+    const { wPx } = _admTopPaperPx(_admTopDraft.paper);
+    const el = { id: 'el_' + Date.now(), type: 'qr', pattern, size, x: Math.max(20, wPx - size - 40), y: 40 };
+    _admTopDraft.elements.push(el);
+    _admTopSelectedElId = el.id;
+    _admTopRedrawCanvas();
+    _admTopRenderInspector();
+  }
+  function _admTopRedrawCanvas() {
+    const canvas = document.getElementById('admTopCanvas');
+    if (!canvas || !_admTopDraft) return;
+    const d = _admTopDraft;
+    const sampleRow = _admTopItems[0] || null;
+    canvas.style.background = d.bg_color || '#ffffff';
+    const insetPx = Math.round((d.border_inset ?? 8) * (96 / 25.4));
+    const borderFrameHtml = (d.border_w > 0)
+      ? `<div style="position:absolute;left:${insetPx}px;top:${insetPx}px;right:${insetPx}px;bottom:${insetPx}px;border:${d.border_w}px ${d.border_style || 'solid'} ${_escHtml(d.border_color || '#0f172a')};border-radius:${d.border_radius || 0}px;pointer-events:none;"></div>`
+      : '';
+    const elemsHtml = (d.elements || []).map(el => {
+      const sel = el.id === _admTopSelectedElId ? 'outline:2px solid #4f46e5;outline-offset:1px;' : 'outline:1px dashed rgba(148,163,184,0.55);';
+      if (el.type === 'qr') {
+        const svg = _admTokenMakeQrSvg(_admTopEvalElement(el, sampleRow), el.size || 72);
+        return `<div data-top-el="${el.id}" onmousedown="_admTopStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;cursor:move;user-select:none;${sel}">${svg}</div>`;
+      }
+      if (el.type === 'photo_field' || el.type === 'image') {
+        const src = _admTopEvalElement(el, sampleRow);
+        const w = el.width || 72, h = el.height || 84, rad = el.radius || 0, fit = el.fit || 'cover';
+        const inner = src
+          ? `<img src="${_escHtml(src)}" draggable="false" style="width:100%;height:100%;object-fit:${fit};display:block;border-radius:${rad}px;pointer-events:none;">`
+          : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#e2e8f0;color:#64748b;font-size:9px;font-weight:700;border-radius:${rad}px;">PHOTO</div>`;
+        return `<div data-top-el="${el.id}" onmousedown="_admTopStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;width:${w}px;height:${h}px;cursor:move;user-select:none;${sel}">${inner}</div>`;
+      }
+      if (el.type === 'table') {
+        return `<div data-top-el="${el.id}" onmousedown="_admTopStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;cursor:move;user-select:none;${sel}">${_admTopRenderTableHtml(el, sampleRow)}</div>`;
+      }
+      if (el.type === 'text' && (parseInt(el.curve, 10) || 0) !== 0) {
+        return `<div data-top-el="${el.id}" onmousedown="_admTopStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;cursor:move;user-select:none;${sel}">${_admTopRenderCurvedTextSvg(el, _admTopEvalElement(el, sampleRow))}</div>`;
+      }
+      const txt = _escHtml(_admTopEvalElement(el, sampleRow)).replace(/\r\n|\r|\n/g, '<br>');
+      const wStyle = el.width ? `width:${el.width}px;` : 'white-space:nowrap;';
+      const td = el.underline ? 'text-decoration:underline;' : '';
+      const ls = el.letter_spacing ? `letter-spacing:${el.letter_spacing}px;` : '';
+      return `<div data-top-el="${el.id}" onmousedown="_admTopStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;${wStyle}font-family:${_escHtml(el.font_family || 'Arial, sans-serif')};font-size:${el.font_size || 11}pt;font-weight:${el.bold ? 700 : 400};font-style:${el.italic ? 'italic' : 'normal'};${td}${ls}text-align:${el.align || 'left'};color:${_escHtml(el.color || '#0f172a')};line-height:1.25;cursor:move;user-select:none;${sel}">${txt || '&nbsp;'}</div>`;
+    }).join('');
+    canvas.innerHTML = borderFrameHtml + elemsHtml;
+  }
+  function _admTopStartDrag(evt, elId) {
+    evt.preventDefault();
+    evt.stopPropagation();
+    _admTopSelectedElId = elId;
+    const el = _admTopDraft.elements.find(e => e.id === elId);
+    const canvas = document.getElementById('admTopCanvas');
+    if (!el || !canvas) return;
+    canvas.querySelectorAll('[data-top-el]').forEach(node => {
+      const active = node.getAttribute('data-top-el') === elId;
+      node.style.outline = active ? '2px solid #4f46e5' : '1px dashed rgba(148,163,184,0.55)';
+    });
+    _admTopRenderInspector();
+    const { wPx, hPx } = _admTopPaperPx(_admTopDraft.paper);
+    const startX = evt.clientX, startY = evt.clientY;
+    const origX = el.x, origY = el.y;
+    const domEl = canvas.querySelector(`[data-top-el="${elId}"]`);
+    const onMove = (e2) => {
+      el.x = Math.max(0, Math.min(wPx - 20, Math.round(origX + (e2.clientX - startX) / _admTopZoom)));
+      el.y = Math.max(0, Math.min(hPx - 14, Math.round(origY + (e2.clientY - startY) / _admTopZoom)));
+      if (domEl) { domEl.style.left = el.x + 'px'; domEl.style.top = el.y + 'px'; }
+      const xIn = document.getElementById('admTopInspX'); if (xIn) xIn.value = el.x;
+      const yIn = document.getElementById('admTopInspY'); if (yIn) yIn.value = el.y;
+    };
+    const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+  function _admTopRenderInspector() {
+    const box = document.getElementById('admTopInspector');
+    if (!box) return;
+    const el = _admTopDraft && _admTopDraft.elements.find(e => e.id === _admTopSelectedElId);
+    if (!el) {
+      box.innerHTML = '<p class="text-[10px] text-slate-400 text-center">Click an element on the page to edit its styling, curving, table cells, or position.</p>';
+      return;
+    }
+    if (el.type === 'qr') {
+      box.innerHTML = `
+        <div class="flex items-center justify-between mb-1"><span class="text-[10px] font-black text-indigo-700 uppercase">Selected: QR Code</span><button type="button" onclick="_admTopDeleteEl('${el.id}')" class="px-2 py-0.5 text-[10px] font-black text-red-500 border border-red-200 rounded">Delete</button></div>
+        <div class="grid grid-cols-4 gap-1.5">
+          <div><label class="text-[9px] text-slate-500 block">X</label><input id="admTopInspX" type="number" value="${el.x}" oninput="_admTopUpdateEl('${el.id}','x',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Y</label><input id="admTopInspY" type="number" value="${el.y}" oninput="_admTopUpdateEl('${el.id}','y',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Size</label><input type="number" min="20" max="260" value="${el.size || 72}" oninput="_admTopUpdateEl('${el.id}','size',Math.max(20,+this.value||72))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div class="col-span-4"><label class="text-[9px] text-slate-500 block">QR Pattern</label><input value="${_escHtml(el.pattern || '')}" oninput="_admTopUpdateEl('${el.id}','pattern',this.value)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        </div>`;
+      return;
+    }
+    if (el.type === 'photo_field' || el.type === 'image') {
+      box.innerHTML = `
+        <div class="flex items-center justify-between mb-1"><span class="text-[10px] font-black text-pink-700 uppercase">Selected: Photo / Logo</span><button type="button" onclick="_admTopDeleteEl('${el.id}')" class="px-2 py-0.5 text-[10px] font-black text-red-500 border border-red-200 rounded">Delete</button></div>
+        <div class="grid grid-cols-6 gap-1.5">
+          <div><label class="text-[9px] text-slate-500 block">X</label><input id="admTopInspX" type="number" value="${el.x}" oninput="_admTopUpdateEl('${el.id}','x',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Y</label><input id="admTopInspY" type="number" value="${el.y}" oninput="_admTopUpdateEl('${el.id}','y',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">W</label><input type="number" min="16" value="${el.width || 72}" oninput="_admTopUpdateEl('${el.id}','width',Math.max(16,+this.value||72))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">H</label><input type="number" min="16" value="${el.height || 84}" oninput="_admTopUpdateEl('${el.id}','height',Math.max(16,+this.value||84))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Radius</label><input type="number" min="0" value="${el.radius || 0}" oninput="_admTopUpdateEl('${el.id}','radius',Math.max(0,+this.value||0))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Fit</label><select onchange="_admTopUpdateEl('${el.id}','fit',this.value)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-[11px]"><option value="cover" ${el.fit !== 'contain' ? 'selected' : ''}>cover</option><option value="contain" ${el.fit === 'contain' ? 'selected' : ''}>contain</option></select></div>
+        </div>`;
+      return;
+    }
+    if (el.type === 'table') {
+      const gridInputs = Array.from({ length: el.rows }, (_, r) =>
+        `<div class="grid gap-1" style="grid-template-columns:repeat(${el.cols},minmax(60px,1fr))">` +
+        Array.from({ length: el.cols }, (_, c) =>
+          `<input value="${_escHtml((el.cells && el.cells[r] && el.cells[r][c]) || '')}" placeholder="R${r + 1}C${c + 1}" oninput="_admTopSetTableCell('${el.id}',${r},${c},this.value)" class="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[11px]">`
+        ).join('') + `</div>`
+      ).join('');
+      box.innerHTML = `
+        <div class="flex items-center justify-between mb-1"><span class="text-[10px] font-black text-teal-700 uppercase">Selected: Table (${el.rows}×${el.cols}) — supports {column}</span><button type="button" onclick="_admTopDeleteEl('${el.id}')" class="px-2 py-0.5 text-[10px] font-black text-red-500 border border-red-200 rounded">Delete</button></div>
+        <div class="grid grid-cols-6 gap-1.5 mb-1.5 items-end">
+          <div><label class="text-[9px] text-slate-500 block">X</label><input id="admTopInspX" type="number" value="${el.x}" oninput="_admTopUpdateEl('${el.id}','x',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Y</label><input id="admTopInspY" type="number" value="${el.y}" oninput="_admTopUpdateEl('${el.id}','y',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Cell W</label><input type="number" min="20" value="${el.cell_w || 85}" oninput="_admTopUpdateEl('${el.id}','cell_w',Math.max(20,+this.value||85))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Cell H</label><input type="number" min="14" value="${el.cell_h || 26}" oninput="_admTopUpdateEl('${el.id}','cell_h',Math.max(14,+this.value||26))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Font(pt)</label><input type="number" min="6" max="24" value="${el.font_size || 9}" oninput="_admTopUpdateEl('${el.id}','font_size',+this.value||9)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <label class="text-[10px] font-bold text-slate-700 pb-1 cursor-pointer"><input type="checkbox" ${el.header_row ? 'checked' : ''} onchange="_admTopUpdateEl('${el.id}','header_row',this.checked)"> Header BG</label>
+        </div>
+        <div class="space-y-1">${gridInputs}</div>`;
+      return;
+    }
+    const title = el.type === 'text' ? 'Custom Text' : (el.type === 'col_header' ? `Header: ${el.header}` : (el.type === 'slice' ? `Portion: ${el.header}` : `Value: ${el.header}`));
+    box.innerHTML = `
+      <div class="flex items-center justify-between mb-1"><span class="text-[10px] font-black text-indigo-700 uppercase truncate">${_escHtml(title)}</span><button type="button" onclick="_admTopDeleteEl('${el.id}')" class="px-2 py-0.5 text-[10px] font-black text-red-500 border border-red-200 rounded">Delete</button></div>
+      <div class="grid grid-cols-7 gap-1 items-end mb-1.5">
+        <div><label class="text-[9px] text-slate-500 block">X</label><input id="admTopInspX" type="number" value="${el.x}" oninput="_admTopUpdateEl('${el.id}','x',+this.value||0)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        <div><label class="text-[9px] text-slate-500 block">Y</label><input id="admTopInspY" type="number" value="${el.y}" oninput="_admTopUpdateEl('${el.id}','y',+this.value||0)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        <div><label class="text-[9px] text-slate-500 block">Width</label><input type="number" min="0" placeholder="auto" value="${el.width || ''}" oninput="_admTopUpdateEl('${el.id}','width',+this.value||0)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        <div><label class="text-[9px] text-slate-500 block">Font(pt)</label><input type="number" min="6" max="48" value="${el.font_size || 11}" oninput="_admTopUpdateEl('${el.id}','font_size',+this.value||11)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        <div>
+          <label class="text-[9px] text-slate-500 block">Font</label>
+          <select onchange="_admTopUpdateEl('${el.id}','font_family',this.value)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-[10px]">
+            ${[['Arial, sans-serif', 'Arial'], ['"Times New Roman", serif', 'Times New Roman'], ['Georgia, serif', 'Georgia'], ['"Courier New", monospace', 'Courier'], ['SutonnyOMJ, sans-serif', 'SutonnyOMJ']].map(([v, l]) => `<option value='${v}' ${el.font_family === v ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label class="text-[9px] text-slate-500 block">Align</label>
+          <select onchange="_admTopUpdateEl('${el.id}','align',this.value)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-[10px]">
+            ${['left', 'center', 'right'].map(a => `<option value="${a}" ${el.align === a ? 'selected' : ''}>${a}</option>`).join('')}
+          </select>
+        </div>
+        <div><label class="text-[9px] text-slate-500 block">Color</label><input type="color" value="${_escHtml(el.color || '#0f172a')}" oninput="_admTopUpdateEl('${el.id}','color',this.value)" class="w-full h-7 p-0 border border-slate-200 rounded"></div>
+      </div>
+      <div class="flex gap-2.5 items-center flex-wrap">
+        <label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.bold ? 'checked' : ''} onchange="_admTopUpdateEl('${el.id}','bold',this.checked)"> Bold</label>
+        <label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.italic ? 'checked' : ''} onchange="_admTopUpdateEl('${el.id}','italic',this.checked)"> Italic</label>
+        <label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.underline ? 'checked' : ''} onchange="_admTopUpdateEl('${el.id}','underline',this.checked)"> Underline</label>
+        ${(el.type === 'field' || el.type === 'slice') ? `<label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.show_label ? 'checked' : ''} onchange="_admTopUpdateEl('${el.id}','show_label',this.checked)"> Show Label</label>` : ''}
+        ${el.type === 'text' ? `
+          <label class="text-[10px] font-bold text-slate-700 flex items-center gap-1">Curve: <input type="range" min="-90" max="90" value="${el.curve || 0}" oninput="_admTopUpdateEl('${el.id}','curve',+this.value||0)" class="w-20"><span class="text-indigo-600">${el.curve || 0}</span></label>
+          <input value="${_escHtml(el.text || '')}" oninput="_admTopUpdateEl('${el.id}','text',this.value)" class="flex-1 min-w-[140px] px-2 py-0.5 bg-white border border-slate-200 rounded text-xs">
+        ` : ''}
+      </div>`;
+  }
+  function _admTopSetTableCell(elId, r, c, val) {
+    const el = _admTopDraft && _admTopDraft.elements.find(e => e.id === elId);
+    if (!el) return;
+    if (!Array.isArray(el.cells)) el.cells = [];
+    if (!Array.isArray(el.cells[r])) el.cells[r] = [];
+    el.cells[r][c] = val;
+    _admTopRedrawCanvas();
+  }
+  function _admTopUpdateEl(elId, prop, val) {
+    const el = _admTopDraft && _admTopDraft.elements.find(e => e.id === elId);
+    if (!el) return;
+    el[prop] = val;
+    _admTopRedrawCanvas();
+    if (prop === 'curve') _admTopRenderInspector();
+  }
+  function _admTopDeleteEl(elId) {
+    if (!_admTopDraft) return;
+    _admTopDraft.elements = _admTopDraft.elements.filter(e => e.id !== elId);
+    _admTopSelectedElId = _admTopDraft.elements[0]?.id || null;
+    _admTopRedrawCanvas();
+    _admTopRenderInspector();
+  }
+  async function _admTopSave() {
+    const name = (document.getElementById('admTopName')?.value || _admTopDraft.name || '').trim();
+    if (!name) { showToast('Enter a template name', 'error'); return; }
+    _admTopDraft.name = name;
+    const idx = _admTopTemplates.findIndex(t => String(t.id) === String(_admTopDraft.id));
+    if (idx >= 0) _admTopTemplates[idx] = _admTopDraft;
+    else _admTopTemplates.push(_admTopDraft);
+    const res = await _admAdminFetch('saveSettings', { key: 'written_top_page_templates', value: _admTopTemplates });
+    if (res && res.error) { showToast(res.error, 'error'); return; }
+    showToast('Top page template saved', 'success');
+    _admTopRenderSelectModal();
+    const sel = document.getElementById('admTopSelect');
+    if (sel) sel.value = _admTopDraft.id;
+  }
+  async function _admTopPrintAll() {
+    const id = document.getElementById('admTopSelect')?.value;
+    const tpl = _admTopTemplates.find(t => String(t.id) === String(id));
+    if (!tpl) { showToast('Select or create a top page template first', 'error'); return; }
+    if (!_admTopItems.length) { showToast('No applicants to print', 'error'); return; }
+    try { await ensureQRCodeGen(); } catch (_) {}
+
+    const { wMm, hMm, wPx, hPx } = _admTopPaperPx(tpl.paper);
+    const insetPx = Math.round((tpl.border_inset ?? 8) * (96 / 25.4));
+    const borderFrameHtml = (tpl.border_w > 0)
+      ? `<div style="position:absolute;left:${insetPx}px;top:${insetPx}px;right:${insetPx}px;bottom:${insetPx}px;border:${tpl.border_w}px ${tpl.border_style || 'solid'} ${_escHtml(tpl.border_color || '#0f172a')};border-radius:${tpl.border_radius || 0}px;pointer-events:none;"></div>`
+      : '';
+
+    const pagesHtml = _admTopItems.map((row, idx) => {
+      const inner = (tpl.elements || []).map(el => {
+        if (el.type === 'qr') {
+          return `<div style="position:absolute;left:${el.x}px;top:${el.y}px;">${_admTokenMakeQrSvg(_admTopEvalElement(el, row), el.size || 72)}</div>`;
+        }
+        if (el.type === 'photo_field' || el.type === 'image') {
+          const src = _admTopEvalElement(el, row);
+          if (!src) return '';
+          return `<img src="${_escHtml(src)}" style="position:absolute;left:${el.x}px;top:${el.y}px;width:${el.width || 72}px;height:${el.height || 84}px;object-fit:${el.fit || 'cover'};border-radius:${el.radius || 0}px;">`;
+        }
+        if (el.type === 'table') {
+          return `<div style="position:absolute;left:${el.x}px;top:${el.y}px;">${_admTopRenderTableHtml(el, row)}</div>`;
+        }
+        if (el.type === 'text' && (parseInt(el.curve, 10) || 0) !== 0) {
+          return `<div style="position:absolute;left:${el.x}px;top:${el.y}px;">${_admTopRenderCurvedTextSvg(el, _admTopEvalElement(el, row))}</div>`;
+        }
+        const txt = _escHtml(_admTopEvalElement(el, row)).replace(/\r\n|\r|\n/g, '<br>');
+        const wStyle = el.width ? `width:${el.width}px;` : 'white-space:nowrap;';
+        const td = el.underline ? 'text-decoration:underline;' : '';
+        return `<div style="position:absolute;left:${el.x}px;top:${el.y}px;${wStyle}font-family:${_escHtml(el.font_family || 'Arial, sans-serif')};font-size:${el.font_size || 11}pt;font-weight:${el.bold ? 700 : 400};font-style:${el.italic ? 'italic' : 'normal'};${td}text-align:${el.align || 'left'};color:${_escHtml(el.color || '#0f172a')};line-height:1.25;">${txt}</div>`;
+      }).join('');
+      const isLast = idx === _admTopItems.length - 1;
+      return `<div style="position:relative;width:${wPx}px;height:${hPx}px;overflow:hidden;background:${_escHtml(tpl.bg_color || '#ffffff')};${isLast ? '' : 'page-break-after:always;'}">${borderFrameHtml}${inner}</div>`;
+    }).join('');
+
+    const css = `@page { size: ${wMm}mm ${hMm}mm; margin: 0; } body { margin: 0; font-family: Arial, sans-serif; } * { box-sizing: border-box; }`;
+    _gfOpenPrintWindow('Written Copy Top Pages', pagesHtml, css);
+  }
+
   // Shared by both the CSV formatter below and import-time normalization
   // (_admCandBuildMappedRows) so a phone/contact value is stored the same
   // clean way it's exported, not just cosmetically reformatted on export.
@@ -45339,6 +46066,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </button>
           <button onclick="_admOpenTokenDesignerModal()" title="Drag-and-drop lottery token designer with custom borders, QR codes, and auto-fit page grid" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
             <i data-lucide="ticket" class="h-3.5 w-3.5"></i> Lottery Tokens
+          </button>
+          <button onclick="_admOpenTopPageModal()" title="Full-page A4/Legal/Letter written copy top page coder with tables, curved text, slices, QR, and photos" class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-50 transition-all">
+            <i data-lucide="file-text" class="h-3.5 w-3.5"></i> Top Page Coder
           </button>
           <label title="Hide active-filter columns and show filter value on top in Print and Export CSV" class="flex items-center gap-1.5 px-3 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl cursor-pointer select-none hover:bg-slate-50 transition-all">
             <input type="checkbox" id="admHideFilteredColChk" ${_admHideFilteredCol ? 'checked' : ''} onchange="_admToggleHideFilteredCol(this.checked)">
