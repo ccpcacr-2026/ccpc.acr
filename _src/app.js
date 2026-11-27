@@ -33952,10 +33952,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <div><label class="text-[9px] text-slate-400 font-bold block">Paper Width (mm)</label><input id="admTokPaperW" type="number" min="40" value="210" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></div>
         <div><label class="text-[9px] text-slate-400 font-bold block">Paper Height (mm)</label><input id="admTokPaperH" type="number" min="40" value="297" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></div>
       </div>
-      <div class="grid grid-cols-2 gap-2 mb-4">
+      <div class="grid grid-cols-2 gap-2 mb-3">
         <div><label class="text-[9px] text-slate-400 font-bold block">Page Margin (mm)</label><input id="admTokMargin" type="number" min="0" max="40" value="8" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></div>
         <div><label class="text-[9px] text-slate-400 font-bold block">Token Gap (mm)</label><input id="admTokGap" type="number" min="0" max="25" value="3" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs"></div>
       </div>
+      <label class="flex items-center gap-1.5 text-xs font-bold text-slate-700 mb-3 cursor-pointer">
+        <input type="checkbox" id="admTokKeepRatio" checked>
+        <span>Keep exact aspect ratio (no deformation)</span>
+      </label>
       <button onclick="_admTokenPrintAll()" class="w-full px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest bg-indigo-600 text-white hover:bg-black transition-all">Print Lottery Tokens</button>
     `);
   }
@@ -34644,9 +34648,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const cellH_mm = Math.max(5, (pageInnerH - (rows - 1) * gap) / rows);
     const cw = tpl.canvas_w || 4200;
     const ch = tpl.canvas_h || 2550;
-    const sx = cellW_mm / cw;
-    const sy = cellH_mm / ch;
-    const sMin = Math.min(sx, sy);
+    const keepRatio = document.getElementById('admTokKeepRatio')?.checked !== false;
+    const rawSx = cellW_mm / cw;
+    const rawSy = cellH_mm / ch;
+    const sMin = Math.min(rawSx, rawSy);
+    const sx = keepRatio ? sMin : rawSx;
+    const sy = keepRatio ? sMin : rawSy;
+    const cardW_mm = keepRatio ? cw * sMin : cellW_mm;
+    const cardH_mm = keepRatio ? ch * sMin : cellH_mm;
     const ptScale = sMin * (96 / 25.4);
 
     const printTextCss = (el) => {
@@ -34684,10 +34693,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const txt = _escHtml(_admTokenEvalElement(el, row)).replace(/\r\n|\r|\n/g, '<br>');
         return `<div style="${printTextCss(el)}">${txt}</div>`;
       }).join('');
-      return `
-        <div style="width:${cellW_mm.toFixed(2)}mm;height:${cellH_mm.toFixed(2)}mm;position:relative;overflow:hidden;background:${_escHtml(tpl.bg_color || '#ffffff')};border:${cardBorderW}mm ${tpl.border_style || 'solid'} ${_escHtml(tpl.border_color || '#0f172a')};border-radius:${cardRadius}mm;box-sizing:border-box;">
+      const cardHtml = `
+        <div style="width:${cardW_mm.toFixed(2)}mm;height:${cardH_mm.toFixed(2)}mm;position:relative;overflow:hidden;background:${_escHtml(tpl.bg_color || '#ffffff')};border:${cardBorderW}mm ${tpl.border_style || 'solid'} ${_escHtml(tpl.border_color || '#0f172a')};border-radius:${cardRadius}mm;box-sizing:border-box;">
           ${inner}
         </div>`;
+      return keepRatio
+        ? `<div style="width:${cellW_mm.toFixed(2)}mm;height:${cellH_mm.toFixed(2)}mm;display:flex;align-items:center;justify-content:center;overflow:hidden;">${cardHtml}</div>`
+        : cardHtml;
     };
 
     const perPage = cols * rows;
@@ -34728,6 +34740,60 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     letter_p: [216, 279, 'Letter Portrait (216 × 279 mm)'],
     letter_l: [279, 216, 'Letter Landscape (279 × 216 mm)'],
   };
+  const ADM_TOP_FONT_OPTS = [
+    ['Arial, sans-serif', 'Arial'],
+    ['"Times New Roman", serif', 'Times New Roman'],
+    ['Georgia, serif', 'Georgia'],
+    ['"Courier New", monospace', 'Courier New'],
+    ['Verdana, sans-serif', 'Verdana'],
+    ['Tahoma, sans-serif', 'Tahoma'],
+    ['"Trebuchet MS", sans-serif', 'Trebuchet MS'],
+    ['Impact, sans-serif', 'Impact'],
+    ['"Noto Sans Bengali", sans-serif', 'Noto Sans Bengali'],
+    ['Kalpurush, sans-serif', 'Kalpurush'],
+    ['SolaimanLipi, sans-serif', 'SolaimanLipi'],
+    ['SutonnyOMJ, sans-serif', 'SutonnyOMJ'],
+  ];
+  const ADM_TOP_BORDER_STYLES = [
+    ['solid', 'Solid'],
+    ['dashed', 'Dashed'],
+    ['dotted', 'Dotted'],
+    ['double', 'Double'],
+    ['double-frame', 'Double Frame'],
+    ['groove', 'Groove'],
+    ['ridge', 'Ridge'],
+  ];
+  const ADM_TOP_LINE_DESIGNS = [
+    ['solid', 'Solid'],
+    ['dashed', 'Dashed'],
+    ['dotted', 'Dotted'],
+    ['double', 'Double'],
+    ['thick-thin', 'Thick + Thin'],
+    ['fade', 'Fade Ends'],
+    ['diamond', 'Center Diamond'],
+    ['ornate', 'Ornate Rule'],
+    ['arrow-end', 'Arrow →'],
+    ['arrow-both', 'Double Arrow ↔'],
+    ['wave', 'Wave'],
+    ['zigzag', 'Zigzag'],
+    ['scallop', 'Beads / Dots'],
+  ];
+  function _admTopBuildPageBorderHtml(tpl) {
+    if (!tpl || !(tpl.border_w > 0)) return '';
+    const insetPx = Math.round((tpl.border_inset ?? 8) * (96 / 25.4));
+    const bw = tpl.border_w;
+    const bs = tpl.border_style || 'solid';
+    const bc = _escHtml(tpl.border_color || '#0f172a');
+    const rad = Math.max(0, parseInt(tpl.border_radius, 10) || 0);
+    if (bs === 'double-frame') {
+      const innerInset = insetPx + bw + 4;
+      const innerBw = Math.max(1, Math.round(bw * 0.5));
+      const innerRad = Math.max(0, rad - bw - 4);
+      return `<div style="position:absolute;left:${insetPx}px;top:${insetPx}px;right:${insetPx}px;bottom:${insetPx}px;border:${bw}px solid ${bc};border-radius:${rad}px;box-sizing:border-box;pointer-events:none;"></div>`
+        + `<div style="position:absolute;left:${innerInset}px;top:${innerInset}px;right:${innerInset}px;bottom:${innerInset}px;border:${innerBw}px solid ${bc};border-radius:${innerRad}px;box-sizing:border-box;pointer-events:none;"></div>`;
+    }
+    return `<div style="position:absolute;left:${insetPx}px;top:${insetPx}px;right:${insetPx}px;bottom:${insetPx}px;border:${bw}px ${_escHtml(bs)} ${bc};border-radius:${rad}px;box-sizing:border-box;pointer-events:none;"></div>`;
+  }
   function _admTopPaperPx(paperKey) {
     const [wMm, hMm] = ADM_TOP_PAPER_MAP[paperKey] || ADM_TOP_PAPER_MAP.a4_p;
     const pxPerMm = 96 / 25.4;
@@ -34886,19 +34952,125 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const w = Math.max(2, el.width || 120);
     const h = Math.max(2, el.height || 60);
     const bw = el.border_w ?? 1;
-    const bs = _escHtml(el.border_style || 'solid');
+    const bs = el.border_style || 'solid';
     const bc = _escHtml(el.border_color || '#0f172a');
     const bg = el.bg_color ? _escHtml(el.bg_color) : 'transparent';
     const rot = el.rotate ? `transform:rotate(${el.rotate}deg);` : '';
     if (el.shape === 'line') {
+      const design = el.line_design || bs || 'solid';
+      const sw = Math.max(1, bw);
+      const cap = el.line_cap === 'round' ? 'round' : 'butt';
       const isVert = h > w;
-      const lineCss = isVert
-        ? `width:0;height:${h}px;border-left:${Math.max(1, bw)}px ${bs} ${bc};margin:0 auto;`
-        : `width:${w}px;height:0;border-top:${Math.max(1, bw)}px ${bs} ${bc};margin-top:${Math.floor(h / 2)}px;`;
-      return `<div style="width:${w}px;height:${h}px;${rot}"><div style="${lineCss}"></div></div>`;
+      const L = Math.max(8, isVert ? h : w);
+      const T = Math.max(2, isVert ? w : h);
+      const cy = +(T / 2).toFixed(2);
+      const uid = 'tl_' + String(el.id || 'x').replace(/[^a-zA-Z0-9_]/g, '') + '_' + Math.floor(Math.random() * 100000);
+      let body = '';
+      if (design === 'dashed') {
+        body = `<line x1="0" y1="${cy}" x2="${L}" y2="${cy}" stroke="${bc}" stroke-width="${sw}" stroke-dasharray="${sw * 4} ${sw * 2.5}" stroke-linecap="${cap}"/>`;
+      } else if (design === 'dotted') {
+        body = `<line x1="${sw}" y1="${cy}" x2="${Math.max(sw, L - sw)}" y2="${cy}" stroke="${bc}" stroke-width="${sw}" stroke-dasharray="0.5 ${Math.max(3, sw * 2.4)}" stroke-linecap="round"/>`;
+      } else if (design === 'double') {
+        const gap = Math.max(sw + 2, 4);
+        const sub = Math.max(1, +(sw * 0.7).toFixed(2));
+        body = `<line x1="0" y1="${(cy - gap / 2).toFixed(2)}" x2="${L}" y2="${(cy - gap / 2).toFixed(2)}" stroke="${bc}" stroke-width="${sub}" stroke-linecap="${cap}"/>`
+          + `<line x1="0" y1="${(cy + gap / 2).toFixed(2)}" x2="${L}" y2="${(cy + gap / 2).toFixed(2)}" stroke="${bc}" stroke-width="${sub}" stroke-linecap="${cap}"/>`;
+      } else if (design === 'thick-thin') {
+        const thin = Math.max(1, +(sw * 0.4).toFixed(2));
+        const gap = Math.max(sw * 0.8 + thin + 2, 4);
+        body = `<line x1="0" y1="${(cy - gap / 2).toFixed(2)}" x2="${L}" y2="${(cy - gap / 2).toFixed(2)}" stroke="${bc}" stroke-width="${sw}" stroke-linecap="${cap}"/>`
+          + `<line x1="0" y1="${(cy + gap / 2).toFixed(2)}" x2="${L}" y2="${(cy + gap / 2).toFixed(2)}" stroke="${bc}" stroke-width="${thin}" stroke-linecap="${cap}"/>`;
+      } else if (design === 'fade') {
+        const rx = cap === 'round' ? (sw / 2).toFixed(2) : '0';
+        body = `<defs><linearGradient id="${uid}" x1="0%" y1="0%" x2="100%" y2="0%">`
+          + `<stop offset="0%" stop-color="${bc}" stop-opacity="0"/>`
+          + `<stop offset="20%" stop-color="${bc}" stop-opacity="1"/>`
+          + `<stop offset="80%" stop-color="${bc}" stop-opacity="1"/>`
+          + `<stop offset="100%" stop-color="${bc}" stop-opacity="0"/>`
+          + `</linearGradient></defs>`
+          + `<rect x="0" y="${(cy - sw / 2).toFixed(2)}" width="${L}" height="${sw}" rx="${rx}" fill="url(#${uid})"/>`;
+      } else if (design === 'diamond') {
+        const mid = +(L / 2).toFixed(2);
+        const r = Math.max(4, Math.min(L / 6, sw * 2.2));
+        body = `<line x1="0" y1="${cy}" x2="${L}" y2="${cy}" stroke="${bc}" stroke-width="${sw}" stroke-linecap="${cap}"/>`
+          + `<polygon points="${mid},${(cy - r).toFixed(2)} ${(mid + r * 1.25).toFixed(2)},${cy} ${mid},${(cy + r).toFixed(2)} ${(mid - r * 1.25).toFixed(2)},${cy}" fill="${bc}"/>`;
+      } else if (design === 'ornate') {
+        const mid = +(L / 2).toFixed(2);
+        const r = Math.max(4, Math.min(L / 8, sw * 2));
+        const dotR = Math.max(1.5, sw * 0.85);
+        const sub = Math.max(1, +(sw * 0.6).toFixed(2));
+        const off = Math.max(2.5, sw * 0.9);
+        const sideGap = r * 1.6 + dotR * 3 + 4;
+        body = (mid - sideGap > 4
+          ? `<line x1="0" y1="${(cy - off).toFixed(2)}" x2="${(mid - sideGap).toFixed(2)}" y2="${(cy - off).toFixed(2)}" stroke="${bc}" stroke-width="${sub}" stroke-linecap="${cap}"/>`
+            + `<line x1="0" y1="${(cy + off).toFixed(2)}" x2="${(mid - sideGap).toFixed(2)}" y2="${(cy + off).toFixed(2)}" stroke="${bc}" stroke-width="${sub}" stroke-linecap="${cap}"/>`
+            + `<line x1="${(mid + sideGap).toFixed(2)}" y1="${(cy - off).toFixed(2)}" x2="${L}" y2="${(cy - off).toFixed(2)}" stroke="${bc}" stroke-width="${sub}" stroke-linecap="${cap}"/>`
+            + `<line x1="${(mid + sideGap).toFixed(2)}" y1="${(cy + off).toFixed(2)}" x2="${L}" y2="${(cy + off).toFixed(2)}" stroke="${bc}" stroke-width="${sub}" stroke-linecap="${cap}"/>`
+          : `<line x1="0" y1="${cy}" x2="${L}" y2="${cy}" stroke="${bc}" stroke-width="${sub}"/>`)
+          + `<polygon points="${mid},${(cy - r).toFixed(2)} ${(mid + r * 1.3).toFixed(2)},${cy} ${mid},${(cy + r).toFixed(2)} ${(mid - r * 1.3).toFixed(2)},${cy}" fill="${bc}"/>`
+          + `<circle cx="${(mid - r * 1.3 - dotR * 2.2).toFixed(2)}" cy="${cy}" r="${dotR.toFixed(2)}" fill="${bc}"/>`
+          + `<circle cx="${(mid + r * 1.3 + dotR * 2.2).toFixed(2)}" cy="${cy}" r="${dotR.toFixed(2)}" fill="${bc}"/>`;
+      } else if (design === 'arrow-end' || design === 'arrow-both') {
+        const ah = Math.max(6, Math.min(L / 4, sw * 3.4));
+        const aw = Math.max(3.5, sw * 2);
+        const x1 = design === 'arrow-both' ? ah : 0;
+        const x2 = Math.max(x1 + 2, L - ah);
+        body = `<line x1="${x1.toFixed(2)}" y1="${cy}" x2="${x2.toFixed(2)}" y2="${cy}" stroke="${bc}" stroke-width="${sw}" stroke-linecap="${cap}"/>`
+          + `<polygon points="${L},${cy} ${(L - ah).toFixed(2)},${(cy - aw).toFixed(2)} ${(L - ah).toFixed(2)},${(cy + aw).toFixed(2)}" fill="${bc}"/>`
+          + (design === 'arrow-both' ? `<polygon points="0,${cy} ${ah.toFixed(2)},${(cy - aw).toFixed(2)} ${ah.toFixed(2)},${(cy + aw).toFixed(2)}" fill="${bc}"/>` : '');
+      } else if (design === 'wave') {
+        const wl = Math.max(12, sw * 5.5);
+        const amp = Math.max(3, Math.min(Math.max(4, T / 2 - sw * 0.6), sw * 1.8));
+        const halfWl = wl / 2;
+        let d = `M 0 ${cy}`;
+        let x = 0;
+        let dir = -1;
+        while (x < L) {
+          const nextX = Math.min(L, x + halfWl);
+          const ctrlX = (x + nextX) / 2;
+          const ctrlY = cy + dir * amp;
+          d += ` Q ${ctrlX.toFixed(2)} ${ctrlY.toFixed(2)} ${nextX.toFixed(2)} ${cy}`;
+          x = nextX;
+          dir *= -1;
+        }
+        body = `<path d="${d}" fill="none" stroke="${bc}" stroke-width="${sw}" stroke-linecap="${cap}" stroke-linejoin="round"/>`;
+      } else if (design === 'zigzag') {
+        const step = Math.max(6, sw * 3);
+        const amp = Math.max(3, Math.min(Math.max(4, T / 2 - sw * 0.6), sw * 1.8));
+        let d = `M 0 ${cy}`;
+        let x = 0;
+        let dir = -1;
+        while (x < L) {
+          const midX = Math.min(L, x + step / 2);
+          const nextX = Math.min(L, x + step);
+          d += ` L ${midX.toFixed(2)} ${(cy + dir * amp).toFixed(2)}`;
+          if (nextX > midX) d += ` L ${nextX.toFixed(2)} ${cy}`;
+          x = nextX;
+          dir *= -1;
+        }
+        body = `<path d="${d}" fill="none" stroke="${bc}" stroke-width="${sw}" stroke-linecap="${cap}" stroke-linejoin="miter"/>`;
+      } else if (design === 'scallop') {
+        const r = Math.max(1.5, sw * 0.8);
+        const sp = Math.max(r * 3.2, 6);
+        let circles = '';
+        for (let cx = r; cx <= L - r + 0.1; cx += sp) {
+          circles += `<circle cx="${cx.toFixed(2)}" cy="${cy}" r="${r.toFixed(2)}" fill="${bc}"/>`;
+        }
+        body = circles || `<circle cx="${(L / 2).toFixed(2)}" cy="${cy}" r="${r.toFixed(2)}" fill="${bc}"/>`;
+      } else {
+        body = `<line x1="0" y1="${cy}" x2="${L}" y2="${cy}" stroke="${bc}" stroke-width="${sw}" stroke-linecap="${cap}"/>`;
+      }
+      const wrapped = isVert ? `<g transform="translate(${w},0) rotate(90)">${body}</g>` : body;
+      return `<div style="width:${w}px;height:${h}px;${rot}overflow:visible;"><svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;overflow:visible;">${wrapped}</svg></div>`;
     }
-    const rad = el.shape === 'circle' ? '50%' : `${el.border_radius || 0}px`;
-    return `<div style="width:${w}px;height:${h}px;border:${bw}px ${bs} ${bc};background:${bg};border-radius:${rad};box-sizing:border-box;${rot}"></div>`;
+    const radVal = Math.max(0, parseInt(el.border_radius, 10) || 0);
+    const rad = el.shape === 'circle' ? '50%' : `${radVal}px`;
+    if (bs === 'double-frame' && bw > 0) {
+      const innerBw = Math.max(1, Math.round(bw * 0.5));
+      const innerRad = el.shape === 'circle' ? '50%' : `${Math.max(0, radVal - 3)}px`;
+      return `<div style="width:${w}px;height:${h}px;border:${bw}px solid ${bc};background:${bg};border-radius:${rad};box-sizing:border-box;position:relative;${rot}"><div style="position:absolute;inset:3px;border:${innerBw}px solid ${bc};border-radius:${innerRad};box-sizing:border-box;pointer-events:none;"></div></div>`;
+    }
+    return `<div style="width:${w}px;height:${h}px;border:${bw}px ${_escHtml(bs)} ${bc};background:${bg};border-radius:${rad};box-sizing:border-box;${rot}"></div>`;
   }
   function _admTopRenderTableHtml(el, row) {
     const rCount = Math.max(1, el.rows || 3);
@@ -34909,6 +35081,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const bs = _escHtml(el.border_style || 'solid');
     const bc = _escHtml(el.border_color || '#0f172a');
     const defaultFs = el.font_size || 9;
+    const defaultFf = el.font_family || 'Arial, sans-serif';
     const hdrBg = _escHtml(el.header_bg || '#f1f5f9');
     let trs = '';
     for (let r = 0; r < rCount; r++) {
@@ -34926,13 +35099,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const align = st.align || 'center';
         const valign = st.valign || 'middle';
         const fs = st.font_size || defaultFs;
+        const ff = _escHtml(st.font_family || defaultFf);
         const fw = st.bold ? 'font-weight:700;' : ((r === 0 && el.header_row) ? 'font-weight:700;' : '');
         const fst = st.italic ? 'font-style:italic;' : '';
         const td = st.underline ? 'text-decoration:underline;' : '';
         const clr = st.color ? `color:${_escHtml(st.color)};` : '';
         const bg = (r === 0 && el.header_row) ? `background:${hdrBg};` : '';
         const cellHtml = val ? _escHtml(val).replace(/\r\n|\r|\n/g, '<br>') : '&nbsp;';
-        tds += `<td style="box-sizing:border-box;${wCss}height:${ch}px;border:${bw}px ${bs} ${bc};padding:2px 4px;font-size:${fs}pt;text-align:${align};vertical-align:${valign};${wrapCss}${fw}${fst}${td}${clr}${bg}">${cellHtml}</td>`;
+        tds += `<td style="box-sizing:border-box;${wCss}height:${ch}px;border:${bw}px ${bs} ${bc};padding:2px 4px;font-family:${ff};font-size:${fs}pt;text-align:${align};vertical-align:${valign};${wrapCss}${fw}${fst}${td}${clr}${bg}">${cellHtml}</td>`;
       }
       trs += `<tr>${tds}</tr>`;
     }
@@ -35001,19 +35175,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             </div>
           </div>
 
-          <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
-            <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Page Border &amp; Background</p>
-            <div class="grid grid-cols-5 gap-1">
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-2 space-y-1.5">
+            <p class="text-[9px] font-black text-slate-400 uppercase">Page Border &amp; Background</p>
+            <div class="grid grid-cols-6 gap-1">
               <div><label class="text-[9px] text-slate-500 block">Border</label><input type="number" min="0" max="20" value="${d.border_w}" oninput="_admTopPageProp('border_w',Math.max(0,+this.value||0))" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs"></div>
-              <div><label class="text-[9px] text-slate-500 block">Inset(mm)</label><input type="number" min="0" max="30" value="${d.border_inset ?? 8}" oninput="_admTopPageProp('border_inset',Math.max(0,+this.value||0))" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+              <div><label class="text-[9px] text-slate-500 block">Inset</label><input type="number" min="0" max="30" value="${d.border_inset ?? 8}" title="Inset (mm)" oninput="_admTopPageProp('border_inset',Math.max(0,+this.value||0))" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+              <div><label class="text-[9px] text-slate-500 block">Round</label><input id="admTopPageRadius" type="number" min="0" max="120" value="${d.border_radius || 0}" title="Corner Rounder (px)" oninput="_admTopPageProp('border_radius',Math.max(0,+this.value||0))" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs"></div>
               <div>
                 <label class="text-[9px] text-slate-500 block">Style</label>
-                <select onchange="_admTopPageProp('border_style',this.value)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-[11px]">
-                  ${['solid', 'dashed', 'dotted', 'double'].map(s => `<option value="${s}" ${d.border_style === s ? 'selected' : ''}>${s}</option>`).join('')}
+                <select onchange="_admTopPageProp('border_style',this.value)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-[10px]">
+                  ${ADM_TOP_BORDER_STYLES.map(([v, l]) => `<option value="${v}" ${(d.border_style || 'solid') === v ? 'selected' : ''}>${l}</option>`).join('')}
                 </select>
               </div>
               <div><label class="text-[9px] text-slate-500 block">Color</label><input type="color" value="${_escHtml(d.border_color || '#0f172a')}" oninput="_admTopPageProp('border_color',this.value)" class="w-full h-7 p-0 border border-slate-200 rounded"></div>
               <div><label class="text-[9px] text-slate-500 block">BG</label><input type="color" value="${_escHtml(d.bg_color || '#ffffff')}" oninput="_admTopPageProp('bg_color',this.value)" class="w-full h-7 p-0 border border-slate-200 rounded"></div>
+            </div>
+            <div class="flex items-center gap-1 flex-wrap">
+              <span class="text-[9px] font-bold text-slate-400">Corner Rounder:</span>
+              ${[0, 6, 12, 20, 32].map(r => `<button type="button" onclick="_admTopSetPageRadius(${r})" class="px-1.5 py-0.5 bg-white hover:bg-indigo-50 border border-slate-200 rounded text-[9px] font-bold text-slate-600">${r === 0 ? 'Sharp' : r + 'px'}</button>`).join('')}
             </div>
           </div>
 
@@ -35283,6 +35462,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admTopDraft[prop] = val;
     _admTopRedrawCanvas();
   }
+  function _admTopSetPageRadius(r) {
+    _admTopDraft.border_radius = Math.max(0, parseInt(r, 10) || 0);
+    const inp = document.getElementById('admTopPageRadius');
+    if (inp) inp.value = _admTopDraft.border_radius;
+    _admTopRedrawCanvas();
+  }
   function _admTopSliceModeChange() {
     const m = document.getElementById('admTopSliceMode')?.value;
     document.getElementById('admTopSliceN')?.classList.toggle('hidden', m === 'range');
@@ -35353,7 +35538,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const cols = Math.max(1, Math.min(12, parseInt(document.getElementById('admTopTblCols')?.value, 10) || 4));
     const cells = Array.from({ length: rows }, () => Array.from({ length: cols }, () => ''));
     const col_widths = Array.from({ length: cols }, () => ({ mode: 'fixed', width: 95 }));
-    const el = { id: 'el_' + Date.now(), type: 'table', rows, cols, cell_w: 95, cell_h: 32, col_widths, cell_styles: {}, border_w: 1, border_style: 'solid', border_color: '#0f172a', header_row: false, header_bg: '#f1f5f9', font_size: 9, locked: false, cells, x: 40, y: 120 };
+    const el = { id: 'el_' + Date.now(), type: 'table', rows, cols, cell_w: 95, cell_h: 32, col_widths, cell_styles: {}, border_w: 1, border_style: 'solid', border_color: '#0f172a', header_row: false, header_bg: '#f1f5f9', font_size: 9, font_family: 'Arial, sans-serif', locked: false, cells, x: 40, y: 120 };
     _admTopDraft.elements.push(el);
     _admTopSelectedElId = el.id;
     _admTopActiveCell = { elId: el.id, r: 0, c: 0 };
@@ -35362,8 +35547,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
   function _admTopAddShape(kind) {
     const base = { id: 'el_' + Date.now(), type: 'shape', x: 40, y: 80, border_w: 2, border_style: 'solid', border_color: '#0f172a', bg_color: '', border_radius: 0, rotate: 0 };
-    const el = kind === 'hline' ? { ...base, shape: 'line', width: 260, height: 12 }
-      : kind === 'vline' ? { ...base, shape: 'line', width: 12, height: 180 }
+    const el = kind === 'hline' ? { ...base, shape: 'line', line_design: 'solid', line_cap: 'butt', width: 260, height: 16 }
+      : kind === 'vline' ? { ...base, shape: 'line', line_design: 'solid', line_cap: 'butt', width: 16, height: 180 }
       : kind === 'circle' ? { ...base, shape: 'circle', width: 90, height: 90, border_w: 1 }
       : { ...base, shape: 'rect', width: 200, height: 90, border_w: 1 };
     _admTopDraft.elements.push(el);
@@ -35434,10 +35619,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const d = _admTopDraft;
     const sampleRow = _admTopItems[0] || null;
     canvas.style.background = d.bg_color || '#ffffff';
-    const insetPx = Math.round((d.border_inset ?? 8) * (96 / 25.4));
-    const borderFrameHtml = (d.border_w > 0)
-      ? `<div style="position:absolute;left:${insetPx}px;top:${insetPx}px;right:${insetPx}px;bottom:${insetPx}px;border:${d.border_w}px ${d.border_style || 'solid'} ${_escHtml(d.border_color || '#0f172a')};border-radius:${d.border_radius || 0}px;pointer-events:none;"></div>`
-      : '';
+    const borderFrameHtml = _admTopBuildPageBorderHtml(d);
     const ow = Math.max(1, Math.round(2 / _admTopZoom));
     const dw = Math.max(1, Math.round(1 / _admTopZoom));
     const hs = Math.max(8, Math.round(9 / _admTopZoom));
@@ -35597,6 +35779,38 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return;
     }
     if (el.type === 'shape') {
+      if (el.shape === 'line') {
+        const curDesign = el.line_design || el.border_style || 'solid';
+        const designChips = ADM_TOP_LINE_DESIGNS.map(([v, l]) =>
+          `<button type="button" onclick="_admTopUpdateEl('${el.id}','line_design','${v}')" class="px-1.5 py-0.5 rounded text-[10px] font-bold border ${curDesign === v ? 'bg-sky-600 text-white border-sky-600' : 'bg-white text-slate-600 border-slate-200 hover:border-sky-400'}">${l}</button>`
+        ).join('');
+        box.innerHTML = `
+          <div class="flex items-center justify-between mb-1"><span class="text-[10px] font-black text-sky-700 uppercase">Selected: Line Designer</span><button type="button" onclick="_admTopDeleteEl('${el.id}')" class="px-2 py-0.5 text-[10px] font-black text-red-500 border border-red-200 rounded">Delete</button></div>
+          <div class="grid grid-cols-9 gap-1 items-end">
+            <div><label class="text-[9px] text-slate-500 block">X</label><input id="admTopInspX" type="number" value="${el.x}" oninput="_admTopUpdateEl('${el.id}','x',+this.value||0)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+            <div><label class="text-[9px] text-slate-500 block">Y</label><input id="admTopInspY" type="number" value="${el.y}" oninput="_admTopUpdateEl('${el.id}','y',+this.value||0)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+            <div><label class="text-[9px] text-slate-500 block">W</label><input type="number" min="2" value="${el.width || 260}" oninput="_admTopUpdateEl('${el.id}','width',Math.max(2,+this.value||260))" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+            <div><label class="text-[9px] text-slate-500 block">H</label><input type="number" min="2" value="${el.height || 16}" oninput="_admTopUpdateEl('${el.id}','height',Math.max(2,+this.value||16))" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+            <div><label class="text-[9px] text-slate-500 block">Thick</label><input type="number" min="1" max="30" value="${el.border_w ?? 2}" oninput="_admTopUpdateEl('${el.id}','border_w',Math.max(1,+this.value||1))" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+            <div>
+              <label class="text-[9px] text-slate-500 block">Design</label>
+              <select onchange="_admTopUpdateEl('${el.id}','line_design',this.value)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-[10px]">
+                ${ADM_TOP_LINE_DESIGNS.map(([v, l]) => `<option value="${v}" ${curDesign === v ? 'selected' : ''}>${l}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="text-[9px] text-slate-500 block">Cap</label>
+              <select onchange="_admTopUpdateEl('${el.id}','line_cap',this.value)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-[10px]">
+                <option value="butt" ${el.line_cap !== 'round' ? 'selected' : ''}>Square</option>
+                <option value="round" ${el.line_cap === 'round' ? 'selected' : ''}>Round</option>
+              </select>
+            </div>
+            <div><label class="text-[9px] text-slate-500 block">Color</label><input type="color" value="${_escHtml(el.border_color || '#0f172a')}" oninput="_admTopUpdateEl('${el.id}','border_color',this.value)" class="w-full h-7 p-0 border border-slate-200 rounded"></div>
+            <div><label class="text-[9px] text-slate-500 block">Rotate°</label><input type="number" min="-180" max="180" value="${el.rotate || 0}" oninput="_admTopUpdateEl('${el.id}','rotate',+this.value||0)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          </div>
+          <div class="mt-1.5 flex items-center gap-1 flex-wrap"><span class="text-[9px] font-black text-slate-400 uppercase mr-0.5">Line Presets:</span>${designChips}</div>`;
+        return;
+      }
       box.innerHTML = `
         <div class="flex items-center justify-between mb-1"><span class="text-[10px] font-black text-sky-700 uppercase">Selected: Shape (${_escHtml(el.shape)})</span><button type="button" onclick="_admTopDeleteEl('${el.id}')" class="px-2 py-0.5 text-[10px] font-black text-red-500 border border-red-200 rounded">Delete</button></div>
         <div class="grid grid-cols-9 gap-1 items-end">
@@ -35608,7 +35822,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div>
             <label class="text-[9px] text-slate-500 block">Style</label>
             <select onchange="_admTopUpdateEl('${el.id}','border_style',this.value)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-[10px]">
-              ${['solid', 'dashed', 'dotted', 'double'].map(s => `<option value="${s}" ${(el.border_style || 'solid') === s ? 'selected' : ''}>${s}</option>`).join('')}
+              ${ADM_TOP_BORDER_STYLES.map(([v, l]) => `<option value="${v}" ${(el.border_style || 'solid') === v ? 'selected' : ''}>${l}</option>`).join('')}
             </select>
           </div>
           <div><label class="text-[9px] text-slate-500 block">Line Color</label><input type="color" value="${_escHtml(el.border_color || '#0f172a')}" oninput="_admTopUpdateEl('${el.id}','border_color',this.value)" class="w-full h-7 p-0 border border-slate-200 rounded"></div>
@@ -35621,7 +35835,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
           <div><label class="text-[9px] text-slate-500 block">Rotate°</label><input type="number" min="-180" max="180" value="${el.rotate || 0}" oninput="_admTopUpdateEl('${el.id}','rotate',+this.value||0)" class="w-full px-1 py-1 bg-white border border-slate-200 rounded text-xs"></div>
         </div>
-        ${el.shape === 'rect' ? `<div class="mt-1 flex items-center gap-2"><label class="text-[10px] font-bold text-slate-600">Corner Radius (px): <input type="number" min="0" max="200" value="${el.border_radius || 0}" oninput="_admTopUpdateEl('${el.id}','border_radius',Math.max(0,+this.value||0))" class="w-16 px-1.5 py-0.5 bg-white border border-slate-200 rounded text-xs"></label></div>` : ''}`;
+        ${el.shape === 'rect' ? `<div class="mt-1.5 flex items-center gap-2 flex-wrap">
+          <label class="text-[10px] font-bold text-slate-600 inline-flex items-center gap-1.5">Corner Rounder (px):
+            <input id="admTopShapeRadNum" type="number" min="0" max="200" value="${el.border_radius || 0}" oninput="_admTopSetShapeRadius('${el.id}',+this.value||0)" class="w-14 px-1.5 py-0.5 bg-white border border-slate-200 rounded text-xs">
+            <input id="admTopShapeRadRng" type="range" min="0" max="100" value="${Math.min(100, el.border_radius || 0)}" oninput="_admTopSetShapeRadius('${el.id}',+this.value||0)" class="w-24">
+          </label>
+          <div class="flex items-center gap-1">
+            ${[0, 6, 12, 24, 40].map(r => `<button type="button" onclick="_admTopSetShapeRadius('${el.id}',${r})" class="px-1.5 py-0.5 bg-white hover:bg-sky-50 border border-slate-200 rounded text-[9px] font-bold text-slate-600">${r === 0 ? 'Sharp' : r + 'px'}</button>`).join('')}
+          </div>
+        </div>` : ''}`;
       return;
     }
     if (el.type === 'table') {
@@ -35663,8 +35885,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.locked ? 'checked' : ''} onchange="_admTopUpdateEl('${el.id}','locked',this.checked)"> Lock Table Position</label>
           <label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.header_row ? 'checked' : ''} onchange="_admTopUpdateEl('${el.id}','header_row',this.checked)"> Header BG</label>
           <select onchange="_admTopUpdateEl('${el.id}','border_style',this.value)" class="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[10px]">
-            ${['solid', 'dashed', 'dotted'].map(s => `<option value="${s}" ${(el.border_style || 'solid') === s ? 'selected' : ''}>${s}</option>`).join('')}
+            ${['solid', 'dashed', 'dotted', 'double'].map(s => `<option value="${s}" ${(el.border_style || 'solid') === s ? 'selected' : ''}>${s}</option>`).join('')}
           </select>
+          <label class="text-[10px] font-bold text-slate-700 inline-flex items-center gap-1">Table Font:
+            <select onchange="_admTopUpdateEl('${el.id}','font_family',this.value)" class="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-[10px]">
+              ${ADM_TOP_FONT_OPTS.map(([v, l]) => `<option value='${v}' ${(el.font_family || 'Arial, sans-serif') === v ? 'selected' : ''}>${l}</option>`).join('')}
+            </select>
+          </label>
         </div>
         <div class="flex flex-wrap gap-1 items-center mb-1.5"><span class="text-[9px] font-black text-slate-400 uppercase">Col Widths:</span>${colWidthsBar}</div>
         <div class="p-1.5 mb-1.5 bg-indigo-50/70 border border-indigo-200 rounded-lg space-y-1">
@@ -35677,6 +35904,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <button type="button" onclick="_admTopInsertIntoTableCell('${el.id}',${ar},${ac},'text')" class="px-1.5 py-0.5 bg-teal-600 text-white rounded text-[9px] font-black uppercase">+ Text</button>
           </div>
           <div class="flex gap-2 items-center flex-wrap text-[10px]">
+            <select onchange="_admTopUpdateTableCellStyle('${el.id}',${ar},${ac},'font_family',this.value)" title="Cell Font Family" class="px-1 py-0.5 bg-white border border-slate-200 rounded">
+              <option value="" ${!st.font_family ? 'selected' : ''}>Font: Table Default</option>
+              ${ADM_TOP_FONT_OPTS.map(([v, l]) => `<option value='${v}' ${st.font_family === v ? 'selected' : ''}>${l}</option>`).join('')}
+            </select>
             <select onchange="_admTopUpdateTableCellStyle('${el.id}',${ar},${ac},'align',this.value)" class="px-1 py-0.5 bg-white border border-slate-200 rounded">
               ${['left', 'center', 'right'].map(a => `<option value="${a}" ${(st.align || 'center') === a ? 'selected' : ''}>Align: ${a}</option>`).join('')}
             </select>
@@ -35715,14 +35946,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <button type="button" onclick="_admTopElMergeAddPart('${el.id}','slice')" class="px-1.5 py-0.5 bg-violet-600 text-white rounded text-[9px] font-black uppercase">+Portion</button>
         </div>
       </div>` : '';
-    const fontOpts = [
-      ['Arial, sans-serif', 'Arial'],
-      ['"Times New Roman", serif', 'Times New Roman'],
-      ['Georgia, serif', 'Georgia'],
-      ['"Courier New", monospace', 'Courier'],
-      ['"Noto Sans Bengali", sans-serif', 'Noto Sans Bengali'],
-      ['SutonnyOMJ, sans-serif', 'SutonnyOMJ'],
-    ];
+    const fontOpts = ADM_TOP_FONT_OPTS;
     box.innerHTML = `
       <div class="flex items-center justify-between mb-1"><span class="text-[10px] font-black text-indigo-700 uppercase truncate">${_escHtml(title)}</span><button type="button" onclick="_admTopDeleteEl('${el.id}')" class="px-2 py-0.5 text-[10px] font-black text-red-500 border border-red-200 rounded">Delete</button></div>
       <div class="grid grid-cols-6 gap-1 items-end mb-1.5">
@@ -35858,12 +36082,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admTopRedrawCanvas();
     _admTopRenderInspector();
   }
+  function _admTopSetShapeRadius(elId, r) {
+    const el = _admTopDraft && _admTopDraft.elements.find(e => e.id === elId);
+    if (!el) return;
+    el.border_radius = Math.max(0, Math.min(200, parseInt(r, 10) || 0));
+    const num = document.getElementById('admTopShapeRadNum');
+    const rng = document.getElementById('admTopShapeRadRng');
+    if (num) num.value = el.border_radius;
+    if (rng) rng.value = Math.min(100, el.border_radius);
+    _admTopRedrawCanvas();
+  }
   function _admTopUpdateEl(elId, prop, val) {
     const el = _admTopDraft && _admTopDraft.elements.find(e => e.id === elId);
     if (!el) return;
     el[prop] = val;
     _admTopRedrawCanvas();
-    if (prop === 'curve' || prop === 'locked') _admTopRenderInspector();
+    if (prop === 'curve' || prop === 'locked' || prop === 'line_design') _admTopRenderInspector();
   }
   function _admTopDeleteEl(elId) {
     if (!_admTopDraft) return;
@@ -35894,10 +36128,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     try { await ensureQRCodeGen(); } catch (_) {}
 
     const { wMm, hMm, wPx, hPx } = _admTopPaperPx(tpl.paper);
-    const insetPx = Math.round((tpl.border_inset ?? 8) * (96 / 25.4));
-    const borderFrameHtml = (tpl.border_w > 0)
-      ? `<div style="position:absolute;left:${insetPx}px;top:${insetPx}px;right:${insetPx}px;bottom:${insetPx}px;border:${tpl.border_w}px ${tpl.border_style || 'solid'} ${_escHtml(tpl.border_color || '#0f172a')};border-radius:${tpl.border_radius || 0}px;pointer-events:none;"></div>`
-      : '';
+    const borderFrameHtml = _admTopBuildPageBorderHtml(tpl);
 
     const pagesHtml = _admTopItems.map((row, idx) => {
       const inner = (tpl.elements || []).map(el => {
@@ -35926,7 +36157,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       return `<div style="position:relative;width:${wPx}px;height:${hPx}px;overflow:hidden;background:${_escHtml(tpl.bg_color || '#ffffff')};${isLast ? '' : 'page-break-after:always;'}">${borderFrameHtml}${inner}</div>`;
     }).join('');
 
-    const css = `@page { size: ${wMm}mm ${hMm}mm; margin: 0; } body { margin: 0; font-family: Arial, sans-serif; } * { box-sizing: border-box; }`;
+    const css = `@page { size: ${wMm}mm ${hMm}mm; margin: 0; } body { margin: 0; font-family: Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; } * { box-sizing: border-box; }`;
     _gfOpenPrintWindow('Written Copy Top Pages', pagesHtml, css);
   }
 
