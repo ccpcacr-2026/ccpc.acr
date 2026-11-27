@@ -33896,6 +33896,106 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
     return `<div style="width:${pxSize}px;height:${pxSize}px;border:1px dashed #94a3b8;display:flex;align-items:center;justify-content:center;font-size:8px;color:#64748b;">QR</div>`;
   }
+  // ISO/IEC 15417 Code 128 (auto B/C switching) pure-SVG barcode generator
+  const ADM_CODE128_PATTERNS = [
+    '212222','222122','222221','121223','121322','131222','122213','122312','132212','221213',
+    '221312','231212','112232','122132','122231','113222','123122','123221','223211','221132',
+    '221231','213212','223112','312131','311222','321122','321221','312212','322112','322211',
+    '212123','212321','232121','111323','131123','131321','112313','132113','132311','211313',
+    '231113','231311','112133','112331','132131','113123','113321','133121','313121','211331',
+    '231131','213113','213311','213131','311123','311321','331121','312113','312311','332111',
+    '314111','221411','431111','111224','111422','121124','121421','141122','141221','112214',
+    '112412','122114','122411','142112','142211','241211','221114','413111','241112','134111',
+    '111242','121142','121241','114212','124112','124211','411212','421112','421211','212141',
+    '214121','412121','111143','111341','131141','114113','114311','411113','411311','113141',
+    '114131','311141','411131','211412','211214','211232','2331112'
+  ];
+  function _admEncodeCode128(text) {
+    const clean = String(text || '').replace(/[^\x20-\x7e]/g, '');
+    if (!clean) return null;
+    const isDigitsAt = (s, pos, minLen) => {
+      let n = 0;
+      while (pos + n < s.length && s.charCodeAt(pos + n) >= 48 && s.charCodeAt(pos + n) <= 57) n++;
+      return n >= minLen;
+    };
+    const codes = [];
+    let mode = isDigitsAt(clean, 0, 4) || (/^\d+$/.test(clean) && clean.length >= 2 && clean.length % 2 === 0) ? 'C' : 'B';
+    codes.push(mode === 'C' ? 105 : 104);
+    let i = 0;
+    while (i < clean.length) {
+      if (mode === 'C') {
+        if (i + 1 < clean.length && clean.charCodeAt(i) >= 48 && clean.charCodeAt(i) <= 57 && clean.charCodeAt(i + 1) >= 48 && clean.charCodeAt(i + 1) <= 57) {
+          codes.push(parseInt(clean.slice(i, i + 2), 10));
+          i += 2;
+        } else {
+          codes.push(100); // Switch to Code B
+          mode = 'B';
+        }
+      } else {
+        if (isDigitsAt(clean, i, 4)) {
+          let run = 0;
+          while (i + run < clean.length && clean.charCodeAt(i + run) >= 48 && clean.charCodeAt(i + run) <= 57) run++;
+          if (run % 2 === 1) {
+            codes.push(clean.charCodeAt(i) - 32);
+            i += 1;
+          }
+          codes.push(99); // Switch to Code C
+          mode = 'C';
+        } else {
+          codes.push(clean.charCodeAt(i) - 32);
+          i += 1;
+        }
+      }
+    }
+    let checksum = codes[0];
+    for (let k = 1; k < codes.length; k++) checksum += codes[k] * k;
+    codes.push(checksum % 103);
+    codes.push(106); // Stop
+    return { clean, codes };
+  }
+  function _admMakeBarcodeSvg(text, width, height, opts) {
+    const w = Math.max(40, Math.round(Number(width) || 220));
+    const h = Math.max(18, Math.round(Number(height) || 56));
+    const showText = !opts || opts.showText !== false;
+    const color = _escHtml((opts && opts.color) || '#0f172a');
+    const bg = _escHtml((opts && opts.bg) || '#ffffff');
+    const enc = _admEncodeCode128(text);
+    if (!enc) {
+      return `<div style="width:${w}px;height:${h}px;border:1px dashed #94a3b8;display:flex;align-items:center;justify-content:center;font-size:9px;color:#64748b;background:#fff;box-sizing:border-box;">BARCODE</div>`;
+    }
+    const quiet = 10;
+    let totalMods = quiet * 2;
+    for (let i = 0; i < enc.codes.length; i++) {
+      const pat = ADM_CODE128_PATTERNS[enc.codes[i]];
+      for (let j = 0; j < pat.length; j++) totalMods += (pat.charCodeAt(j) - 48);
+    }
+    const padTop = Math.max(2, Math.round(h * 0.06));
+    const padBot = Math.max(2, Math.round(h * 0.05));
+    const textArea = showText ? Math.max(10, Math.round(h * 0.24)) : 0;
+    const barH = Math.max(8, h - padTop - padBot - textArea);
+    const modW = w / totalMods;
+    let x = quiet;
+    let rects = '';
+    for (let i = 0; i < enc.codes.length; i++) {
+      const pat = ADM_CODE128_PATTERNS[enc.codes[i]];
+      for (let j = 0; j < pat.length; j++) {
+        const mw = pat.charCodeAt(j) - 48;
+        if (j % 2 === 0) {
+          rects += `<rect x="${(x * modW).toFixed(2)}" y="${padTop}" width="${(mw * modW).toFixed(2)}" height="${barH}" fill="${color}"/>`;
+        }
+        x += mw;
+      }
+    }
+    let textEl = '';
+    if (showText) {
+      const maxFontByH = Math.max(7, textArea * 0.82);
+      const maxFontByW = Math.max(6, (w * 0.92) / Math.max(1, enc.clean.length * 0.62));
+      const fontPx = Math.min(maxFontByH, maxFontByW).toFixed(1);
+      const ty = (h - Math.max(1.5, textArea * 0.16)).toFixed(1);
+      textEl = `<text x="${(w / 2).toFixed(1)}" y="${ty}" text-anchor="middle" font-family="'Courier New', monospace" font-size="${fontPx}" font-weight="700" fill="${color}">${_escHtml(enc.clean)}</text>`;
+    }
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="display:block;background:${bg};"><rect width="${w}" height="${h}" fill="${bg}"/>${rects}${textEl}</svg>`;
+  }
   async function _admOpenTokenDesignerModal() {
     const data = await _admFetchExportCols();
     if (!data) return;
@@ -34021,7 +34121,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       }).filter(Boolean).join(el.delimiter ?? ' ');
       return el.show_label && el.label ? `${el.label}: ${joined}` : joined;
     }
-    if (el.type === 'qr') {
+    if (el.type === 'qr' || el.type === 'barcode') {
       const pat = el.pattern || '';
       return pat.replace(/\{([^}]+)\}/g, (_, h) => {
         const col = byHeader[h];
@@ -34090,6 +34190,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }).join('');
     const qrChips = _admTokenCols.slice(0, 18).map(c =>
       `<button type="button" onclick="_admTokenInsertQrToken('${_escHtml(c.header).replace(/'/g, "\\'")}')" class="px-1.5 py-0.5 bg-slate-100 hover:bg-indigo-100 text-slate-700 rounded text-[9px] font-bold">{${_escHtml(c.header)}}</button>`
+    ).join('');
+    const bcChips = _admTokenCols.slice(0, 18).map(c =>
+      `<button type="button" onclick="_admTokenInsertBcToken('${_escHtml(c.header).replace(/'/g, "\\'")}')" class="px-1.5 py-0.5 bg-slate-100 hover:bg-cyan-100 text-slate-700 rounded text-[9px] font-bold">{${_escHtml(c.header)}}</button>`
     ).join('');
 
     _diaryShowSimpleModal(_admTokenEditId ? 'Edit Lottery Token Template' : 'New Lottery Token Template', `
@@ -34175,6 +34278,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <button type="button" onclick="_admTokenAddQr()" class="px-2.5 py-1 bg-emerald-600 text-white rounded text-[10px] font-black uppercase">+ QR</button>
             </div>
             <div class="flex flex-wrap gap-1">${qrChips}</div>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
+            <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Add Barcode (Code 128 — Text + Column Values)</p>
+            <div class="flex gap-1 mb-1">
+              <input id="admTokBcPattern" placeholder="e.g. ccpc-{tracking_id}" class="flex-1 min-w-0 px-2 py-1 bg-white border border-slate-200 rounded text-xs">
+              <input id="admTokBcW" type="number" min="40" max="4000" value="${Math.round(160 * _admTokenScaleFactor())}" title="Width px" class="w-14 px-1 py-1 bg-white border border-slate-200 rounded text-xs">
+              <input id="admTokBcH" type="number" min="18" max="2000" value="${Math.round(44 * _admTokenScaleFactor())}" title="Height px" class="w-14 px-1 py-1 bg-white border border-slate-200 rounded text-xs">
+              <button type="button" onclick="_admTokenAddBarcode()" class="px-2 py-1 bg-cyan-700 text-white rounded text-[10px] font-black uppercase whitespace-nowrap">+ Bar</button>
+            </div>
+            <div class="flex flex-wrap gap-1">${bcChips}</div>
           </div>
         </div>
 
@@ -34281,6 +34395,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const svg = _admTokenMakeQrSvg(qrText, el.size || 64);
         return `<div data-tok-el="${el.id}" onmousedown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;cursor:move;user-select:none;${sel}">${svg}${handle}</div>`;
       }
+      if (el.type === 'barcode') {
+        const bcText = _admTokenEvalElement(el, sampleRow);
+        const w = el.width || 160, h = el.height || 44;
+        const rot = el.rotate ? `transform:rotate(${el.rotate}deg);` : '';
+        const svg = _admMakeBarcodeSvg(bcText, w, h, { showText: el.show_text !== false, color: el.color || '#0f172a' });
+        return `<div data-tok-el="${el.id}" onmousedown="_admTokenStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;width:${w}px;height:${h}px;cursor:move;user-select:none;${rot}${sel}">${svg}${handle}</div>`;
+      }
       if (el.type === 'photo_field' || el.type === 'image') {
         const src = _admTokenEvalElement(el, sampleRow);
         const w = el.width || 56, h = el.height || 64, rad = el.radius || 0, fit = el.fit || 'cover';
@@ -34310,7 +34431,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const dy = Math.round((e2.clientY - startY) / _admTokenZoom);
       if (el.type === 'qr') {
         el.size = Math.max(20, Math.min(2500, origSize + Math.max(dx, dy)));
-      } else if (el.type === 'photo_field' || el.type === 'image') {
+      } else if (el.type === 'photo_field' || el.type === 'image' || el.type === 'barcode') {
         el.width = Math.max(16, Math.min(5000, origW + dx));
         el.height = Math.max(16, Math.min(5000, origH + dy));
         domEl.style.width = el.width + 'px';
@@ -34384,6 +34505,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div><label class="text-[9px] text-slate-500 block">Y (px)</label><input id="admTokInspY" type="number" value="${el.y}" oninput="_admTokenUpdateEl('${el.id}','y',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
           <div><label class="text-[9px] text-slate-500 block">QR Size (px)</label><input type="number" min="20" max="2500" value="${el.size || 64}" oninput="_admTokenUpdateEl('${el.id}','size',Math.max(20,+this.value||64))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
           <div class="col-span-4"><label class="text-[9px] text-slate-500 block">QR Pattern</label><input value="${_escHtml(el.pattern || '')}" oninput="_admTokenUpdateEl('${el.id}','pattern',this.value)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        </div>`;
+      return;
+    }
+    if (el.type === 'barcode') {
+      box.innerHTML = `
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-[10px] font-black text-cyan-700 uppercase">Selected: Code 128 Barcode</span>
+          <button type="button" onclick="_admTokenDeleteEl('${el.id}')" class="px-2 py-0.5 text-[10px] font-black text-red-500 border border-red-200 rounded">Delete</button>
+        </div>
+        <div class="grid grid-cols-6 gap-1.5 items-end">
+          <div><label class="text-[9px] text-slate-500 block">X (px)</label><input id="admTokInspX" type="number" value="${el.x}" oninput="_admTokenUpdateEl('${el.id}','x',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Y (px)</label><input id="admTokInspY" type="number" value="${el.y}" oninput="_admTokenUpdateEl('${el.id}','y',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Width (px)</label><input type="number" min="40" max="4000" value="${el.width || 160}" oninput="_admTokenUpdateEl('${el.id}','width',Math.max(40,+this.value||160))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Height (px)</label><input type="number" min="18" max="2000" value="${el.height || 44}" oninput="_admTokenUpdateEl('${el.id}','height',Math.max(18,+this.value||44))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Color</label><input type="color" value="${_escHtml(el.color || '#0f172a')}" oninput="_admTokenUpdateEl('${el.id}','color',this.value)" class="w-full h-7 p-0 border border-slate-200 rounded"></div>
+          <div><label class="text-[9px] text-slate-500 block">Rotate°</label><input type="number" min="-180" max="180" value="${el.rotate || 0}" oninput="_admTokenUpdateEl('${el.id}','rotate',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div class="col-span-4"><label class="text-[9px] text-slate-500 block">Barcode Pattern (Text + {column})</label><input value="${_escHtml(el.pattern || '')}" oninput="_admTokenUpdateEl('${el.id}','pattern',this.value)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div class="col-span-2 flex items-center pb-1"><label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.show_text !== false ? 'checked' : ''} onchange="_admTokenUpdateEl('${el.id}','show_text',this.checked)"> Show Text Below</label></div>
         </div>`;
       return;
     }
@@ -34560,6 +34699,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admTokenRedrawCanvas();
     _admTokenRenderInspector();
   }
+  function _admTokenInsertBcToken(header) {
+    const inp = document.getElementById('admTokBcPattern');
+    if (!inp) return;
+    inp.value = (inp.value || '') + `{${header}}`;
+    inp.focus();
+  }
+  function _admTokenAddBarcode() {
+    const pattern = document.getElementById('admTokBcPattern')?.value.trim();
+    if (!pattern) { showToast('Enter a barcode pattern (text + {column})', 'error'); return; }
+    const k = _admTokenScaleFactor();
+    const width = Math.max(40, parseInt(document.getElementById('admTokBcW')?.value, 10) || Math.round(160 * k));
+    const height = Math.max(18, parseInt(document.getElementById('admTokBcH')?.value, 10) || Math.round(44 * k));
+    const el = { id: 'el_' + Date.now(), type: 'barcode', pattern, width, height, show_text: true, color: '#0f172a', rotate: 0, x: Math.round(12 * k), y: Math.max(Math.round(10 * k), (_admTokenDraft.canvas_h || 2550) - height - Math.round(12 * k)) };
+    _admTokenDraft.elements.push(el);
+    _admTokenSelectedElId = el.id;
+    _admTokenRedrawCanvas();
+    _admTokenRenderInspector();
+  }
   function _admTokenAddPhotoField() {
     const header = document.getElementById('admTokPhotoPick')?.value;
     if (!header) return;
@@ -34681,6 +34838,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           const svg = _admTokenMakeQrSvg(_admTokenEvalElement(el, row), 256);
           return `<div class="tok-qr" style="position:absolute;left:${(el.x * sx).toFixed(2)}mm;top:${(el.y * sy).toFixed(2)}mm;width:${qrMm}mm;height:${qrMm}mm;">${svg}</div>`;
         }
+        if (el.type === 'barcode') {
+          const bwPx = el.width || 160;
+          const bhPx = el.height || 44;
+          const wMm = (bwPx * sx).toFixed(2);
+          const hMm = (bhPx * sy).toFixed(2);
+          const rot = el.rotate ? `transform:rotate(${el.rotate}deg);` : '';
+          const svgW = 360;
+          const svgH = Math.max(24, Math.round(svgW * ((bhPx * sy) / Math.max(0.1, bwPx * sx))));
+          const svg = _admMakeBarcodeSvg(_admTokenEvalElement(el, row), svgW, svgH, { showText: el.show_text !== false, color: el.color || '#0f172a' });
+          return `<div class="tok-bc" style="position:absolute;left:${(el.x * sx).toFixed(2)}mm;top:${(el.y * sy).toFixed(2)}mm;width:${wMm}mm;height:${hMm}mm;${rot}">${svg}</div>`;
+        }
         if (el.type === 'photo_field' || el.type === 'image') {
           const src = _admTokenEvalElement(el, row);
           if (!src) return '';
@@ -34715,7 +34883,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       @media screen { body { padding: 8mm; background: #f1f5f9; } .tok-page { background: #fff; margin: 0 auto 8mm; box-shadow: 0 2px 10px rgba(0,0,0,0.12); } }
       @media print { html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; } .tok-page { margin: 0 !important; box-shadow: none !important; } }
       * { box-sizing: border-box; }
-      .tok-qr svg { width: 100%; height: 100%; display: block; }`;
+      .tok-qr svg, .tok-bc svg { width: 100%; height: 100%; display: block; }`;
     _gfOpenPrintWindow('Lottery Tokens', pagesHtml, css);
   }
 
@@ -34906,7 +35074,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         return raw;
       }).join(delim);
     }
-    if (el.type === 'qr') {
+    if (el.type === 'qr' || el.type === 'barcode') {
       return String(el.pattern || '').replace(/\{([^}]+)\}/g, (_, h) => {
         const col = byHeader[h];
         return col && row ? _ccpcPlainCell(col.get(row), col.isPhone) : '';
@@ -35182,6 +35350,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const qrChips = _admTopCols.slice(0, 16).map(c =>
       `<button type="button" onclick="_admTopInsertQrToken('${_escHtml(c.header).replace(/'/g, "\\'")}')" class="px-1.5 py-0.5 bg-slate-100 hover:bg-indigo-100 text-slate-700 rounded text-[9px] font-bold">{${_escHtml(c.header)}}</button>`
     ).join('');
+    const bcChips = _admTopCols.slice(0, 16).map(c =>
+      `<button type="button" onclick="_admTopInsertBcToken('${_escHtml(c.header).replace(/'/g, "\\'")}')" class="px-1.5 py-0.5 bg-slate-100 hover:bg-cyan-100 text-slate-700 rounded text-[9px] font-bold">{${_escHtml(c.header)}}</button>`
+    ).join('');
 
     _diaryShowSimpleModal(_admTopEditId ? 'Edit Written Copy Top Page' : 'New Written Copy Top Page', `
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-3">
@@ -35328,6 +35499,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               <button type="button" onclick="_admTopAddQr()" class="px-2 py-1 bg-emerald-600 text-white rounded text-[10px] font-black uppercase">+ QR</button>
             </div>
             <div class="flex flex-wrap gap-1">${qrChips}</div>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-2">
+            <p class="text-[9px] font-black text-slate-400 uppercase mb-1">Add Barcode (Code 128 — Text + Columns)</p>
+            <div class="flex gap-1 mb-1">
+              <input id="admTopBcPattern" placeholder="e.g. ccpc-{tracking_id}" class="flex-1 min-w-0 px-2 py-1 bg-white border border-slate-200 rounded text-xs">
+              <input id="admTopBcW" type="number" min="40" max="1200" value="220" title="Width px" class="w-12 px-1 py-1 bg-white border border-slate-200 rounded text-xs">
+              <input id="admTopBcH" type="number" min="18" max="400" value="56" title="Height px" class="w-11 px-1 py-1 bg-white border border-slate-200 rounded text-xs">
+              <button type="button" onclick="_admTopAddBarcode()" class="px-2 py-1 bg-cyan-700 text-white rounded text-[10px] font-black uppercase whitespace-nowrap">+ Bar</button>
+            </div>
+            <div class="flex flex-wrap gap-1">${bcChips}</div>
           </div>
         </div>
 
@@ -35647,6 +35829,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _admTopRedrawCanvas();
     _admTopRenderInspector();
   }
+  function _admTopInsertBcToken(header) {
+    const inp = document.getElementById('admTopBcPattern');
+    if (!inp) return;
+    inp.value = (inp.value || '') + `{${header}}`;
+    inp.focus();
+  }
+  function _admTopAddBarcode() {
+    const pattern = document.getElementById('admTopBcPattern')?.value.trim();
+    if (!pattern) { showToast('Enter barcode pattern (text + {column})', 'error'); return; }
+    const width = Math.max(40, parseInt(document.getElementById('admTopBcW')?.value, 10) || 220);
+    const height = Math.max(18, parseInt(document.getElementById('admTopBcH')?.value, 10) || 56);
+    const el = { id: 'el_' + Date.now(), type: 'barcode', pattern, width, height, show_text: true, color: '#0f172a', rotate: 0, x: 40, y: 80 };
+    _admTopDraft.elements.push(el);
+    _admTopSelectedElId = el.id;
+    _admTopRedrawCanvas();
+    _admTopRenderInspector();
+  }
   function _admTopRedrawCanvas() {
     const canvas = document.getElementById('admTopCanvas');
     if (!canvas || !_admTopDraft) return;
@@ -35666,6 +35865,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       if (el.type === 'qr') {
         const svg = _admTokenMakeQrSvg(_admTopEvalElement(el, sampleRow), el.size || 72);
         return `<div data-top-el="${el.id}" onmousedown="_admTopStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;${z}cursor:move;user-select:none;${sel}">${svg}${handle}</div>`;
+      }
+      if (el.type === 'barcode') {
+        const w = el.width || 220, h = el.height || 56;
+        const rot = el.rotate ? `transform:rotate(${el.rotate}deg);` : '';
+        const svg = _admMakeBarcodeSvg(_admTopEvalElement(el, sampleRow), w, h, { showText: el.show_text !== false, color: el.color || '#0f172a' });
+        return `<div data-top-el="${el.id}" onmousedown="_admTopStartDrag(event,'${el.id}')" style="position:absolute;left:${el.x}px;top:${el.y}px;width:${w}px;height:${h}px;${z}${rot}cursor:move;user-select:none;${sel}">${svg}${handle}</div>`;
       }
       if (el.type === 'photo_field' || el.type === 'image') {
         const src = _admTopEvalElement(el, sampleRow);
@@ -35709,7 +35914,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const dy = Math.round((e2.clientY - startY) / _admTopZoom);
       if (el.type === 'qr') {
         el.size = Math.max(20, Math.min(1200, origSize + Math.max(dx, dy)));
-      } else if (el.type === 'photo_field' || el.type === 'image' || el.type === 'shape') {
+      } else if (el.type === 'photo_field' || el.type === 'image' || el.type === 'shape' || el.type === 'barcode') {
         el.width = Math.max(4, Math.min(2000, origW + dx));
         el.height = Math.max(4, Math.min(2000, origH + dy));
         domEl.style.width = el.width + 'px';
@@ -35739,6 +35944,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const active = el.id === _admTopSelectedElId;
       const lbl = el.type === 'table' ? `Table ${el.rows}×${el.cols}${el.locked ? ' 🔒' : ''}`
         : el.type === 'qr' ? 'QR'
+        : el.type === 'barcode' ? 'Barcode'
         : el.type === 'photo_field' ? `Photo:${el.header}`
         : el.type === 'image' ? 'Image/Logo'
         : el.type === 'shape' ? `Shape:${el.shape}`
@@ -35796,6 +36002,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div><label class="text-[9px] text-slate-500 block">Y</label><input id="admTopInspY" type="number" value="${el.y}" oninput="_admTopUpdateEl('${el.id}','y',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
           <div><label class="text-[9px] text-slate-500 block">Size</label><input type="number" min="20" max="260" value="${el.size || 72}" oninput="_admTopUpdateEl('${el.id}','size',Math.max(20,+this.value||72))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
           <div class="col-span-4"><label class="text-[9px] text-slate-500 block">QR Pattern</label><input value="${_escHtml(el.pattern || '')}" oninput="_admTopUpdateEl('${el.id}','pattern',this.value)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+        </div>`;
+      return;
+    }
+    if (el.type === 'barcode') {
+      box.innerHTML = `
+        <div class="flex items-center justify-between mb-1"><span class="text-[10px] font-black text-cyan-700 uppercase">Selected: Code 128 Barcode</span><button type="button" onclick="_admTopDeleteEl('${el.id}')" class="px-2 py-0.5 text-[10px] font-black text-red-500 border border-red-200 rounded">Delete</button></div>
+        <div class="grid grid-cols-6 gap-1.5 items-end">
+          <div><label class="text-[9px] text-slate-500 block">X</label><input id="admTopInspX" type="number" value="${el.x}" oninput="_admTopUpdateEl('${el.id}','x',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Y</label><input id="admTopInspY" type="number" value="${el.y}" oninput="_admTopUpdateEl('${el.id}','y',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">W</label><input type="number" min="40" max="1200" value="${el.width || 220}" oninput="_admTopUpdateEl('${el.id}','width',Math.max(40,+this.value||220))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">H</label><input type="number" min="18" max="400" value="${el.height || 56}" oninput="_admTopUpdateEl('${el.id}','height',Math.max(18,+this.value||56))" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div><label class="text-[9px] text-slate-500 block">Color</label><input type="color" value="${_escHtml(el.color || '#0f172a')}" oninput="_admTopUpdateEl('${el.id}','color',this.value)" class="w-full h-7 p-0 border border-slate-200 rounded"></div>
+          <div><label class="text-[9px] text-slate-500 block">Rotate°</label><input type="number" min="-180" max="180" value="${el.rotate || 0}" oninput="_admTopUpdateEl('${el.id}','rotate',+this.value||0)" class="w-full px-1.5 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div class="col-span-4"><label class="text-[9px] text-slate-500 block">Barcode Pattern (Text + {column})</label><input value="${_escHtml(el.pattern || '')}" oninput="_admTopUpdateEl('${el.id}','pattern',this.value)" class="w-full px-2 py-1 bg-white border border-slate-200 rounded text-xs"></div>
+          <div class="col-span-2 flex items-center pb-1"><label class="text-[10px] font-bold text-slate-700 cursor-pointer"><input type="checkbox" ${el.show_text !== false ? 'checked' : ''} onchange="_admTopUpdateEl('${el.id}','show_text',this.checked)"> Show Text Below</label></div>
         </div>`;
       return;
     }
@@ -36169,6 +36390,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const z = el.type === 'table' ? 'z-index:1;' : (el.type === 'shape' ? 'z-index:2;' : 'z-index:10;');
         if (el.type === 'qr') {
           return `<div style="position:absolute;left:${el.x}px;top:${el.y}px;${z}">${_admTokenMakeQrSvg(_admTopEvalElement(el, row), el.size || 72)}</div>`;
+        }
+        if (el.type === 'barcode') {
+          const w = el.width || 220, h = el.height || 56;
+          const rot = el.rotate ? `transform:rotate(${el.rotate}deg);` : '';
+          return `<div style="position:absolute;left:${el.x}px;top:${el.y}px;width:${w}px;height:${h}px;${z}${rot}">${_admMakeBarcodeSvg(_admTopEvalElement(el, row), w, h, { showText: el.show_text !== false, color: el.color || '#0f172a' })}</div>`;
         }
         if (el.type === 'photo_field' || el.type === 'image') {
           const src = _admTopEvalElement(el, row);
