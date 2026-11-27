@@ -35433,6 +35433,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const bc = _escHtml(el.border_color || '#0f172a');
     const defaultFs = el.font_size || 9;
     const defaultFf = el.font_family || 'Arial, sans-serif';
+    const defaultPadY = (el.pad_y !== undefined && el.pad_y !== '') ? Math.max(0, Number(el.pad_y) || 0) : 2;
+    const defaultPadX = (el.pad_x !== undefined && el.pad_x !== '') ? Math.max(0, Number(el.pad_x) || 0) : 4;
     const hdrBg = _escHtml(el.header_bg || '#f1f5f9');
     let trs = '';
     for (let r = 0; r < rCount; r++) {
@@ -35451,13 +35453,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         const valign = st.valign || 'middle';
         const fs = st.font_size || defaultFs;
         const ff = _escHtml(st.font_family || defaultFf);
+        const padY = (st.pad_y !== undefined && st.pad_y !== '') ? Math.max(0, Number(st.pad_y) || 0) : defaultPadY;
+        const padX = (st.pad_x !== undefined && st.pad_x !== '') ? Math.max(0, Number(st.pad_x) || 0) : defaultPadX;
         const fw = st.bold ? 'font-weight:700;' : ((r === 0 && el.header_row) ? 'font-weight:700;' : '');
         const fst = st.italic ? 'font-style:italic;' : '';
         const td = st.underline ? 'text-decoration:underline;' : '';
         const clr = st.color ? `color:${_escHtml(st.color)};` : '';
         const bg = (r === 0 && el.header_row) ? `background:${hdrBg};` : '';
         const cellHtml = val ? _escHtml(val).replace(/\r\n|\r|\n/g, '<br>') : '&nbsp;';
-        tds += `<td style="box-sizing:border-box;${wCss}height:${ch}px;border:${bw}px ${bs} ${bc};padding:2px 4px;font-family:${ff};font-size:${fs}pt;text-align:${align};vertical-align:${valign};${wrapCss}${fw}${fst}${td}${clr}${bg}">${cellHtml}</td>`;
+        tds += `<td style="box-sizing:border-box;${wCss}height:${ch}px;border:${bw}px ${bs} ${bc};padding:${padY}px ${padX}px;font-family:${ff};font-size:${fs}pt;text-align:${align};vertical-align:${valign};${wrapCss}${fw}${fst}${td}${clr}${bg}">${cellHtml}</td>`;
       }
       trs += `<tr>${tds}</tr>`;
     }
@@ -36350,6 +36354,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               ${ADM_TOP_FONT_OPTS.map(([v, l]) => `<option value='${v}' ${(el.font_family || 'Arial, sans-serif') === v ? 'selected' : ''}>${l}</option>`).join('')}
             </select>
           </label>
+          <label class="text-[10px] font-bold text-slate-700 inline-flex items-center gap-1" title="Default top/bottom cell padding (px)">Pad V:<input type="number" min="0" max="60" value="${el.pad_y ?? 2}" oninput="_admTopUpdateEl('${el.id}','pad_y',this.value===''?'':Math.max(0,+this.value||0))" class="w-11 px-1 py-0.5 bg-white border border-slate-200 rounded text-[10px]"></label>
+          <label class="text-[10px] font-bold text-slate-700 inline-flex items-center gap-1" title="Default left/right cell padding (px)">Pad H:<input type="number" min="0" max="60" value="${el.pad_x ?? 4}" oninput="_admTopUpdateEl('${el.id}','pad_x',this.value===''?'':Math.max(0,+this.value||0))" class="w-11 px-1 py-0.5 bg-white border border-slate-200 rounded text-[10px]"></label>
         </div>
         <div class="flex flex-wrap gap-1 items-center mb-1.5"><span class="text-[9px] font-black text-slate-400 uppercase">Col Widths:</span>${colWidthsBar}</div>
         <div class="p-1.5 mb-1.5 bg-indigo-50/70 border border-indigo-200 rounded-lg space-y-1">
@@ -36373,6 +36379,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
               ${['top', 'middle', 'bottom'].map(v => `<option value="${v}" ${(st.valign || 'middle') === v ? 'selected' : ''}>V: ${v}</option>`).join('')}
             </select>
             <label class="font-bold text-slate-600">Size <input type="number" min="6" max="36" value="${st.font_size || el.font_size || 9}" oninput="_admTopUpdateTableCellStyle('${el.id}',${ar},${ac},'font_size',+this.value||9)" class="w-11 px-1 py-0.5 bg-white border border-slate-200 rounded"></label>
+            <label class="font-bold text-slate-600" title="Cell vertical padding (px, blank = table default)">Pad V <input type="number" min="0" max="60" placeholder="${el.pad_y ?? 2}" value="${st.pad_y ?? ''}" oninput="_admTopUpdateTableCellStyle('${el.id}',${ar},${ac},'pad_y',this.value===''?'':Math.max(0,+this.value||0))" class="w-11 px-1 py-0.5 bg-white border border-slate-200 rounded"></label>
+            <label class="font-bold text-slate-600" title="Cell horizontal padding (px, blank = table default)">Pad H <input type="number" min="0" max="60" placeholder="${el.pad_x ?? 4}" value="${st.pad_x ?? ''}" oninput="_admTopUpdateTableCellStyle('${el.id}',${ar},${ac},'pad_x',this.value===''?'':Math.max(0,+this.value||0))" class="w-11 px-1 py-0.5 bg-white border border-slate-200 rounded"></label>
             <input type="color" value="${_escHtml(st.color || '#0f172a')}" oninput="_admTopUpdateTableCellStyle('${el.id}',${ar},${ac},'color',this.value)" class="w-6 h-5 p-0 border border-slate-200 rounded">
             <label class="font-bold cursor-pointer"><input type="checkbox" ${st.bold ? 'checked' : ''} onchange="_admTopUpdateTableCellStyle('${el.id}',${ar},${ac},'bold',this.checked)"> B</label>
             <label class="font-bold cursor-pointer"><input type="checkbox" ${st.italic ? 'checked' : ''} onchange="_admTopUpdateTableCellStyle('${el.id}',${ar},${ac},'italic',this.checked)"> I</label>
