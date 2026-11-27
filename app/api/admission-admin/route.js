@@ -485,13 +485,32 @@ export async function POST(req) {
     if (payload.source)  q += `&source=eq.${encodeURIComponent(payload.source)}`;
     const rows = await sbAdmissionAllRows(q);
     if (rows?.error) return NextResponse.json({ error: rows.error });
+    const BLDG_PREFIXES = { SB: 'School Building', HB: 'Honors Building', CB: 'College Building', MB: 'Main Building', JB: 'Junior Block' };
+    const _guessBldg = (rName) => {
+      const m = /^([A-Za-z]{2,3})[-_\s]/.exec(String(rName || '').trim());
+      return (m && BLDG_PREFIXES[m[1].toUpperCase()]) || '';
+    };
     const roomIds = [...new Set((rows || []).map(r => r.room_id).filter(Boolean))];
+    const roomInfoById = {};
     if (roomIds.length) {
-      const roomRows = await sbInventory(`rooms?id=in.(${roomIds.join(',')})&select=id,name`);
-      const nameById = {};
-      (Array.isArray(roomRows) ? roomRows : []).forEach(r => { nameById[r.id] = r.name; });
-      (rows || []).forEach(r => { if (r.room_id) r.room_name = nameById[r.room_id] || null; });
+      const [roomRows, bldgRows] = await Promise.all([
+        sbInventory(`rooms?id=in.(${roomIds.join(',')})&select=id,name,building_id`),
+        sbInventory('buildings?select=id,name'),
+      ]);
+      const bldgById = {};
+      (Array.isArray(bldgRows) ? bldgRows : []).forEach(b => { bldgById[b.id] = b.name; });
+      (Array.isArray(roomRows) ? roomRows : []).forEach(r => {
+        roomInfoById[r.id] = { name: r.name || '', building: (r.building_id && bldgById[r.building_id]) || _guessBldg(r.name) };
+      });
     }
+    (rows || []).forEach(r => {
+      const info = r.room_id ? roomInfoById[r.room_id] : null;
+      const rName = (info && info.name) || r.room_no || '';
+      r.room_name = rName;
+      r.room_no = rName;
+      r.building = (info && info.building) || _guessBldg(rName) || '';
+      r.seat_no = r.seat_no ?? '';
+    });
     return NextResponse.json({ applications: rows || [] });
   }
 
@@ -520,13 +539,32 @@ export async function POST(req) {
     const byId = {};
     pages.forEach(p => (Array.isArray(p) ? p : []).forEach(r => { byId[r.id] = r; }));
     const ordered = ids.map(id => byId[id]).filter(Boolean);
+    const BLDG_PREFIXES = { SB: 'School Building', HB: 'Honors Building', CB: 'College Building', MB: 'Main Building', JB: 'Junior Block' };
+    const _guessBldg = (rName) => {
+      const m = /^([A-Za-z]{2,3})[-_\s]/.exec(String(rName || '').trim());
+      return (m && BLDG_PREFIXES[m[1].toUpperCase()]) || '';
+    };
     const roomIds = [...new Set(ordered.map(r => r.room_id).filter(Boolean))];
+    const roomInfoById = {};
     if (roomIds.length) {
-      const roomRows = await sbInventory(`rooms?id=in.(${roomIds.join(',')})&select=id,name`);
-      const nameById = {};
-      (Array.isArray(roomRows) ? roomRows : []).forEach(r => { nameById[r.id] = r.name; });
-      ordered.forEach(r => { if (r.room_id) r.room_name = nameById[r.room_id] || null; });
+      const [roomRows, bldgRows] = await Promise.all([
+        sbInventory(`rooms?id=in.(${roomIds.join(',')})&select=id,name,building_id`),
+        sbInventory('buildings?select=id,name'),
+      ]);
+      const bldgById = {};
+      (Array.isArray(bldgRows) ? bldgRows : []).forEach(b => { bldgById[b.id] = b.name; });
+      (Array.isArray(roomRows) ? roomRows : []).forEach(r => {
+        roomInfoById[r.id] = { name: r.name || '', building: (r.building_id && bldgById[r.building_id]) || _guessBldg(r.name) };
+      });
     }
+    ordered.forEach(r => {
+      const info = r.room_id ? roomInfoById[r.room_id] : null;
+      const rName = (info && info.name) || r.room_no || '';
+      r.room_name = rName;
+      r.room_no = rName;
+      r.building = (info && info.building) || _guessBldg(rName) || '';
+      r.seat_no = r.seat_no ?? '';
+    });
     return NextResponse.json({ applications: ordered });
   }
 

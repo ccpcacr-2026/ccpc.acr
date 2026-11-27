@@ -1029,17 +1029,23 @@ export async function POST(req) {
     }
     for (const part of chunk(clearIds, 150)) {
       const res = await sbAdmission(`admission_applications?circular_id=eq.${circularId}&id=in.(${part.join(',')})`, 'PATCH', {
-        room_id: null, seat_no: null, updated_at: now,
+        room_id: null, room_no: null, seat_no: null, updated_at: now,
       });
       if (res?.error) return NextResponse.json({ error: res.error });
     }
     const cleanAssignments = assignments
       .map(a => ({ id: parseInt(a.id, 10), room_id: parseInt(a.room_id, 10), seat_no: String(a.seat_no ?? '') }))
       .filter(a => a.id && a.room_id);
+    const roomNameById = {};
+    const uniqRoomIds = [...new Set(cleanAssignments.map(a => a.room_id))];
+    if (uniqRoomIds.length) {
+      const rRows = await sbInventory(`rooms?id=in.(${uniqRoomIds.join(',')})&select=id,name`);
+      if (Array.isArray(rRows)) rRows.forEach(r => { roomNameById[r.id] = r.name || ''; });
+    }
     for (const part of chunk(cleanAssignments, 25)) {
       const results = await Promise.all(part.map(a =>
         sbAdmission(`admission_applications?id=eq.${a.id}&circular_id=eq.${circularId}`, 'PATCH', {
-          room_id: a.room_id, seat_no: a.seat_no, updated_at: now,
+          room_id: a.room_id, room_no: roomNameById[a.room_id] || null, seat_no: a.seat_no, updated_at: now,
         })
       ));
       const err = results.find(r => r && r.error);

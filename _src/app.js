@@ -36888,6 +36888,38 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       isPhone: isPhoneKey(k),
       get: k === 'tracking_id' ? (r => r.tracking_id || r.token || r.external_key || '') : (r => r[k]),
     }));
+    // Always expose Seat Plan room/seat/building columns on every applicant
+    // dataset so they can be added anywhere (Custom Columns, Export Templates,
+    // Lottery Tokens, Top Page Coder, CSV) even if only some or no rows yet
+    // have rooms assigned.
+    const _resolveRoomNameForCol = (r) => {
+      if (!r) return '';
+      if (r.room_name) return String(r.room_name);
+      if (r.room_no) return String(r.room_no);
+      if (r.room_id) {
+        const pool = (typeof _admSpRooms !== 'undefined' && _admSpRooms.length) ? _admSpRooms : (typeof _admCandRooms !== 'undefined' ? _admCandRooms : []);
+        const rm = pool.find(x => String(x.id) === String(r.room_id));
+        if (rm && rm.room_name) return String(rm.room_name);
+      }
+      return '';
+    };
+    const _resolveBldgForCol = (r) => {
+      if (!r) return '';
+      if (r.building) return String(r.building);
+      const rn = _resolveRoomNameForCol(r);
+      return rn && typeof _admCandRoomBuildingLabel === 'function' ? _admCandRoomBuildingLabel(rn) : '';
+    };
+    const ensureSeatCols = [
+      { header: 'room_name', get: r => _resolveRoomNameForCol(r) },
+      { header: 'seat_no', get: r => (r && r.seat_no !== undefined && r.seat_no !== null) ? String(r.seat_no) : '' },
+      { header: 'building', get: r => _resolveBldgForCol(r) },
+      { header: 'room_seat', get: r => { const rn = _resolveRoomNameForCol(r); const sn = r && r.seat_no ? String(r.seat_no) : ''; return rn ? (sn ? `${rn} / Seat ${sn}` : rn) : ''; } },
+    ];
+    ensureSeatCols.forEach(sc => {
+      const idx = cols.findIndex(c => c.header === sc.header);
+      if (idx >= 0) cols[idx].get = sc.get;
+      else cols.push({ header: sc.header, isPhone: false, get: sc.get });
+    });
     // A VortiBD/Excel-mapped extra_fields key can collide with a real top-level
     // column's name (e.g. a raw "id" or "index_id" field from the source system,
     // unrelated to this table's own id/index_id) -- without disambiguation that
@@ -49301,6 +49333,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     { key: 'session', label: 'Session', render: a => a.session ? `<p class="text-xs text-slate-600">${_escHtml(a.session)}</p>` : '' },
     { key: 'mobile', label: 'Mobile', render: a => a.mobile ? `<p class="text-xs text-slate-600">${_escHtml(a.mobile)}</p>` : '' },
     { key: 'room_seat', label: 'Room / Seat', render: a => (a.room_name || a.room_no) ? `<span class="inline-block px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[9px] font-bold">Room ${_escHtml(a.room_name || a.room_no)}${a.seat_no ? ' · Seat ' + _escHtml(a.seat_no) : ''}</span>` : '' },
+    { key: 'room_name', label: 'Room Name', render: a => (a.room_name || a.room_no) ? `<span class="font-bold text-xs text-violet-700">${_escHtml(a.room_name || a.room_no)}</span>` : '' },
+    { key: 'seat_no', label: 'Seat No', render: a => a.seat_no ? `<span class="font-mono font-bold text-xs text-slate-700">${_escHtml(a.seat_no)}</span>` : '' },
+    { key: 'building', label: 'Building', render: a => a.building ? `<span class="text-xs text-slate-600">${_escHtml(a.building)}</span>` : '' },
     { key: 'source', label: 'Source', render: a => `<p class="text-xs text-slate-500">${_escHtml(a.source || 'native')}</p>` },
     { key: 'dob', label: 'Date of Birth', render: a => a.date_of_birth ? `<p class="text-xs text-slate-600">${_escHtml(a.date_of_birth)}</p>` : '' },
     { key: 'gender', label: 'Gender', render: a => a.gender ? `<p class="text-xs text-slate-600">${_escHtml(a.gender)}</p>` : '' },
@@ -55792,7 +55827,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const comp = _admSpCompute(cur);
     const assignedMap = new Map();
     const assignments = comp.assignments.map(a => {
-      assignedMap.set(a.id, { room_id: a.room_id, seat_no: String(a.seat_no) });
+      assignedMap.set(a.id, { room_id: a.room_id, room_name: a.room_name, building: a.building, seat_no: String(a.seat_no) });
       return { id: a.id, room_id: a.room_id, seat_no: String(a.seat_no) };
     });
     // Only clear unseated eligible candidates in THIS schedule's included criteria (never touches other exam dates!)
@@ -55821,29 +55856,31 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             clear_ids: clearIds,
           });
           if (res.error) { showToast(res.error, 'error'); return; }
-          // Update local candidate cache so Top Page Coder / Applicants / Rooms reflect immediately
+          // Update local candidate caches so Top Page Coder / Applications / Custom Columns / Exports reflect immediately
           const clearSet = new Set(clearIds);
-          _admSpCandidates.forEach(c => {
-            if (assignedMap.has(c.id)) {
-              const a = assignedMap.get(c.id);
-              c.room_id = a.room_id;
-              c.seat_no = a.seat_no;
-            } else if (clearSet.has(c.id)) {
-              c.room_id = null;
-              c.seat_no = null;
-            }
-          });
-          if (Array.isArray(_admAllApps) && _admAllApps.length) {
-            _admAllApps.forEach(c => {
+          const _applyLocal = (arr) => {
+            if (!Array.isArray(arr) || !arr.length) return;
+            arr.forEach(c => {
               if (assignedMap.has(c.id)) {
                 const a = assignedMap.get(c.id);
                 c.room_id = a.room_id;
+                c.room_name = a.room_name || '';
+                c.room_no = a.room_name || '';
+                c.building = a.building || '';
                 c.seat_no = a.seat_no;
               } else if (clearSet.has(c.id)) {
                 c.room_id = null;
+                c.room_name = '';
+                c.room_no = '';
+                c.building = '';
                 c.seat_no = null;
               }
             });
+          };
+          _applyLocal(_admSpCandidates);
+          _applyLocal(_admAllApps);
+          if (typeof _admFilterApps === 'function' && Array.isArray(_admAllApps) && _admAllApps.length) {
+            try { _admFilterApps(); } catch (_) {}
           }
           _admSpDirty = false;
           document.getElementById('admSpDirtyBadge')?.classList.add('hidden');
@@ -55878,7 +55915,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         });
         if (res.error) { showToast(res.error, 'error'); return; }
         const clearSet = new Set(clearIds);
-        _admSpCandidates.forEach(c => { if (clearSet.has(c.id)) { c.room_id = null; c.seat_no = null; } });
+        [_admSpCandidates, _admAllApps].forEach(arr => {
+          if (!Array.isArray(arr)) return;
+          arr.forEach(c => { if (clearSet.has(c.id)) { c.room_id = null; c.room_name = ''; c.room_no = ''; c.building = ''; c.seat_no = null; } });
+        });
+        if (typeof _admFilterApps === 'function' && Array.isArray(_admAllApps) && _admAllApps.length) {
+          try { _admFilterApps(); } catch (_) {}
+        }
         showToast(`Cleared ${res.cleared} student seat assignment(s)`, 'success');
         _admSpRenderStudio();
       } catch (e) { showToast(e.message || 'Failed', 'error'); }
@@ -56207,22 +56250,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                   <select id="admSpGridRoomSel" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold mt-0.5">${roomSelectOpts}</select>
                 </div>
                 <div>
-                  <label class="text-[9px] uppercase text-slate-400 font-black">Display Label</label>
+                  <label class="text-[9px] uppercase text-slate-400 font-black">Primary Label</label>
                   <select id="admSpGridFieldSel" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold mt-0.5">${labelFieldOpts}</select>
                 </div>
               </div>
-              <div class="flex items-center justify-between gap-2 mt-2">
-                <label class="text-[10px] font-bold text-slate-600 flex items-center gap-1.5">
-                  Cols/row:
-                  <select id="admSpGridColsSel" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[11px] font-black">
-                    <option value="2">2</option>
-                    <option value="3" selected>3</option>
-                    <option value="4">4</option>
+              <div class="grid grid-cols-2 gap-2 mt-2">
+                <div>
+                  <label class="text-[9px] uppercase text-slate-400 font-black">Sub-label Field</label>
+                  <select id="admSpGridSubFieldSel" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold mt-0.5">
+                    <option value="name_english" selected>Student Name</option>
+                    <option value="">None (ID only)</option>
+                    <option value="__crit__">Class · Ver · Cat</option>
+                    ${fieldOpts.filter(o => o.value !== 'name_english').map(o => `<option value="${_escHtml(o.value)}">${_escHtml(o.label)}</option>`).join('')}
                   </select>
-                </label>
-                <label class="flex items-center gap-1.5 text-[11px] font-bold text-slate-600 cursor-pointer">
-                  <input type="checkbox" id="admSpGridShowName" checked class="rounded border-slate-300"> Show Name
-                </label>
+                </div>
+                <div>
+                  <label class="text-[9px] uppercase text-slate-400 font-black">Cols / Row</label>
+                  <select id="admSpGridColsSel" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-black mt-0.5">
+                    <option value="2">2 columns</option>
+                    <option value="3" selected>3 columns</option>
+                    <option value="4">4 columns</option>
+                  </select>
+                </div>
               </div>
             </div>
             <div class="pt-2 border-t border-slate-100">
@@ -56235,10 +56284,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <div>
               <div class="flex items-center justify-between mb-1">
                 <span class="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[9px] font-black uppercase">Sheet 5</span>
-                <span class="text-[10px] font-bold text-slate-400">Attendance &amp; Photo</span>
+                <button type="button" onclick="_admSpOpenSigColsModal()" class="px-2 py-0.5 rounded-lg bg-purple-50 hover:bg-purple-600 hover:text-white text-purple-700 text-[10px] font-black transition-colors">⚙ Configure Columns</button>
               </div>
               <h4 class="font-black text-slate-800 text-sm">Room Signature Sheet</h4>
-              <p class="text-xs text-slate-400 mt-1">Full CCPC attendance sheet with Tracking ID, Index, Name, Father/Mother, Mobile, Photo, Signature &amp; Remarks.</p>
+              <p class="text-[11px] text-slate-400 mt-1">Columns: <b class="text-slate-600">${_escHtml(_admSpGetSigCols(sched).map(c => c.label).join(' · '))}</b></p>
               <div class="mt-3">
                 <label class="text-[9px] uppercase text-slate-400 font-black">Room</label>
                 <select id="admSpSigRoomSel" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold mt-0.5">${roomSelectOpts}</select>
@@ -56247,8 +56296,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 <input type="checkbox" id="admSpSigIncludePhotos" checked class="rounded border-slate-300"> Include Applicant Photos
               </label>
             </div>
-            <div class="pt-2 border-t border-slate-100">
-              <button type="button" id="admSpSigPrintBtn" onclick="_admSpPrintSignatureSheet()" class="w-full px-3 py-2 bg-purple-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-black transition-all">Print Signature Sheet</button>
+            <div class="pt-2 border-t border-slate-100 flex gap-2">
+              <button type="button" id="admSpSigPrintBtn" onclick="_admSpPrintSignatureSheet()" class="flex-1 px-3 py-2 bg-purple-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-black transition-all">Print Signature Sheet</button>
             </div>
           </div>
 
@@ -56271,14 +56320,23 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                   <select id="admSpBoothFieldSel" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold mt-0.5">${labelFieldOpts}</select>
                 </div>
               </div>
-              <div class="mt-2">
-                <label class="text-[10px] font-bold text-slate-600 flex items-center gap-1.5">
-                  Side-by-side columns:
-                  <select id="admSpBoothColPairs" class="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-[11px] font-black">
+              <div class="grid grid-cols-2 gap-2 mt-2">
+                <div>
+                  <label class="text-[9px] uppercase text-slate-400 font-black">Extra Column</label>
+                  <select id="admSpBoothExtraFieldSel" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-bold mt-0.5">
+                    <option value="">None (SL | ID | Room)</option>
+                    <option value="__seat__">Seat No.</option>
+                    <option value="__building__">Building</option>
+                    ${fieldOpts.map(o => `<option value="${_escHtml(o.value)}">${_escHtml(o.label)}</option>`).join('')}
+                  </select>
+                </div>
+                <div>
+                  <label class="text-[9px] uppercase text-slate-400 font-black">Columns / Page</label>
+                  <select id="admSpBoothColPairs" class="w-full px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] font-black mt-0.5">
                     <option value="2">2 pairs</option>
                     <option value="3" selected>3 pairs (compact)</option>
                   </select>
-                </label>
+                </div>
               </div>
             </div>
             <div class="pt-2 border-t border-slate-100">
@@ -56682,15 +56740,15 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _gfOpenPrintWindow(`${sched.name} — Packet Info`, body, css);
   }
 
-  // Sheet 4: Room Seat Grid (Seat plan in ID / INDEX — 3 columns bench layout)
+  // Sheet 4: Room Seat Grid (Seat plan in ID / INDEX — 2/3/4 columns bench layout)
   function _admSpPrintRoomSeatGrid() {
     const sched = _admSpActiveSchedule();
     if (!sched) return;
     const comp = _admSpCompute(sched);
     const roomSel = document.getElementById('admSpGridRoomSel')?.value || 'ALL';
     const fieldKey = document.getElementById('admSpGridFieldSel')?.value || sched.index_display_col || 'index_id';
+    const subFieldKey = document.getElementById('admSpGridSubFieldSel')?.value ?? 'name_english';
     const colsPerRow = Math.max(2, Math.min(4, parseInt(document.getElementById('admSpGridColsSel')?.value, 10) || 3));
-    const showName = !!document.getElementById('admSpGridShowName')?.checked;
 
     const roomIds = roomSel === 'ALL'
       ? Object.keys(comp.byRoom).map(Number).sort((a, b) => (comp.roomStates[a]?.room?.room_name || '').localeCompare(comp.roomStates[b]?.room?.room_name || '', undefined, { numeric: true }))
@@ -56710,11 +56768,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             tds += `<td style="background:#f8fafc"></td>`;
           } else {
             const labelVal = _admSpGetFieldVal(item.cand, fieldKey) || item.display_id || item.tracking_id;
-            const nameHtml = showName ? `<div style="font-size:8pt;color:#475569;margin-top:2px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:54mm">${_escHtml(item.cand.name_english || item.cand.name_bangla || '')}</div>` : '';
+            let subVal = '';
+            if (subFieldKey === '__crit__') subVal = [item.cls, item.version, item.category].filter(Boolean).join(' · ');
+            else if (subFieldKey) subVal = _admSpGetFieldVal(item.cand, subFieldKey);
+            const subHtml = subVal ? `<div style="font-size:8pt;color:#475569;margin-top:2px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:54mm">${_escHtml(subVal)}</div>` : '';
             tds += `<td style="text-align:center;padding:7px 5px">
               <div style="font-size:8pt;color:#64748b;font-weight:700">Seat ${item.seat_no}</div>
               <div style="font-size:13pt;font-weight:900;font-family:monospace;letter-spacing:0.3px;margin-top:1px">${_escHtml(labelVal)}</div>
-              ${nameHtml}
+              ${subHtml}
             </td>`;
           }
         }
@@ -56745,13 +56806,206 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _gfOpenPrintWindow(`${sched.name} — Room Seat Grid`, pages.join(''), css);
   }
 
-  // Sheet 5: Room Signature Sheet (with on-demand photo fetch ONLY for printed room(s))
+  // ── Signature Sheet Configurable Columns ─────────────────────────────────
+  const ADM_SP_DEFAULT_SIG_COLS = [
+    { id: 'c_sl', label: 'SL', field: '__sl__', width: 28 },
+    { id: 'c_trk', label: 'Tracking ID', field: 'token', width: 72 },
+    { id: 'c_idx', label: 'Index / Roll', field: '__display_id__', width: 78 },
+    { id: 'c_info', label: "Student's Information", field: '__student_info__', width: 0 },
+    { id: 'c_photo', label: 'Photo', field: '__photo__', width: 48 },
+    { id: 'c_sig', label: 'Candidate Signature', field: '__blank__', width: 110 },
+    { id: 'c_rem', label: 'Remarks', field: '__blank__', width: 65 },
+  ];
+  const ADM_SP_DEFAULT_SIG_INFO_PARTS = { name: true, father: true, mother: true, criteria: true, phone: true, room_seat: false };
+  let _admSpSigColsDraft = [];
+  let _admSpSigInfoDraft = {};
+
+  function _admSpGetSigCols(sched) {
+    if (sched && Array.isArray(sched.sig_columns) && sched.sig_columns.length) return sched.sig_columns;
+    return ADM_SP_DEFAULT_SIG_COLS.map(c => ({ ...c }));
+  }
+  function _admSpGetSigInfoParts(sched) {
+    return Object.assign({}, ADM_SP_DEFAULT_SIG_INFO_PARTS, (sched && sched.sig_info_parts) || {});
+  }
+  function _admSpSigFieldOptionsList() {
+    const special = [
+      { value: '__sl__', label: 'Auto: Row SL (1, 2, 3…)' },
+      { value: '__display_id__', label: 'Auto: Schedule Index / ID' },
+      { value: '__student_info__', label: "Block: Student's Information (multi-line)" },
+      { value: '__photo__', label: 'Applicant Photo' },
+      { value: '__blank__', label: 'Blank Write-in Box (Signature / Remarks)' },
+      { value: '__room_name__', label: 'Seat Plan: Room Name' },
+      { value: '__seat_no__', label: 'Seat Plan: Seat No.' },
+      { value: '__building__', label: 'Seat Plan: Building' },
+      { value: '__room_seat__', label: 'Seat Plan: Room / Seat' },
+      { value: '__class__', label: 'Class' },
+      { value: '__version__', label: 'Version' },
+      { value: '__category__', label: 'Category' },
+      { value: '__crit__', label: 'Class · Version · Category' },
+      { value: '__father__', label: "Father's Name" },
+      { value: '__mother__', label: "Mother's Name" },
+      { value: '__phone__', label: 'Mobile / Phone' },
+      { value: '__name_bn__', label: 'Student Name (Bangla)' },
+    ];
+    return special.concat(_admSpFieldOptionsList());
+  }
+  function _admSpOpenSigColsModal() {
+    const sched = _admSpActiveSchedule();
+    if (!sched) return;
+    _admSpSigColsDraft = _admSpGetSigCols(sched).map(c => ({ ...c }));
+    _admSpSigInfoDraft = _admSpGetSigInfoParts(sched);
+    _admSpSigColsRenderModal();
+  }
+  function _admSpSigColsRenderModal() {
+    const fieldOpts = _admSpSigFieldOptionsList();
+    const rowsHtml = _admSpSigColsDraft.map((col, idx) => `
+      <div class="flex items-center gap-1.5 flex-wrap p-2 bg-slate-50 border border-slate-200 rounded-xl">
+        <span class="text-[10px] font-mono font-black text-slate-400 w-5 text-center">${idx + 1}</span>
+        <input type="text" value="${_escHtml(col.label || '')}" oninput="_admSpSigColUpdate(${idx}, 'label', this.value)" placeholder="Header label" class="w-32 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+        <select onchange="_admSpSigColUpdate(${idx}, 'field', this.value)" class="flex-1 min-w-[170px] px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          ${fieldOpts.map(o => `<option value="${_escHtml(o.value)}" ${o.value === col.field ? 'selected' : ''}>${_escHtml(o.label)}</option>`).join('')}
+        </select>
+        <input type="number" min="0" max="400" value="${col.width || ''}" oninput="_admSpSigColUpdate(${idx}, 'width', this.value)" placeholder="Auto px" title="Optional width in px (blank/0 = auto)" class="w-16 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono text-center">
+        <button type="button" onclick="_admSpSigColMove(${idx}, -1)" ${idx === 0 ? 'disabled' : ''} class="px-1.5 py-1 border border-slate-200 bg-white rounded text-xs disabled:opacity-30" title="Move left">↑</button>
+        <button type="button" onclick="_admSpSigColMove(${idx}, 1)" ${idx === _admSpSigColsDraft.length - 1 ? 'disabled' : ''} class="px-1.5 py-1 border border-slate-200 bg-white rounded text-xs disabled:opacity-30" title="Move right">↓</button>
+        <button type="button" onclick="_admSpSigColRemove(${idx})" class="px-1.5 py-1 text-red-500 hover:bg-red-50 rounded font-black text-xs" title="Remove">×</button>
+      </div>
+    `).join('');
+
+    const infoChecks = [
+      ['name', 'Student Name'],
+      ['father', "Father's Name"],
+      ['mother', "Mother's Name"],
+      ['criteria', 'Class · Version · Category'],
+      ['phone', 'Mobile / Phone'],
+      ['room_seat', 'Room / Seat'],
+    ].map(([k, lbl]) => `<label class="flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer"><input type="checkbox" ${_admSpSigInfoDraft[k] ? 'checked' : ''} onchange="_admSpSigInfoPartToggle('${k}', this.checked)" class="rounded border-slate-300"> ${lbl}</label>`).join('');
+
+    _diaryShowSimpleModal('Configure Signature Sheet Columns', `
+      <p class="text-[11px] text-slate-400 mb-3">Reorder columns, rename headers, pick any student data field (including <b>Room Name</b>, <b>Seat No.</b>, imported fields, or <b>Custom Columns</b>), or add blank write-in boxes.</p>
+      <div class="space-y-2 max-h-[320px] overflow-y-auto pr-1 mb-3">${rowsHtml}</div>
+      <div class="flex items-center justify-between gap-2 mb-3">
+        <button type="button" onclick="_admSpSigColAdd()" class="px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg text-[10px] font-black uppercase hover:bg-blue-600 hover:text-white">+ Add Column</button>
+        <button type="button" onclick="_admSpSigColsReset()" class="px-3 py-1.5 border border-slate-200 text-slate-500 rounded-lg text-[10px] font-black uppercase hover:bg-slate-50">Reset Default</button>
+      </div>
+      <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl mb-4">
+        <p class="text-[10px] font-black uppercase text-slate-400 mb-2">Fields inside "Student's Information" Block</p>
+        <div class="flex flex-wrap gap-3">${infoChecks}</div>
+      </div>
+      <div class="flex gap-2">
+        <button type="button" onclick="_admSpSigColsSave(false)" class="flex-1 px-4 py-2.5 bg-purple-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black">Save Columns</button>
+        <button type="button" onclick="_admSpSigColsSave(true)" class="flex-1 px-4 py-2.5 bg-slate-800 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black">Save &amp; Print Now</button>
+      </div>
+    `);
+  }
+  function _admSpSigColAdd() {
+    _admSpSigColsDraft.push({ id: 'c_' + Date.now(), label: 'New Column', field: '__blank__', width: 80 });
+    _admSpSigColsRenderModal();
+  }
+  function _admSpSigColMove(idx, delta) {
+    const t = idx + delta;
+    if (t < 0 || t >= _admSpSigColsDraft.length) return;
+    const [m] = _admSpSigColsDraft.splice(idx, 1);
+    _admSpSigColsDraft.splice(t, 0, m);
+    _admSpSigColsRenderModal();
+  }
+  function _admSpSigColRemove(idx) {
+    if (_admSpSigColsDraft.length <= 1) { showToast('Keep at least one column', 'error'); return; }
+    _admSpSigColsDraft.splice(idx, 1);
+    _admSpSigColsRenderModal();
+  }
+  function _admSpSigColUpdate(idx, prop, val) {
+    if (!_admSpSigColsDraft[idx]) return;
+    if (prop === 'width') _admSpSigColsDraft[idx].width = Math.max(0, parseInt(val, 10) || 0);
+    else _admSpSigColsDraft[idx][prop] = val;
+    if (prop === 'field' && (!_admSpSigColsDraft[idx].label || _admSpSigColsDraft[idx].label === 'New Column')) {
+      const opt = _admSpSigFieldOptionsList().find(o => o.value === val);
+      if (opt) { _admSpSigColsDraft[idx].label = opt.label.replace(/^(Auto|Block|Seat Plan|Custom|Field):\s*/i, ''); _admSpSigColsRenderModal(); }
+    }
+  }
+  function _admSpSigInfoPartToggle(k, checked) {
+    _admSpSigInfoDraft[k] = !!checked;
+  }
+  function _admSpSigColsReset() {
+    _admSpSigColsDraft = ADM_SP_DEFAULT_SIG_COLS.map(c => ({ ...c }));
+    _admSpSigInfoDraft = { ...ADM_SP_DEFAULT_SIG_INFO_PARTS };
+    _admSpSigColsRenderModal();
+  }
+  async function _admSpSigColsSave(printNow) {
+    const sched = _admSpActiveSchedule();
+    if (!sched) return;
+    sched.sig_columns = _admSpSigColsDraft.map(c => ({ ...c }));
+    sched.sig_info_parts = { ..._admSpSigInfoDraft };
+    _admSpMarkDirty();
+    _diaryCloseSimpleModal();
+    _admSpRenderStudio();
+    if (_admSpCanEdit) {
+      try { await _admCandFetch('saveSeatPlanSchedules', { circular_id: _admCandActiveCircularId, schedules: _admSpSchedules }); _admSpDirty = false; document.getElementById('admSpDirtyBadge')?.classList.add('hidden'); } catch (_) {}
+    }
+    showToast('Signature Sheet columns saved', 'success');
+    if (printNow) _admSpPrintSignatureSheet();
+  }
+
+  function _admSpEvalSigCell(col, a, rowIdx, photoById, infoParts) {
+    const c = a.cand;
+    const ef = c.extra_fields || {};
+    const f = col.field;
+    const wStyle = col.width > 0 ? `width:${col.width}px;` : '';
+    if (f === '__sl__') return `<td style="text-align:center;font-weight:800;${wStyle}">${rowIdx + 1}</td>`;
+    if (f === '__blank__') return `<td style="${wStyle}"></td>`;
+    if (f === '__photo__') {
+      const photoSrc = photoById[a.id] || ef.photo_url || ef.PhotoPathS || ef.photo || '';
+      return `<td style="text-align:center;padding:3px;${wStyle}">${photoSrc
+        ? `<img src="${_escHtml(photoSrc)}" style="width:40px;height:48px;object-fit:cover;border:1px solid #cbd5e1;border-radius:3px">`
+        : `<div style="width:40px;height:48px;border:1px dashed #cbd5e1;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:8pt;color:#94a3b8;font-weight:700">Photo</div>`}</td>`;
+    }
+    if (f === '__student_info__') {
+      const phone = _admSpGetPhone(c);
+      const fName = c.father_name || ef.father_name || ef.FatherName || '';
+      const mName = c.mother_name || ef.mother_name || ef.MotherName || '';
+      const lines = [];
+      if (infoParts.name !== false) lines.push(`<div style="font-weight:900;font-size:9.5pt">${_escHtml(c.name_english || c.name_bangla || '')}</div>`);
+      const parents = [infoParts.father && fName ? `F: ${fName}` : '', infoParts.mother && mName ? `M: ${mName}` : ''].filter(Boolean).join(' · ');
+      if (parents) lines.push(`<div>${_escHtml(parents)}</div>`);
+      const meta = [
+        infoParts.criteria ? [a.cls, a.version, a.category].filter(Boolean).join(' - ') : '',
+        infoParts.phone && phone ? `Ph: ${phone}` : '',
+        infoParts.room_seat ? `Room: ${a.room_name} (#${a.seat_no})` : '',
+      ].filter(Boolean).join(' · ');
+      if (meta) lines.push(`<div style="color:#334155">${_escHtml(meta)}</div>`);
+      return `<td style="font-size:8.5pt;line-height:1.3;${wStyle}">${lines.join('')}</td>`;
+    }
+    let val = '';
+    if (f === '__display_id__') val = a.display_id;
+    else if (f === '__room_name__') val = a.room_name;
+    else if (f === '__seat_no__') val = String(a.seat_no || '');
+    else if (f === '__building__') val = a.building;
+    else if (f === '__room_seat__') val = a.room_name ? `${a.room_name} (#${a.seat_no})` : '';
+    else if (f === '__class__') val = a.cls;
+    else if (f === '__version__') val = a.version;
+    else if (f === '__category__') val = a.category;
+    else if (f === '__crit__') val = [a.cls, a.version, a.category].filter(Boolean).join(' · ');
+    else if (f === '__father__') val = c.father_name || ef.father_name || ef.FatherName || '';
+    else if (f === '__mother__') val = c.mother_name || ef.mother_name || ef.MotherName || '';
+    else if (f === '__phone__') val = _admSpGetPhone(c);
+    else if (f === '__name_bn__') val = c.name_bangla || '';
+    else val = _admSpGetFieldVal(c, f);
+    const isCode = (f === 'token' || f === 'index_id' || f === '__display_id__' || f === '__seat_no__');
+    return `<td style="${isCode ? 'text-align:center;font-family:monospace;font-weight:800;' : ''}${wStyle}">${_escHtml(val)}</td>`;
+  }
+
+  // Sheet 5: Room Signature Sheet (configurable columns + on-demand photo fetch ONLY for printed room(s))
   async function _admSpPrintSignatureSheet() {
     const sched = _admSpActiveSchedule();
     if (!sched) return;
     const comp = _admSpCompute(sched);
     const roomSel = document.getElementById('admSpSigRoomSel')?.value || 'ALL';
-    const includePhotos = !!document.getElementById('admSpSigIncludePhotos')?.checked;
+    const includePhotosChk = document.getElementById('admSpSigIncludePhotos');
+    const includePhotos = includePhotosChk ? !!includePhotosChk.checked : true;
+    const sigCols = _admSpGetSigCols(sched).filter(col => includePhotos || col.field !== '__photo__');
+    const infoParts = _admSpGetSigInfoParts(sched);
+    const hasPhotoCol = sigCols.some(col => col.field === '__photo__');
+
     const roomIds = roomSel === 'ALL'
       ? Object.keys(comp.byRoom).map(Number).sort((a, b) => (comp.roomStates[a]?.room?.room_name || '').localeCompare(comp.roomStates[b]?.room?.room_name || '', undefined, { numeric: true }))
       : [parseInt(roomSel, 10)];
@@ -56759,7 +57013,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!validRoomIds.length) { showToast('No seated students in the selected room(s)', 'error'); return; }
 
     let photoById = {};
-    if (includePhotos) {
+    if (hasPhotoCol) {
       const btn = document.getElementById('admSpSigPrintBtn');
       if (btn) { btn.disabled = true; btn.textContent = 'Loading Photos…'; }
       try {
@@ -56780,36 +57034,12 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       }
     }
 
+    const headCells = sigCols.map(col => `<th>${_escHtml(col.label || '')}</th>`).join('');
     const pages = validRoomIds.map((rid, rIdx) => {
       const list = comp.byRoom[rid] || [];
       const rs = comp.roomStates[rid];
       const critSummary = rs ? rs.slices.map(s => `${s.label} (${s.count})`).join(' + ') : '';
-      const rowsHtml = list.map((a, idx) => {
-        const c = a.cand;
-        const ef = c.extra_fields || {};
-        const photoSrc = photoById[a.id] || ef.photo_url || ef.PhotoPathS || ef.photo || '';
-        const photoCell = includePhotos
-          ? `<td style="text-align:center;width:48px;padding:3px">${photoSrc
-            ? `<img src="${_escHtml(photoSrc)}" style="width:40px;height:48px;object-fit:cover;border:1px solid #cbd5e1;border-radius:3px">`
-            : `<div style="width:40px;height:48px;border:1px dashed #cbd5e1;border-radius:3px;display:inline-flex;align-items:center;justify-content:center;font-size:8pt;color:#94a3b8;font-weight:700">Photo</div>`}</td>`
-          : '';
-        const phone = _admSpGetPhone(c);
-        const fName = c.father_name || ef.father_name || ef.FatherName || '';
-        const mName = c.mother_name || ef.mother_name || ef.MotherName || '';
-        return `<tr>
-          <td style="text-align:center;font-weight:800;width:28px">${idx + 1}</td>
-          <td style="text-align:center;font-family:monospace;font-size:8.5pt;width:72px">${_escHtml(a.tracking_id)}</td>
-          <td style="text-align:center;font-family:monospace;font-weight:900;font-size:9.5pt;width:78px">${_escHtml(a.display_id)}</td>
-          <td style="font-size:8.5pt;line-height:1.3">
-            <div style="font-weight:900;font-size:9.5pt">${_escHtml(c.name_english || c.name_bangla || '')}</div>
-            ${fName ? `<div>F: ${_escHtml(fName)}${mName ? ` · M: ${_escHtml(mName)}` : ''}</div>` : (mName ? `<div>M: ${_escHtml(mName)}</div>` : '')}
-            <div style="color:#334155">${_escHtml([a.cls, a.version, a.category].filter(Boolean).join(' - '))}${phone ? ` · Ph: ${_escHtml(phone)}` : ''}</div>
-          </td>
-          ${photoCell}
-          <td style="width:110px"></td>
-          <td style="width:65px"></td>
-        </tr>`;
-      }).join('');
+      const rowsHtml = list.map((a, idx) => `<tr>${sigCols.map(col => _admSpEvalSigCell(col, a, idx, photoById, infoParts)).join('')}</tr>`).join('');
       const isLast = rIdx === validRoomIds.length - 1;
       return `<div style="${isLast ? '' : 'page-break-after:always;'}">
         ${_admSpPrintHeaderHtml(`Attendance & Signature Sheet — Room ${rs ? rs.room.room_name : rid}`, sched, `${rs ? rs.building : ''} · ${critSummary}`)}
@@ -56820,11 +57050,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <span>Absent: ________</span>
         </div>
         <table>
-          <thead><tr>
-            <th>SL</th><th>Tracking ID</th><th>Index / Roll</th><th>Student's Information</th>
-            ${includePhotos ? '<th>Photo</th>' : ''}
-            <th>Candidate Signature</th><th>Remarks</th>
-          </tr></thead>
+          <thead><tr>${headCells}</tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
         <div style="display:flex;justify-content:space-between;margin-top:26px;padding:0 10px;font-size:9pt;font-weight:700;page-break-inside:avoid">
@@ -56844,24 +57070,31 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     _gfOpenPrintWindow(`${sched.name} — Signature Sheet`, pages.join(''), css);
   }
 
-  // Sheet 6: Booth Lookup Directory (compact multi-column Sl | Index/ID | Room)
+  // Sheet 6: Booth Lookup Directory (compact multi-column Sl | Index/ID | Room [+ optional extra column])
   function _admSpPrintBoothDirectory() {
     const sched = _admSpActiveSchedule();
     if (!sched) return;
     const comp = _admSpCompute(sched);
     const critFilter = document.getElementById('admSpBoothCritSel')?.value || 'ALL';
     const fieldKey = document.getElementById('admSpBoothFieldSel')?.value || sched.index_display_col || 'index_id';
+    const extraFieldKey = document.getElementById('admSpBoothExtraFieldSel')?.value || '';
     const colPairs = Math.max(2, Math.min(3, parseInt(document.getElementById('admSpBoothColPairs')?.value, 10) || 3));
 
-    let items = comp.assignments.filter(a => critFilter === 'ALL' || a.crit_key === critFilter).map(a => ({
-      idVal: _admSpGetFieldVal(a.cand, fieldKey) || a.display_id || a.tracking_id,
-      room: a.room_name,
-      seat: a.seat_no,
-    }));
+    let items = comp.assignments.filter(a => critFilter === 'ALL' || a.crit_key === critFilter).map(a => {
+      let extraVal = '';
+      if (extraFieldKey === '__seat__') extraVal = String(a.seat_no || '');
+      else if (extraFieldKey === '__building__') extraVal = a.building_code || a.building || '';
+      else if (extraFieldKey) extraVal = _admSpGetFieldVal(a.cand, extraFieldKey);
+      return {
+        idVal: _admSpGetFieldVal(a.cand, fieldKey) || a.display_id || a.tracking_id,
+        room: a.room_name,
+        extraVal,
+      };
+    });
     if (!items.length) { showToast('No seated students match this filter', 'error'); return; }
     items.sort((a, b) => String(a.idVal).localeCompare(String(b.idVal), undefined, { numeric: true, sensitivity: 'base' }));
 
-    // Paginate into balanced multi-column tables (45 rows per column per page -> 135 students/page in 3-col mode!)
+    const extraLabel = extraFieldKey === '__seat__' ? 'Seat' : (extraFieldKey === '__building__' ? 'Bldg' : (extraFieldKey ? ((_admSpFieldOptionsList().find(o => o.value === extraFieldKey)?.label || extraFieldKey).replace(/^(Custom|Field):\s*/i, '')) : ''));
     const rowsPerCol = 42;
     const perPage = rowsPerCol * colPairs;
     const pages = [];
@@ -56871,7 +57104,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const numRows = Math.ceil(slice.length / colPairs);
       let headCells = '';
       for (let c = 0; c < colPairs; c++) {
-        headCells += `<th style="width:26px">SL</th><th>Index / ID</th><th>Room</th>${c < colPairs - 1 ? '<th style="width:6px;background:#fff;border:none"></th>' : ''}`;
+        headCells += `<th style="width:24px">SL</th><th>Index / ID</th><th>Room</th>${extraFieldKey ? `<th>${_escHtml(extraLabel)}</th>` : ''}${c < colPairs - 1 ? '<th style="width:6px;background:#fff;border:none"></th>' : ''}`;
       }
       let bodyRows = '';
       for (let r = 0; r < numRows; r++) {
@@ -56882,9 +57115,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           if (it) {
             tr += `<td style="text-align:center;color:#64748b;font-size:8pt">${p + idx + 1}</td>
               <td style="text-align:center;font-family:monospace;font-weight:800">${_escHtml(it.idVal)}</td>
-              <td style="text-align:center;font-weight:900">${_escHtml(it.room)}</td>`;
+              <td style="text-align:center;font-weight:900">${_escHtml(it.room)}</td>${extraFieldKey ? `<td style="text-align:center;font-size:8pt">${_escHtml(it.extraVal)}</td>` : ''}`;
           } else {
-            tr += `<td></td><td></td><td></td>`;
+            tr += `<td></td><td></td><td></td>${extraFieldKey ? '<td></td>' : ''}`;
           }
           if (c < colPairs - 1) tr += `<td style="border:none;background:#fff"></td>`;
         }
