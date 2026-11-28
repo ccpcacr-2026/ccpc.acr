@@ -720,6 +720,32 @@ export async function POST(req) {
     if (res?.error) return NextResponse.json({ error: res.error });
     return NextResponse.json({ success: true });
   }
+  if (action === 'bulkUpdateRoomsCapacity') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'rooms', 'edit')) return _forbidden();
+    const roomIds = Array.isArray(payload.room_ids) ? [...new Set(payload.room_ids.map(n => parseInt(n, 10)).filter(Boolean))] : [];
+    const capacity = parseInt(payload.capacity, 10);
+    if (!roomIds.length) return NextResponse.json({ error: 'Select at least one room.' });
+    if (!capacity || capacity < 1) return NextResponse.json({ error: 'Enter a valid seat capacity.' });
+    for (const part of chunk(roomIds, 150)) {
+      const res = await sbInventory(`rooms?id=in.(${part.join(',')})`, 'PATCH', { capacity });
+      if (res?.error) return NextResponse.json({ error: res.error });
+    }
+    return NextResponse.json({ success: true, count: roomIds.length, capacity });
+  }
+  if (action === 'bulkDeleteRooms') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });
+    if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'rooms', 'edit')) return _forbidden();
+    const roomIds = Array.isArray(payload.room_ids) ? [...new Set(payload.room_ids.map(n => parseInt(n, 10)).filter(Boolean))] : [];
+    if (!roomIds.length) return NextResponse.json({ error: 'Select at least one room.' });
+    for (const part of chunk(roomIds, 150)) {
+      const res = await sbInventory(`rooms?id=in.(${part.join(',')})`, 'DELETE');
+      if (res?.error) return NextResponse.json({ error: res.error });
+    }
+    return NextResponse.json({ success: true, count: roomIds.length });
+  }
   if (action === 'uploadRoomData') {
     const circularId = parseInt(payload.circular_id, 10);
     if (!circularId) return NextResponse.json({ error: 'Pick a circular first.' });

@@ -15100,7 +15100,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _exSeatPopulateExistingRoomPicker();
       _exSeatRenderRoomsTable();
       _exSeatRenderAllocRoomPicker();
-      showToast(`${room.room_name} updated to ${cap} seats`, 'success');
+      // Auto-adapt saved layout in global store if this room's seat count changed in Regular Exams too
+    const existingLay = _admSpRoomLayouts && _admSpRoomLayouts[String(room.id)];
+    if (existingLay && Array.isArray(existingLay.columns) && existingLay.columns.length && _admSpGetLayoutSlots(existingLay).length !== cap) {
+      _admSpRoomLayouts[String(room.id)] = _admSpAdaptLayoutToSeats(existingLay, cap);
+      _adminFetch('saveGlobalRoomLayouts', { room_layouts: _admSpRoomLayouts }).catch(() => {});
+    }
+    showToast(`${room.room_name} updated to ${cap} seats`, 'success');
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
   function _exSeatPopulateExamSelect() {
@@ -53318,8 +53324,28 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           </div>
         </div>
 
-        <!-- Building Summary Chips + Search / Capacity Filter -->
+        <!-- Building Summary Chips + Search / Capacity Filter + Bulk Action Bar -->
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div id="admCandRoomsBulkBar" class="hidden px-4 py-3 bg-indigo-50 border-b border-indigo-200 flex items-center justify-between flex-wrap gap-2.5">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span id="admCandRoomsBulkCount" class="text-xs font-black text-indigo-800">0 selected</span>
+              <button type="button" onclick="_admCandRoomClearSelection()" class="text-[10px] font-black uppercase text-slate-500 hover:text-slate-800 underline">Clear</button>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <div class="inline-flex items-center gap-1 bg-white border border-indigo-200 rounded-lg px-2 py-1">
+                <input type="number" min="1" id="admCandRoomsBulkCapInput" placeholder="Seats" class="w-16 text-center font-mono font-black text-xs outline-none">
+                <button type="button" onclick="_admCandRoomsBulkSetCap()" class="px-2.5 py-1 bg-blue-600 text-white rounded-md text-[10px] font-black uppercase hover:bg-black">Set Seats</button>
+              </div>
+              <div class="inline-flex items-center gap-1.5 bg-white border border-indigo-200 rounded-lg px-2 py-1 flex-wrap">
+                <select id="admCandRoomsBulkLayoutSrc" class="text-[11px] font-bold bg-transparent outline-none max-w-[190px]"></select>
+                <label class="flex items-center gap-1 text-[10px] font-bold text-slate-600 cursor-pointer whitespace-nowrap" title="Automatically scale rows per column to match each selected room's own seat count">
+                  <input type="checkbox" id="admCandRoomsBulkAutoAdapt" checked class="rounded border-slate-300"> Auto-adapt seats
+                </label>
+                <button type="button" onclick="_admCandRoomsBulkApplyLayout()" class="px-2.5 py-1 bg-indigo-600 text-white rounded-md text-[10px] font-black uppercase hover:bg-black whitespace-nowrap">Apply Common Layout</button>
+              </div>
+              <button type="button" onclick="_admCandRoomsBulkDelete()" class="px-3 py-1.5 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-red-700">Delete Selected</button>
+            </div>
+          </div>
           <div class="p-3.5 bg-slate-50/80 border-b border-slate-100 flex flex-col gap-2.5">
             <div id="admCandRoomsBldgBar" class="flex items-center gap-1.5 flex-wrap"></div>
             <div class="flex items-center gap-2 flex-wrap">
@@ -53332,6 +53358,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead><tr class="bg-slate-50 border-b border-slate-100">
+                <th class="px-3 py-3 text-center w-9"><input type="checkbox" id="admCandRoomsSelectAll" onchange="_admCandRoomToggleSelectAll(this.checked)" class="rounded border-slate-300 cursor-pointer"></th>
                 <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Room</th>
                 <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Building</th>
                 <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Seat Capacity (Inline Edit)</th>
@@ -53339,7 +53366,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                 <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Allocated</th>
                 <th class="px-3 py-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
               </tr></thead>
-              <tbody id="admCandRoomsBody"><tr><td colspan="6" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr></tbody>
+              <tbody id="admCandRoomsBody"><tr><td colspan="7" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr></tbody>
             </table>
           </div>
         </div>
@@ -54847,6 +54874,188 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
   // ── Rooms ─────────────────────────────────────────────────────────────────
   let _admCandRoomFilterBldg = 'ALL';
+  let _admCandRoomSelectedIds = new Set();
+  let _admCandRoomFilteredIds = [];
+
+  // Dynamically adapts any room layout to a new target seat count while keeping
+  // its exact column structure, labels, aisles, fill_order, doors & fixtures!
+  function _admSpAdaptLayoutToSeats(baseLayout, targetSeats) {
+    const n = Math.max(1, parseInt(targetSeats, 10) || 1);
+    const lay = JSON.parse(JSON.stringify(baseLayout || _admSpDefaultRoomLayout(n)));
+    if (!Array.isArray(lay.columns) || !lay.columns.length) return _admSpDefaultRoomLayout(n);
+    const curSlots = _admSpGetLayoutSlots(lay).length;
+    if (curSlots === n) return lay;
+
+    const cols = lay.columns;
+    const C = cols.length;
+    const origRows = cols.map(c => Math.max(0, parseInt(c.rows, 10) || 0));
+    const origSum = origRows.reduce((a, b) => a + b, 0);
+    // Keep disabled spots that still make sense; if scaling down/up, compute target gross seats = n + keptDisabled
+    const disArr = Array.isArray(lay.disabled) ? lay.disabled.slice() : [];
+    const disByCol = Array.from({ length: C }, () => []);
+    disArr.forEach(k => {
+      const [c, r] = String(k).split(':').map(Number);
+      if (c >= 0 && c < C && r >= 0) disByCol[c].push(r);
+    });
+
+    // Distribute n active seats proportionally across the C columns (or evenly if origSum === 0)
+    const weights = origSum > 0 ? origRows.map(v => v / origSum) : cols.map(() => 1 / C);
+    const raw = weights.map(w => w * n);
+    const alloc = raw.map(v => Math.floor(v));
+    let rem = n - alloc.reduce((a, b) => a + b, 0);
+    const order = raw.map((v, i) => ({ i, frac: v - Math.floor(v) })).sort((a, b) => b.frac - a.frac || a.i - b.i);
+    for (let k = 0; k < rem; k++) alloc[order[k % C].i]++;
+
+    const newDisabled = [];
+    cols.forEach((col, ci) => {
+      let activeWant = alloc[ci];
+      // Keep disabled spots that sit strictly below activeWant + keptDisabled
+      const keptDis = disByCol[ci].filter(r => r < activeWant);
+      col.rows = activeWant + keptDis.length;
+      keptDis.forEach(r => newDisabled.push(`${ci}:${r}`));
+    });
+    lay.disabled = newDisabled;
+    return lay;
+  }
+
+  async function _admCandAutoAdaptRoomLayoutIfSaved(roomIds, newCapacityById) {
+    let changed = false;
+    roomIds.forEach(rid => {
+      const key = String(rid);
+      const existing = _admSpRoomLayouts && _admSpRoomLayouts[key];
+      const targetCap = newCapacityById[key];
+      if (existing && Array.isArray(existing.columns) && existing.columns.length && targetCap > 0) {
+        const curActive = _admSpGetLayoutSlots(existing).length;
+        if (curActive !== targetCap) {
+          _admSpRoomLayouts[key] = _admSpAdaptLayoutToSeats(existing, targetCap);
+          changed = true;
+        }
+      }
+    });
+    if (changed) {
+      try {
+        await _admCandFetch('saveSeatPlanRoomLayouts', { circular_id: _admCandActiveCircularId, room_layouts: _admSpRoomLayouts });
+      } catch (_) {}
+    }
+    return changed;
+  }
+
+  function _admCandRenderRoomsBulkBar() {
+    const bar = document.getElementById('admCandRoomsBulkBar');
+    if (!bar) return;
+    const validIds = [..._admCandRoomSelectedIds].filter(id => _admCandRooms.some(r => r.id === id));
+    _admCandRoomSelectedIds = new Set(validIds);
+    const n = validIds.length;
+    bar.classList.toggle('hidden', n === 0);
+    const selAll = document.getElementById('admCandRoomsSelectAll');
+    if (selAll) selAll.checked = _admCandRoomFilteredIds.length > 0 && _admCandRoomFilteredIds.every(id => _admCandRoomSelectedIds.has(id));
+    if (!n) return;
+    const caps = [...new Set(validIds.map(id => _admCandRooms.find(r => r.id === id)?.capacity).filter(Boolean))].sort((a, b) => a - b);
+    const cntEl = document.getElementById('admCandRoomsBulkCount');
+    if (cntEl) cntEl.textContent = `${n} room${n === 1 ? '' : 's'} selected (${caps.length === 1 ? `all ${caps[0]} seats` : `mixed seats: ${caps.join(', ')}`})`;
+    const srcSel = document.getElementById('admCandRoomsBulkLayoutSrc');
+    if (srcSel) {
+      const prev = srcSel.value;
+      const customRooms = _admCandRooms.filter(r => _admSpRoomLayouts && _admSpRoomLayouts[String(r.id)]);
+      const opts = [
+        '<optgroup label="Presets">',
+        '<option value="preset:4col_22">Preset: 4 Cols (2+2 Aisle)</option>',
+        '<option value="preset:5col_212">Preset: 5 Cols (2+1+2 Aisles)</option>',
+        '<option value="preset:6col_pairs">Preset: 6 Cols (3 Double Pairs)</option>',
+        '<option value="preset:3col_row">Preset: 3 Cols (Row-wise Grid)</option>',
+        '</optgroup>',
+        customRooms.length ? ('<optgroup label="Copy From Saved Room Layout">' + customRooms.map(r => {
+          const lay = _admCandRoomLayoutSummary(r.id);
+          return `<option value="room:${r.id}">★ ${_escHtml(r.room_name)} (${lay.cols} cols · ${lay.desks} desks)</option>`;
+        }).join('') + '</optgroup>') : '',
+      ].join('');
+      srcSel.innerHTML = opts;
+      if (prev && Array.from(srcSel.options).some(o => o.value === prev)) srcSel.value = prev;
+      else if (customRooms.length) srcSel.value = `room:${customRooms[0].id}`;
+    }
+  }
+  function _admCandRoomToggleSelect(id, checked) {
+    checked ? _admCandRoomSelectedIds.add(id) : _admCandRoomSelectedIds.delete(id);
+    _admCandRenderRoomsBulkBar();
+  }
+  function _admCandRoomToggleSelectAll(checked) {
+    _admCandRoomFilteredIds.forEach(id => { checked ? _admCandRoomSelectedIds.add(id) : _admCandRoomSelectedIds.delete(id); });
+    _admCandRenderRoomsTable();
+  }
+  function _admCandRoomClearSelection() {
+    _admCandRoomSelectedIds.clear();
+    _admCandRenderRoomsTable();
+  }
+  async function _admCandRoomsBulkSetCap() {
+    const ids = [..._admCandRoomSelectedIds];
+    if (!ids.length) return;
+    const cap = parseInt(document.getElementById('admCandRoomsBulkCapInput')?.value, 10);
+    if (!cap || cap < 1) { showToast('Enter a valid seat count first', 'error'); return; }
+    showConfirm(`Update seat capacity to ${cap} seats for ${ids.length} selected room(s)?\n(Any room with a saved global layout will also auto-adapt its rows to ${cap} seats.)`, async () => {
+      try {
+        const res = await _admCandFetch('bulkUpdateRoomsCapacity', { circular_id: _admCandActiveCircularId, room_ids: ids, capacity: cap });
+        if (res.error) { showToast(res.error, 'error'); return; }
+        const capMap = {};
+        ids.forEach(id => {
+          capMap[String(id)] = cap;
+          const r = _admCandRooms.find(x => x.id === id);
+          if (r) r.capacity = cap;
+        });
+        const adapted = await _admCandAutoAdaptRoomLayoutIfSaved(ids, capMap);
+        showToast(`Updated ${ids.length} room(s) to ${cap} seats${adapted ? ' & auto-adapted layouts' : ''}`, 'success');
+        _admCandPopulateRoomSmartControls();
+        _admCandRenderRoomsTable();
+      } catch (e) { showToast(e.message || 'Bulk update failed', 'error'); }
+    });
+  }
+  async function _admCandRoomsBulkApplyLayout() {
+    const ids = [..._admCandRoomSelectedIds];
+    if (!ids.length) return;
+    const srcVal = document.getElementById('admCandRoomsBulkLayoutSrc')?.value || 'preset:5col_212';
+    const autoAdapt = !!document.getElementById('admCandRoomsBulkAutoAdapt')?.checked;
+    let baseLayout;
+    if (srcVal.startsWith('room:')) {
+      const srcId = parseInt(srcVal.slice(5), 10);
+      const srcRoom = _admCandRooms.find(r => r.id === srcId);
+      baseLayout = _admSpGetRoomLayout(srcId, srcRoom ? srcRoom.capacity : 40);
+    } else {
+      const preset = srcVal.slice(7);
+      baseLayout = _admSpDefaultRoomLayout(40);
+      const numCols = preset === '3col_row' ? 3 : (preset === '4col_22' ? 4 : (preset === '6col_pairs' ? 6 : 5));
+      const aisles = preset === '3col_row' ? [] : (preset === '4col_22' ? [1] : [1, 3]);
+      baseLayout.columns = Array.from({ length: numCols }, (_, i) => ({ label: `Col ${i + 1}`, rows: 8, aisle_after: aisles.includes(i) }));
+      baseLayout.fill_order = preset === '3col_row' ? 'row_lr' : 'col_tb';
+      baseLayout.disabled = [];
+    }
+    ids.forEach(id => {
+      const room = _admCandRooms.find(r => r.id === id);
+      const cap = (room && parseInt(room.capacity, 10)) || 40;
+      _admSpRoomLayouts[String(id)] = autoAdapt
+        ? _admSpAdaptLayoutToSeats(baseLayout, cap)
+        : JSON.parse(JSON.stringify(baseLayout));
+    });
+    try {
+      const res = await _admCandFetch('saveSeatPlanRoomLayouts', { circular_id: _admCandActiveCircularId, room_layouts: _admSpRoomLayouts });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      showToast(`Applied common layout to ${ids.length} selected room(s)${autoAdapt ? ' (auto-adapted to each room\'s seat count)' : ''}!`, 'success');
+      _admCandPopulateRoomSmartControls();
+      _admCandRenderRoomsTable();
+    } catch (e) { showToast(e.message || 'Failed to save layouts', 'error'); }
+  }
+  function _admCandRoomsBulkDelete() {
+    const ids = [..._admCandRoomSelectedIds];
+    if (!ids.length) return;
+    const names = ids.map(id => _admCandRooms.find(r => r.id === id)?.room_name || `#${id}`).slice(0, 10).join(', ');
+    showConfirm(`Delete ${ids.length} selected room(s) (${names}${ids.length > 10 ? '…' : ''})? This affects the shared room registry across Admission & Regular Exams.`, async () => {
+      try {
+        const res = await _admCandFetch('bulkDeleteRooms', { circular_id: _admCandActiveCircularId, room_ids: ids });
+        if (res.error) { showToast(res.error, 'error'); return; }
+        ids.forEach(id => _admCandRoomSelectedIds.delete(id));
+        showToast(`Deleted ${res.count || ids.length} room(s)`, 'success');
+        _admCandLoadRooms();
+      } catch (e) { showToast(e.message || 'Bulk delete failed', 'error'); }
+    });
+  }
   async function _admCandLoadRooms() {
     try {
       const res = await _admCandFetch('listRooms', { circular_id: _admCandActiveCircularId });
@@ -54979,9 +55188,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const res = await _admCandFetch('saveRoom', { id: room.id, circular_id: _admCandActiveCircularId, room_name: room.room_name, capacity: cap, building: room.building || '' });
       if (res.error) { showToast(res.error, 'error'); return; }
       room.capacity = cap;
+      const adapted = await _admCandAutoAdaptRoomLayoutIfSaved([room.id], { [String(room.id)]: cap });
       _admCandPopulateRoomSmartControls();
       _admCandRenderRoomsTable();
-      showToast(`${room.room_name} updated to ${cap} seats`, 'success');
+      showToast(`${room.room_name} updated to ${cap} seats${adapted ? ' & layout auto-adapted' : ''}`, 'success');
     } catch (e) { showToast(e.message || 'Update failed', 'error'); }
   }
   async function _admCandRoomOpenLayout(roomId) {
@@ -55043,21 +55253,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       }
       return true;
     });
-    if (!filtered.length) { body.innerHTML = '<tr><td colspan="6" class="px-4 py-10 text-center text-slate-400 text-sm">No matching rooms.</td></tr>'; return; }
+    _admCandRoomFilteredIds = filtered.map(r => r.id);
+    if (!filtered.length) { body.innerHTML = '<tr><td colspan="7" class="px-4 py-10 text-center text-slate-400 text-sm">No matching rooms.</td></tr>'; _admCandRenderRoomsBulkBar(); return; }
     body.innerHTML = filtered.map(r => {
       const allocated = (_admAllApps && _admAllApps.length ? _admAllApps : _admCandAllCandidates).filter(c => c.room_id === r.id).length;
       const building = _admCandRoomBuildingLabel(r);
       const lay = _admCandRoomLayoutSummary(r.id);
+      const isChecked = _admCandRoomSelectedIds.has(r.id);
       const layHtml = lay
         ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-black ${lay.desks !== parseInt(r.capacity, 10) ? 'bg-amber-100 text-amber-800' : 'bg-emerald-50 text-emerald-700'}">★ ${lay.cols} cols · ${lay.desks} desks</span>`
         : `<span class="text-[10px] text-slate-400 font-bold">Default</span>`;
-      return `<tr class="border-t border-slate-100 hover:bg-slate-50/70">
+      return `<tr class="border-t border-slate-100 ${isChecked ? 'bg-indigo-50/50' : 'hover:bg-slate-50/70'}">
+        <td class="px-3 py-2 text-center"><input type="checkbox" ${isChecked ? 'checked' : ''} onchange="_admCandRoomToggleSelect(${r.id}, this.checked)" class="rounded border-slate-300 cursor-pointer"></td>
         <td class="px-3 py-2 font-black text-slate-800">${_escHtml(r.room_name)}</td>
         <td class="px-3 py-2 text-xs text-slate-500">${building ? _escHtml(building) : '<span class="text-slate-300">—</span>'}</td>
         <td class="px-3 py-2 whitespace-nowrap">
           <div class="inline-flex items-center gap-1">
             <input type="number" min="1" id="admCandRoomInlineCap_${r.id}" value="${r.capacity}" onkeydown="if(event.key==='Enter')_admCandRoomInlineCapSave(${r.id})" class="w-16 px-2 py-1 text-center font-mono font-black text-xs bg-slate-50 focus:bg-white border border-slate-200 focus:border-blue-500 rounded-lg">
-            <button type="button" onclick="_admCandRoomInlineCapSave(${r.id})" title="Save seat capacity" class="px-2 py-1 bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 rounded-lg text-[10px] font-black transition-colors">✓</button>
+            <button type="button" onclick="_admCandRoomInlineCapSave(${r.id})" title="Save seat capacity (auto-adapts saved layout)" class="px-2 py-1 bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 rounded-lg text-[10px] font-black transition-colors">✓</button>
           </div>
         </td>
         <td class="px-3 py-2">${layHtml}</td>
@@ -55069,6 +55282,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         </td>
       </tr>`;
     }).join('');
+    _admCandRenderRoomsBulkBar();
   }
   async function _admCandRoomFormSave() {
     if (!_admCandEditingRoomId && !_admCandRequireCircular()) return;
@@ -55084,9 +55298,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     try {
       const res = await _admCandFetch('saveRoom', { id: _admCandEditingRoomId || undefined, circular_id: _admCandActiveCircularId, room_name, capacity, building });
       if (res.error) { showToast(res.error, 'error'); return; }
+      const savedId = _admCandEditingRoomId || res.id;
       const wasEdit = !!_admCandEditingRoomId;
+      let adapted = false;
+      if (savedId && parseInt(capacity, 10) > 0) {
+        adapted = await _admCandAutoAdaptRoomLayoutIfSaved([savedId], { [String(savedId)]: parseInt(capacity, 10) });
+      }
       _admCandRoomCancelEdit();
-      showToast(wasEdit ? `Updated ${room_name} (${capacity} seats)` : `Added ${room_name} (${capacity} seats)`, 'success');
+      showToast(wasEdit ? `Updated ${room_name} (${capacity} seats${adapted ? ' · layout adapted' : ''})` : `Added ${room_name} (${capacity} seats)`, 'success');
       _admCandLoadRooms();
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
@@ -55427,7 +55646,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _admSpSmsRunning = false;
   let _admSpSmsStop = false;
 
-  const ADM_SP_DEFAULT_SMS_TPL = 'CCPC Admission Test\nName: {name}\nIndex: {index_id}\nRoom: {room} ({building}), Seat: {seat}\nDate: {exam_date} ({time})';
+  const ADM_SP_DEFAULT_SMS_TPL = 'CCPC Admission Test\nName: {name}\nIndex: {index_id}\nRoom: {room} ({building}), Seat: {seat}\nDate: {exam_date} ({time})\n3D Seat Map: {seat_link}';
 
   function _admSpCritKey(cls, version, category) {
     return `${String(cls || '').trim()}||${String(version || '').trim()}||${String(category || '').trim()}`;
@@ -57571,11 +57790,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!_admSpActiveRoomId || !_admSpCanEdit) return;
     const lay = _admSpEnsureEditableLayout(_admSpActiveRoomId);
     const n = Math.max(1, parseInt(targetCount, 10) || 30);
-    const C = Math.max(1, lay.columns.length);
-    const base = Math.floor(n / C);
-    const extra = n % C;
-    lay.columns.forEach((col, i) => { col.rows = Math.max(1, base + (i < extra ? 1 : 0)); });
-    lay.disabled = [];
+    _admSpRoomLayouts[String(_admSpActiveRoomId)] = _admSpAdaptLayoutToSeats(lay, n);
     _admSpLayoutsDirty = true;
     _admSpRenderStudio();
   }
@@ -57669,7 +57884,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       `Apply ${curRoom.room_name}'s exact room layout (columns, rows, aisles, doors & fixtures) to ALL ${sameCapRooms.length} rooms with ${curRoom.capacity} seats?\n\nRooms: ${sameCapRooms.map(r => r.room_name).join(', ')}`,
       async () => {
         sameCapRooms.forEach(r => {
-          _admSpRoomLayouts[String(r.id)] = JSON.parse(JSON.stringify(curLayout));
+          _admSpRoomLayouts[String(r.id)] = _admSpAdaptLayoutToSeats(curLayout, r.capacity || curRoom.capacity);
         });
         _admSpLayoutsDirty = true;
         await _admSpLaySaveLayouts(true);
@@ -58888,6 +59103,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   // ══════════════════════════════════════════════════════════════════════════
   // BULK SEAT PLAN SMS (BulkSMSBD)
   // ══════════════════════════════════════════════════════════════════════════
+  function _admSpBuildSeatLink(item) {
+    if (!item) return '';
+    const code = item.display_id || item.tracking_id || (item.cand && (item.cand.index_id || item.cand.token || item.cand.tracking_id || item.cand.external_key)) || item.id || '';
+    if (!code) return '';
+    const circQ = _admCandActiveCircularId ? `?c=${_admCandActiveCircularId}` : '';
+    return `${location.origin}/seat/${encodeURIComponent(String(code).trim())}${circQ}`;
+  }
   function _admSpRenderSmsText(tpl, item, sched) {
     const c = item.cand;
     const map = {
@@ -58903,6 +59125,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       '{version}': item.version || '',
       '{category}': item.category || '',
       '{schedule}': sched.name || '',
+      '{seat_link}': _admSpBuildSeatLink(item),
     };
     let out = String(tpl || ADM_SP_DEFAULT_SMS_TPL);
     Object.entries(map).forEach(([k, v]) => { out = out.split(k).join(v); });
@@ -58945,12 +59168,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
     const sampleItem = allSeated[0];
     const samplePreview = sampleItem ? _admSpRenderSmsText(tpl, sampleItem, sched) : 'Assign students to rooms first to preview SMS.';
+    const sampleSeatLink = sampleItem ? _admSpBuildSeatLink(sampleItem) : '';
     const info = _admSpSmsPartsInfo(samplePreview);
-    const tokens = ['{name}', '{index_id}', '{tracking_id}', '{room}', '{building}', '{seat}', '{exam_date}', '{time}', '{class}', '{version}', '{category}', '{schedule}'];
+    const tokens = ['{name}', '{index_id}', '{tracking_id}', '{room}', '{building}', '{seat}', '{exam_date}', '{time}', '{seat_link}', '{class}', '{version}', '{category}', '{schedule}'];
 
     const rowsHtml = filtered.slice(0, 200).map((a, i) => {
       const phone = _admSpGetPhone(a.cand);
       const msg = _admSpRenderSmsText(tpl, a, sched);
+      const seatLink = _admSpBuildSeatLink(a);
       const log = smsLog[String(a.id)];
       let badge = '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[10px] font-black">Pending</span>';
       if (log) {
@@ -58964,7 +59189,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <td class="px-2.5 py-2 text-[11px] font-mono text-slate-400">${i + 1}</td>
         <td class="px-2.5 py-2 text-[11px] font-mono font-black text-slate-700">${_escHtml(a.display_id)}</td>
         <td class="px-2.5 py-2 text-xs font-bold text-slate-800">${_escHtml(a.cand.name_english || a.cand.name_bangla || '')}</td>
-        <td class="px-2.5 py-2 text-xs font-black text-blue-700 whitespace-nowrap">${_escHtml(a.room_name)} <span class="text-slate-400 font-bold">#${a.seat_no}</span></td>
+        <td class="px-2.5 py-2 text-xs font-black text-blue-700 whitespace-nowrap">${_escHtml(a.room_name)} <span class="text-slate-400 font-bold">#${a.seat_no}</span> ${seatLink ? `<a href="${_escHtml(seatLink)}" target="_blank" rel="noopener" title="Open 3D Seat & Wayfinding page (click Save & Apply Seats first to publish)" class="ml-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white text-[9px] font-black">3D ↗</a>` : ''}</td>
         <td class="px-2.5 py-2 text-xs font-mono ${phone ? 'text-slate-700' : 'text-red-500 font-bold'}">${_escHtml(phone || 'No phone')}</td>
         <td class="px-2.5 py-2 text-[10px] text-slate-500 max-w-xs truncate" title="${_escHtml(msg)}">${_escHtml(msg.replace(/\n/g, ' ↵ '))}</td>
         <td class="px-2.5 py-2 text-right whitespace-nowrap">${badge}</td>
@@ -58982,11 +59207,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             <span id="admSpSmsCharInfo" class="text-[10px] font-black text-slate-500">${info.chars} chars · ${info.parts} SMS part${info.parts === 1 ? '' : 's'}${info.isUnicode ? ' (Unicode)' : ''}</span>
           </div>
           <div class="flex flex-wrap gap-1 mb-2">
-            ${tokens.map(t => `<button type="button" onclick="_admSpSmsInsertToken('${t}')" class="px-2 py-0.5 rounded-md bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 text-[10px] font-mono font-bold transition-colors">${t}</button>`).join('')}
+            ${tokens.map(t => `<button type="button" onclick="_admSpSmsInsertToken('${t}')" class="px-2 py-0.5 rounded-md ${t === '{seat_link}' ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-600 hover:text-white border border-emerald-300' : 'bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700'} text-[10px] font-mono font-bold transition-colors">${t === '{seat_link}' ? '🧭 ' + t : t}</button>`).join('')}
           </div>
           <textarea id="admSpSmsTplInput" rows="4" ${_admSpCanEdit ? '' : 'disabled'} oninput="_admSpSmsTemplateInput(this.value)" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:bg-white focus:border-blue-500 outline-none">${_escHtml(tpl)}</textarea>
           <div class="mt-2 p-2.5 bg-emerald-50/70 border border-emerald-200 rounded-xl">
-            <div class="text-[9px] font-black uppercase text-emerald-700 mb-1">Live Preview (1st Seated Student)</div>
+            <div class="flex items-center justify-between gap-2 mb-1">
+              <span class="text-[9px] font-black uppercase text-emerald-700">Live Preview (1st Seated Student)</span>
+              ${sampleSeatLink ? `<a href="${_escHtml(sampleSeatLink)}" target="_blank" rel="noopener" class="px-2 py-0.5 rounded-md bg-emerald-600 text-white hover:bg-black text-[9px] font-black uppercase">🧭 Test 3D Seat Link ↗</a>` : ''}
+            </div>
             <pre id="admSpSmsPreviewBox" class="text-[11px] font-sans text-slate-700 whitespace-pre-wrap m-0">${_escHtml(samplePreview)}</pre>
           </div>
         </div>
@@ -59176,7 +59404,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     if (!comp.assignments.length) { showToast('No seated students to export', 'error'); return; }
     const tpl = cur.sms_template || ADM_SP_DEFAULT_SMS_TPL;
     const smsLog = cur.sms_log || {};
-    const header = ['SL', 'Index_ID', 'Tracking_ID', 'Name', 'Room', 'Seat', 'Phone', 'Message', 'SMS_Code', 'SMS_Status'];
+    const header = ['SL', 'Index_ID', 'Tracking_ID', 'Name', 'Room', 'Seat', 'Phone', 'Seat_3D_Link', 'Message', 'SMS_Code', 'SMS_Status'];
     const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const lines = [header.map(esc).join(',')];
     comp.assignments.forEach((a, i) => {
@@ -59189,6 +59417,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         a.room_name,
         a.seat_no,
         _admSpGetPhone(a.cand),
+        _admSpBuildSeatLink(a),
         _admSpRenderSmsText(tpl, a, cur),
         log.code || '',
         log.meaning || 'Pending',
