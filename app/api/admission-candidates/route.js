@@ -664,11 +664,12 @@ export async function POST(req) {
   // the saved-import-template gate a few lines up).
   if (action === 'listRooms') {
     const circularId = parseInt(payload.circular_id, 10);
-    if (!circularId) return NextResponse.json({ rooms: [] });
+    if (!circularId) return NextResponse.json({ rooms: [], room_layouts: {} });
     if (!isFullAdmin && !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'rooms', 'view')) return _forbidden();
-    const [rooms, buildings] = await Promise.all([
+    const [rooms, buildings, roomLayoutsSetting] = await Promise.all([
       sbInventory('rooms?select=id,name,capacity,building_id&order=name.asc'),
       sbInventory('buildings?select=id,name'),
+      _getAdmissionSetting('seat_plan_room_layouts'),
     ]);
     if (rooms?.error) return NextResponse.json({ error: rooms.error });
     const buildingById = {};
@@ -676,7 +677,7 @@ export async function POST(req) {
     const mapped = (Array.isArray(rooms) ? rooms : []).map(r => ({
       id: r.id, room_name: r.name, capacity: r.capacity, building: r.building_id ? (buildingById[r.building_id] || null) : null,
     }));
-    return NextResponse.json({ rooms: mapped });
+    return NextResponse.json({ rooms: mapped, room_layouts: (roomLayoutsSetting && typeof roomLayoutsSetting === 'object') ? roomLayoutsSetting : {} });
   }
   if (action === 'saveRoom') {
     const { id, room_name, capacity, building } = payload;

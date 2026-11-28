@@ -14904,17 +14904,40 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       <div id="ex-seatplan" style="display:none">
         <div class="flex items-baseline gap-3 mb-3 mt-2"><h3 class="text-sm font-black text-slate-800 uppercase tracking-widest">Rooms</h3><span class="text-[11px] font-bold text-slate-400">Shared with Admission's own Rooms tab and Inventory Admin — a room added anywhere shows up everywhere</span></div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4 mb-5">
-          <div class="flex items-center gap-3 flex-wrap mb-3">
-            <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exseat-room-name" id="exSeatRoomName" placeholder="Room name" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="width:160px">
-            <input type="number" id="exSeatRoomCapacity" placeholder="Capacity" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="width:100px">
-            <select id="exSeatRoomBuilding" onchange="_exSeatRoomBuildingSelectChange(this)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs" style="width:160px">
-              <option value="">— None —</option>
-            </select>
-            <button onclick="_exSeatRoomSave()" class="px-3 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Save Room</button>
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-end mb-3">
+            <div class="md:col-span-4">
+              <label class="text-[9px] uppercase text-slate-400 font-black">Existing Room Picker (with Seat No.)</label>
+              <select id="exSeatRoomExistingPicker" onchange="_exSeatRoomPickExisting(this.value)" class="w-full mt-0.5 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+                <option value="">+ Create New Room…</option>
+              </select>
+            </div>
+            <div class="md:col-span-3">
+              <label class="text-[9px] uppercase text-slate-400 font-black">Room Name</label>
+              <input type="search" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="ccpc-exseat-room-name" id="exSeatRoomName" list="exSeatRoomNameDatalist" oninput="_exSeatRoomNameInput(this.value)" placeholder="Room name" class="w-full mt-0.5 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+              <datalist id="exSeatRoomNameDatalist"></datalist>
+            </div>
+            <div class="md:col-span-2">
+              <label class="text-[9px] uppercase text-slate-400 font-black">Seat Capacity</label>
+              <input type="number" min="1" id="exSeatRoomCapacity" placeholder="Capacity" class="w-full mt-0.5 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono font-black text-xs">
+            </div>
+            <div class="md:col-span-3">
+              <label class="text-[9px] uppercase text-slate-400 font-black">Building</label>
+              <select id="exSeatRoomBuilding" onchange="_exSeatRoomBuildingSelectChange(this)" class="w-full mt-0.5 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs">
+                <option value="">— Auto / None —</option>
+              </select>
+            </div>
           </div>
-          <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:260px">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <span id="exSeatRoomSmartHint" class="text-[11px] font-bold text-slate-500"></span>
+            <div class="flex items-center gap-2">
+              <input type="text" id="exSeatRoomsSearch" oninput="_exSeatRenderRoomsTable()" placeholder="Search room / building / seats…" class="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs w-48">
+              <button type="button" id="exSeatRoomCancelBtn" onclick="_exSeatRoomCancelEdit()" class="hidden px-3 py-2 border border-slate-200 text-slate-600 rounded-lg font-black text-[10px] uppercase">Cancel</button>
+              <button type="button" id="exSeatRoomSaveBtn" onclick="_exSeatRoomSave()" class="px-4 py-2 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase">Save Room</button>
+            </div>
+          </div>
+          <div class="overflow-auto border border-slate-200 rounded-xl" style="max-height:280px">
             <table class="w-full text-left border-collapse text-xs">
-              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Room</th><th class="py-2 px-3">Building</th><th class="py-2 px-3">Capacity</th><th class="py-2 px-3 text-right">Actions</th></tr></thead>
+              <thead class="bg-slate-50"><tr class="text-[10px] font-black text-slate-500 uppercase"><th class="py-2 px-3">Room</th><th class="py-2 px-3">Building</th><th class="py-2 px-3">Seat Capacity</th><th class="py-2 px-3 text-right">Actions</th></tr></thead>
               <tbody id="exSeatRoomsBody"></tbody>
             </table>
           </div>
@@ -15005,15 +15028,80 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   async function _exSeatLoadRooms() {
     try {
       const res = await _adminFetch('listExamRooms', {});
-      _exSeatRooms = (res && res.result === 'success' && res.rooms) || [];
+      _exSeatRooms = ((res && res.result === 'success' && res.rooms) || []).slice().sort((a, b) => String(a.room_name || '').localeCompare(String(b.room_name || ''), undefined, { numeric: true }));
       if (res && res.room_layouts && typeof res.room_layouts === 'object') {
         _admSpRoomLayouts = res.room_layouts;
       }
+      _exSeatPopulateExistingRoomPicker();
       _exSeatRenderRoomsTable();
       _exSeatPopulateRoomBuildingSelect();
       _exSeatRenderAllocRoomPicker();
       _exSeatPopulatePrintRoomSelect();
     } catch (e) {}
+  }
+  function _exSeatPopulateExistingRoomPicker() {
+    const picker = document.getElementById('exSeatRoomExistingPicker');
+    if (picker) {
+      picker.innerHTML = '<option value="">+ Create New Room…</option>' + _exSeatRooms.map(r => {
+        const b = r.building || _admCandRoomBuildingLabel(r);
+        return `<option value="${r.id}" ${String(_exSeatEditingRoomId || '') === String(r.id) ? 'selected' : ''}>${_escHtml(r.room_name)} — ${r.capacity} seats${b ? ` · ${_escHtml(b)}` : ''}</option>`;
+      }).join('');
+    }
+    const dl = document.getElementById('exSeatRoomNameDatalist');
+    if (dl) dl.innerHTML = _exSeatRooms.map(r => `<option value="${_escHtml(r.room_name)}">${r.capacity} seats</option>`).join('');
+  }
+  function _exSeatRoomPickExisting(val) {
+    const id = parseInt(val, 10);
+    if (!id) { _exSeatRoomCancelEdit(); return; }
+    _exSeatRoomEdit(id);
+  }
+  function _exSeatRoomNameInput(val) {
+    const norm = String(val || '').trim().toLowerCase();
+    const match = norm ? _exSeatRooms.find(r => String(r.room_name || '').trim().toLowerCase() === norm) : null;
+    const hint = document.getElementById('exSeatRoomSmartHint');
+    const saveBtn = document.getElementById('exSeatRoomSaveBtn');
+    const cancelBtn = document.getElementById('exSeatRoomCancelBtn');
+    const picker = document.getElementById('exSeatRoomExistingPicker');
+    if (match) {
+      _exSeatEditingRoomId = match.id;
+      if (picker) picker.value = String(match.id);
+      const capEl = document.getElementById('exSeatRoomCapacity');
+      if (capEl && !capEl.value) capEl.value = match.capacity;
+      if (hint) hint.innerHTML = `<span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800">Existing: ${_escHtml(match.room_name)} (${match.capacity} seats)</span>`;
+      if (saveBtn) saveBtn.textContent = 'Update Room';
+      if (cancelBtn) cancelBtn.classList.remove('hidden');
+    } else if (!picker || !picker.value) {
+      _exSeatEditingRoomId = null;
+      if (hint) hint.textContent = '';
+      if (saveBtn) saveBtn.textContent = 'Save Room';
+      if (cancelBtn) cancelBtn.classList.add('hidden');
+    }
+  }
+  function _exSeatRoomCancelEdit() {
+    _exSeatEditingRoomId = null;
+    const n = document.getElementById('exSeatRoomName'); if (n) n.value = '';
+    const c = document.getElementById('exSeatRoomCapacity'); if (c) c.value = '';
+    const b = document.getElementById('exSeatRoomBuilding'); if (b) b.value = '';
+    const p = document.getElementById('exSeatRoomExistingPicker'); if (p) p.value = '';
+    const h = document.getElementById('exSeatRoomSmartHint'); if (h) h.textContent = '';
+    const sb = document.getElementById('exSeatRoomSaveBtn'); if (sb) sb.textContent = 'Save Room';
+    const cb = document.getElementById('exSeatRoomCancelBtn'); if (cb) cb.classList.add('hidden');
+  }
+  async function _exSeatRoomInlineCapSave(roomId) {
+    const inp = document.getElementById(`exSeatRoomInlineCap_${roomId}`);
+    const room = _exSeatRooms.find(r => r.id === roomId);
+    if (!inp || !room) return;
+    const cap = parseInt(inp.value, 10);
+    if (!cap || cap < 1) { showToast('Enter a valid seat capacity', 'error'); return; }
+    try {
+      const res = await _adminFetch('saveExamRoom', { id: room.id, room_name: room.room_name, capacity: cap, building: room.building || '' });
+      if (res.result !== 'success') { showToast(res.message || 'Failed', 'error'); return; }
+      room.capacity = cap;
+      _exSeatPopulateExistingRoomPicker();
+      _exSeatRenderRoomsTable();
+      _exSeatRenderAllocRoomPicker();
+      showToast(`${room.room_name} updated to ${cap} seats`, 'success');
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
   function _exSeatPopulateExamSelect() {
     const sel = document.getElementById('exSeatExamSelect');
@@ -15027,16 +15115,24 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _exSeatRenderRoomsTable() {
     const body = document.getElementById('exSeatRoomsBody');
     if (!body) return;
-    if (!_exSeatRooms.length) { body.innerHTML = '<tr><td colspan="4" class="py-6 px-3 text-center text-slate-400 text-xs">No rooms yet.</td></tr>'; return; }
-    body.innerHTML = _exSeatRooms.map(r => {
+    const q = (document.getElementById('exSeatRoomsSearch')?.value || '').trim().toLowerCase();
+    const list = _exSeatRooms.filter(r => !q || `${r.room_name} ${r.building || _admCandRoomBuildingLabel(r)} ${r.capacity}`.toLowerCase().includes(q));
+    if (!list.length) { body.innerHTML = '<tr><td colspan="4" class="py-6 px-3 text-center text-slate-400 text-xs">No matching rooms.</td></tr>'; return; }
+    body.innerHTML = list.map(r => {
       const lay = _admSpRoomLayouts && _admSpRoomLayouts[String(r.id)];
       const layBadge = lay && Array.isArray(lay.columns)
         ? `<span class="ml-1.5 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[9px] font-black" title="Global custom layout saved">${lay.columns.length} cols</span>`
         : '';
+      const bldg = r.building || _admCandRoomBuildingLabel(r);
       return `<tr class="border-t border-slate-100">
       <td class="py-2 px-3 font-bold">${_escHtml(r.room_name)}${layBadge}</td>
-      <td class="py-2 px-3 text-slate-500">${r.building ? _escHtml(r.building) : '<span class="text-slate-300">—</span>'}</td>
-      <td class="py-2 px-3">${r.capacity}</td>
+      <td class="py-2 px-3 text-slate-500">${bldg ? _escHtml(bldg) : '<span class="text-slate-300">—</span>'}</td>
+      <td class="py-2 px-3 whitespace-nowrap">
+        <div class="inline-flex items-center gap-1">
+          <input type="number" min="1" id="exSeatRoomInlineCap_${r.id}" value="${r.capacity}" onkeydown="if(event.key==='Enter')_exSeatRoomInlineCapSave(${r.id})" class="w-16 px-1.5 py-0.5 text-center font-mono font-black text-xs bg-slate-50 border border-slate-200 rounded">
+          <button type="button" onclick="_exSeatRoomInlineCapSave(${r.id})" class="px-1.5 py-0.5 bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 rounded text-[10px] font-black">✓</button>
+        </div>
+      </td>
       <td class="py-2 px-3 text-right whitespace-nowrap">
         <button onclick="_exSeatOpenGlobalLayoutDesigner(${r.id})" class="text-indigo-600 text-[10px] font-black uppercase mr-2">🪑 Layout</button>
         <button onclick="_exSeatRoomEdit(${r.id})" class="text-blue-600 text-[10px] font-black uppercase mr-2">Edit</button>
@@ -15066,13 +15162,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const capacity = document.getElementById('exSeatRoomCapacity').value.trim();
     const building = document.getElementById('exSeatRoomBuilding')?.value || '';
     if (!room_name || !capacity) { showToast('Enter a room name and capacity', 'error'); return; }
+    if (!_exSeatEditingRoomId) {
+      const match = _exSeatRooms.find(r => String(r.room_name || '').trim().toLowerCase() === room_name.toLowerCase());
+      if (match) _exSeatEditingRoomId = match.id;
+    }
     try {
       const res = await _adminFetch('saveExamRoom', { id: _exSeatEditingRoomId || undefined, room_name, capacity, building });
       if (res.result !== 'success') { showToast(res.message || 'Failed', 'error'); return; }
-      document.getElementById('exSeatRoomName').value = '';
-      document.getElementById('exSeatRoomCapacity').value = '';
-      document.getElementById('exSeatRoomBuilding').value = '';
-      _exSeatEditingRoomId = null;
+      _exSeatRoomCancelEdit();
       showToast('Room saved', 'success');
       _exSeatLoadRooms();
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
@@ -15084,7 +15181,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('exSeatRoomCapacity').value = room.capacity;
     const sel = document.getElementById('exSeatRoomBuilding');
     if (sel) sel.value = room.building || '';
+    const picker = document.getElementById('exSeatRoomExistingPicker');
+    if (picker) picker.value = String(id);
     _exSeatEditingRoomId = id;
+    const hint = document.getElementById('exSeatRoomSmartHint');
+    if (hint) hint.innerHTML = `<span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800">Existing: ${_escHtml(room.room_name)} (${room.capacity} seats)</span>`;
+    const sb = document.getElementById('exSeatRoomSaveBtn'); if (sb) sb.textContent = 'Update Room';
+    const cb = document.getElementById('exSeatRoomCancelBtn'); if (cb) cb.classList.remove('hidden');
   }
   function _exSeatRoomDelete(id) {
     showConfirm('Delete this room? It is shared with Admission and Inventory Admin.', async () => {
@@ -53165,33 +53268,80 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
 
       <div id="adm-cand-rooms" class="hidden">
         <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-5 mb-4">
-          <div class="flex items-center gap-3 flex-wrap mb-3">
-            <input type="text" id="admCandRoomName" placeholder="Room name" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:160px">
-            <input type="number" id="admCandRoomCapacity" placeholder="Capacity" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:100px">
-            <select id="admCandRoomBuilding" onchange="_admCandRoomBuildingSelectChange(this)" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs" style="width:160px">
-              <option value="">— Auto from name —</option>
-            </select>
-            <button onclick="_admCandRoomFormSave()" class="px-3 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Save Room</button>
-            <span class="text-slate-300">|</span>
-            <input type="file" id="admCandRoomFileInput" accept=".xlsx,.xls,.csv" onchange="_admCandRoomHandleImportFile(event)" class="text-xs">
-            <span id="admCandRoomImportStatus" class="text-xs text-slate-400"></span>
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <div>
+              <h3 class="font-black text-slate-800 text-xs uppercase tracking-wider">Smart Room &amp; Seat Registry</h3>
+              <p class="text-[11px] text-slate-400">Pick an existing room from the dropdown to view/update its seat capacity, or type a new room name (auto-detects duplicates).</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <input type="file" id="admCandRoomFileInput" accept=".xlsx,.xls,.csv" onchange="_admCandRoomHandleImportFile(event)" class="text-xs max-w-[200px]">
+              <span id="admCandRoomImportStatus" class="text-xs text-slate-400"></span>
+            </div>
           </div>
-          <div id="admCandRoomMappingSection" class="hidden mb-3">
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-end p-3 bg-slate-50 rounded-xl border border-slate-100 mb-3">
+            <div class="md:col-span-4">
+              <label class="text-[9px] uppercase text-slate-400 font-black">Existing Room Picker (with Seat No.)</label>
+              <select id="admCandRoomExistingPicker" onchange="_admCandRoomPickExisting(this.value)" class="w-full mt-0.5 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+                <option value="">+ Create New Room…</option>
+              </select>
+            </div>
+            <div class="md:col-span-3">
+              <label class="text-[9px] uppercase text-slate-400 font-black">Room Name</label>
+              <input type="text" id="admCandRoomName" list="admCandRoomNameDatalist" oninput="_admCandRoomNameInput(this.value)" placeholder="e.g. SB-101" class="w-full mt-0.5 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+              <datalist id="admCandRoomNameDatalist"></datalist>
+            </div>
+            <div class="md:col-span-2">
+              <label class="text-[9px] uppercase text-slate-400 font-black">Seat Capacity</label>
+              <input type="number" min="1" id="admCandRoomCapacity" placeholder="e.g. 45" class="w-full mt-0.5 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono font-black">
+            </div>
+            <div class="md:col-span-3">
+              <label class="text-[9px] uppercase text-slate-400 font-black">Building</label>
+              <select id="admCandRoomBuilding" onchange="_admCandRoomBuildingSelectChange(this)" class="w-full mt-0.5 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+                <option value="">— Auto from name —</option>
+              </select>
+            </div>
+          </div>
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="text-[10px] font-black uppercase text-slate-400">Quick Seats:</span>
+              <div id="admCandRoomCapPills" class="flex items-center gap-1 flex-wrap"></div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span id="admCandRoomSmartHint" class="text-[11px] font-bold text-slate-500"></span>
+              <button type="button" id="admCandRoomCancelBtn" onclick="_admCandRoomCancelEdit()" class="hidden px-3 py-2 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black uppercase">Cancel</button>
+              <button type="button" id="admCandRoomSaveBtn" onclick="_admCandRoomFormSave()" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-black transition-all">Save Room</button>
+            </div>
+          </div>
+          <div id="admCandRoomMappingSection" class="hidden mt-3 pt-3 border-t border-slate-100">
             <div id="admCandRoomMappingList"></div>
             <button onclick="_admCandRoomConfirmImport()" class="mt-2 px-3 py-2 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase">Import Rooms</button>
           </div>
         </div>
-        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead><tr class="bg-slate-50 border-b border-slate-100">
-              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Room</th>
-              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Building</th>
-              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Capacity</th>
-              <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Allocated</th>
-              <th class="px-3 py-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
-            </tr></thead>
-            <tbody id="admCandRoomsBody"><tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr></tbody>
-          </table>
+
+        <!-- Building Summary Chips + Search / Capacity Filter -->
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div class="p-3.5 bg-slate-50/80 border-b border-slate-100 flex flex-col gap-2.5">
+            <div id="admCandRoomsBldgBar" class="flex items-center gap-1.5 flex-wrap"></div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <input type="text" id="admCandRoomsSearch" oninput="_admCandRoomFilterChange()" placeholder="Search room name, building, or seat count…" class="flex-1 min-w-[180px] px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs">
+              <select id="admCandRoomsCapFilter" onchange="_admCandRoomFilterChange()" class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+                <option value="">All Seat Counts</option>
+              </select>
+            </div>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead><tr class="bg-slate-50 border-b border-slate-100">
+                <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Room</th>
+                <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Building</th>
+                <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Seat Capacity (Inline Edit)</th>
+                <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Global Layout</th>
+                <th class="px-3 py-3 text-left text-[10px] font-black text-slate-400 uppercase tracking-widest">Allocated</th>
+                <th class="px-3 py-3 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
+              </tr></thead>
+              <tbody id="admCandRoomsBody"><tr><td colspan="6" class="px-4 py-10 text-center text-slate-400 text-sm">Loading…</td></tr></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -54696,11 +54846,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   // ── Rooms ─────────────────────────────────────────────────────────────────
+  let _admCandRoomFilterBldg = 'ALL';
   async function _admCandLoadRooms() {
     try {
       const res = await _admCandFetch('listRooms', { circular_id: _admCandActiveCircularId });
-      _admCandRooms = res.rooms || [];
+      _admCandRooms = (res.rooms || []).slice().sort((a, b) => String(a.room_name || '').localeCompare(String(b.room_name || ''), undefined, { numeric: true }));
+      if (res && res.room_layouts && typeof res.room_layouts === 'object') {
+        _admSpRoomLayouts = res.room_layouts;
+      }
       _admCandPopulateRoomBuildingSelect();
+      _admCandPopulateRoomSmartControls();
       _admCandRenderRoomsTable();
       _admCandRenderAllocRoomPicker();
     } catch (e) {}
@@ -54716,6 +54871,127 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const roomName = room && room.room_name ? room.room_name : room;
     const m = /^([A-Za-z]{2,3})[-_\s]/.exec(String(roomName || '').trim());
     return (m && ADM_CAND_BUILDING_PREFIXES[m[1].toUpperCase()]) || '';
+  }
+  function _admCandRoomLayoutSummary(roomId) {
+    const lay = _admSpRoomLayouts && _admSpRoomLayouts[String(roomId)];
+    if (!lay || !Array.isArray(lay.columns) || !lay.columns.length) return null;
+    const desks = _admSpGetLayoutSlots(lay).length;
+    return { cols: lay.columns.length, desks };
+  }
+  function _admCandPopulateRoomSmartControls() {
+    const picker = document.getElementById('admCandRoomExistingPicker');
+    if (picker) {
+      picker.innerHTML = '<option value="">+ Create New Room…</option>' + _admCandRooms.map(r => {
+        const b = _admCandRoomBuildingLabel(r);
+        const lay = _admCandRoomLayoutSummary(r.id);
+        return `<option value="${r.id}" ${String(_admCandEditingRoomId || '') === String(r.id) ? 'selected' : ''}>${_escHtml(r.room_name)} — ${r.capacity} seats${lay ? ` (${lay.cols} cols)` : ''}${b ? ` · ${_escHtml(b)}` : ''}</option>`;
+      }).join('');
+    }
+    const dl = document.getElementById('admCandRoomNameDatalist');
+    if (dl) {
+      dl.innerHTML = _admCandRooms.map(r => `<option value="${_escHtml(r.room_name)}">${r.capacity} seats — ${_escHtml(_admCandRoomBuildingLabel(r) || '')}</option>`).join('');
+    }
+    // Dynamic seat-count filter + quick capacity pills
+    const capCounts = {};
+    _admCandRooms.forEach(r => { const c = parseInt(r.capacity, 10) || 0; if (c > 0) capCounts[c] = (capCounts[c] || 0) + 1; });
+    const sortedCaps = Object.keys(capCounts).map(Number).sort((a, b) => a - b);
+    const capSel = document.getElementById('admCandRoomsCapFilter');
+    if (capSel) {
+      const prev = capSel.value;
+      capSel.innerHTML = '<option value="">All Seat Counts</option>' + sortedCaps.map(c => `<option value="${c}" ${String(c) === prev ? 'selected' : ''}>${c} seats (${capCounts[c]} room${capCounts[c] === 1 ? '' : 's'})</option>`).join('');
+    }
+    const pillsHost = document.getElementById('admCandRoomCapPills');
+    if (pillsHost) {
+      const quickCaps = [...new Set([...sortedCaps, 30, 36, 40, 42, 45, 48, 50, 60])].sort((a, b) => a - b).slice(0, 10);
+      pillsHost.innerHTML = quickCaps.map(c => `<button type="button" onclick="_admCandRoomSetCapQuick(${c})" class="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-700 font-mono text-[10px] font-black transition-colors">${c}</button>`).join('');
+    }
+  }
+  function _admCandRoomUpdateHint(room) {
+    const hint = document.getElementById('admCandRoomSmartHint');
+    const saveBtn = document.getElementById('admCandRoomSaveBtn');
+    const cancelBtn = document.getElementById('admCandRoomCancelBtn');
+    if (room) {
+      const lay = _admCandRoomLayoutSummary(room.id);
+      if (hint) hint.innerHTML = `<span class="px-2 py-0.5 rounded-md bg-amber-100 text-amber-800">Existing: ${_escHtml(room.room_name)} (${room.capacity} seats${lay ? ` · Layout: ${lay.cols} cols / ${lay.desks} desks` : ''})</span>`;
+      if (saveBtn) saveBtn.textContent = 'Update Room';
+      if (cancelBtn) cancelBtn.classList.remove('hidden');
+    } else {
+      if (hint) hint.textContent = '';
+      if (saveBtn) saveBtn.textContent = 'Save Room';
+      if (cancelBtn) cancelBtn.classList.add('hidden');
+    }
+  }
+  function _admCandRoomPickExisting(roomIdVal) {
+    const id = parseInt(roomIdVal, 10);
+    if (!id) { _admCandRoomCancelEdit(); return; }
+    _admCandRoomFormOpen(id);
+  }
+  function _admCandRoomNameInput(val) {
+    const norm = String(val || '').trim().toLowerCase();
+    const match = norm ? _admCandRooms.find(r => String(r.room_name || '').trim().toLowerCase() === norm) : null;
+    const picker = document.getElementById('admCandRoomExistingPicker');
+    if (match) {
+      _admCandEditingRoomId = match.id;
+      if (picker) picker.value = String(match.id);
+      const capEl = document.getElementById('admCandRoomCapacity');
+      if (capEl && !capEl.value) capEl.value = match.capacity;
+      const bEl = document.getElementById('admCandRoomBuilding');
+      if (bEl && !bEl.value && match.building) bEl.value = match.building;
+      _admCandRoomUpdateHint(match);
+    } else {
+      if (_admCandEditingRoomId) {
+        const prev = _admCandRooms.find(r => r.id === _admCandEditingRoomId);
+        if (!prev || String(prev.room_name || '').trim().toLowerCase() !== norm) {
+          // User is renaming or typing a brand-new room name
+          if (!picker || !picker.value) { _admCandEditingRoomId = null; _admCandRoomUpdateHint(null); }
+        }
+      }
+      // Auto-guess building from prefix if building select is empty
+      const guessed = _admCandRoomBuildingLabel(val);
+      const hint = document.getElementById('admCandRoomSmartHint');
+      if (guessed && hint && !_admCandEditingRoomId) hint.innerHTML = `<span class="text-blue-600">Auto Building: ${_escHtml(guessed)}</span>`;
+    }
+  }
+  function _admCandRoomSetCapQuick(cap) {
+    const el = document.getElementById('admCandRoomCapacity');
+    if (el) { el.value = String(cap); el.focus(); }
+  }
+  function _admCandRoomCancelEdit() {
+    _admCandEditingRoomId = null;
+    const n = document.getElementById('admCandRoomName'); if (n) n.value = '';
+    const c = document.getElementById('admCandRoomCapacity'); if (c) c.value = '';
+    const b = document.getElementById('admCandRoomBuilding'); if (b) b.value = '';
+    const p = document.getElementById('admCandRoomExistingPicker'); if (p) p.value = '';
+    _admCandRoomUpdateHint(null);
+  }
+  function _admCandRoomFilterChange(bldgCode) {
+    if (bldgCode !== undefined && bldgCode !== null) _admCandRoomFilterBldg = bldgCode;
+    _admCandRenderRoomsTable();
+  }
+  async function _admCandRoomInlineCapSave(roomId) {
+    const inp = document.getElementById(`admCandRoomInlineCap_${roomId}`);
+    const room = _admCandRooms.find(r => r.id === roomId);
+    if (!inp || !room) return;
+    const cap = parseInt(inp.value, 10);
+    if (!cap || cap < 1) { showToast('Enter a valid seat capacity', 'error'); return; }
+    if (cap === parseInt(room.capacity, 10)) { showToast('No change', 'info'); return; }
+    try {
+      const res = await _admCandFetch('saveRoom', { id: room.id, circular_id: _admCandActiveCircularId, room_name: room.room_name, capacity: cap, building: room.building || '' });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      room.capacity = cap;
+      _admCandPopulateRoomSmartControls();
+      _admCandRenderRoomsTable();
+      showToast(`${room.room_name} updated to ${cap} seats`, 'success');
+    } catch (e) { showToast(e.message || 'Update failed', 'error'); }
+  }
+  async function _admCandRoomOpenLayout(roomId) {
+    // Jump directly to Seat Allocation -> Room Layout Designer focused on this room!
+    const tabBtn = document.querySelector('#adm-top-tabs .adm-ftab[data-id="adm-cand-alloc"]');
+    _admSpActiveRoomId = parseInt(roomId, 10) || null;
+    _admSpLayShowAllRooms = true;
+    _admSpActiveSubView = 'layout';
+    if (typeof _admShowTopTab === 'function' && tabBtn) _admShowTopTab('adm-cand-alloc', tabBtn);
+    else _admCandShowTab('adm-cand-alloc', tabBtn);
   }
   function _admCandPopulateRoomBuildingSelect() {
     const sel = document.getElementById('admCandRoomBuilding');
@@ -54736,18 +55012,60 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   function _admCandRenderRoomsTable() {
     const body = document.getElementById('admCandRoomsBody');
     if (!body) return;
-    if (!_admCandRooms.length) { body.innerHTML = '<tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 text-sm">No rooms yet.</td></tr>'; return; }
-    body.innerHTML = _admCandRooms.map(r => {
-      const allocated = _admCandAllCandidates.filter(c => c.room_id === r.id).length;
+    // Building summary chips
+    const bldgBar = document.getElementById('admCandRoomsBldgBar');
+    if (bldgBar) {
+      const bMap = {};
+      let totCap = 0;
+      _admCandRooms.forEach(r => {
+        const code = _admSpRoomBuildingCode(r);
+        const name = _admCandRoomBuildingLabel(r) || code;
+        if (!bMap[code]) bMap[code] = { code, name, count: 0, cap: 0 };
+        bMap[code].count++;
+        bMap[code].cap += (parseInt(r.capacity, 10) || 0);
+        totCap += (parseInt(r.capacity, 10) || 0);
+      });
+      const chips = [`<button type="button" onclick="_admCandRoomFilterChange('ALL')" class="px-2.5 py-1 rounded-lg text-[10px] font-black ${_admCandRoomFilterBldg === 'ALL' ? 'bg-slate-800 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}">ALL · ${_admCandRooms.length} rooms · ${totCap} seats</button>`]
+        .concat(Object.values(bMap).sort((a, b) => a.code.localeCompare(b.code)).map(b =>
+          `<button type="button" onclick="_admCandRoomFilterChange('${_escHtml(b.code)}')" title="${_escHtml(b.name)}" class="px-2.5 py-1 rounded-lg text-[10px] font-black ${_admCandRoomFilterBldg === b.code ? 'bg-slate-800 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'}">${_escHtml(b.code)} · ${b.count} rooms (${b.cap} seats)</button>`
+        ));
+      bldgBar.innerHTML = chips.join('');
+    }
+
+    const q = (document.getElementById('admCandRoomsSearch')?.value || '').trim().toLowerCase();
+    const capF = document.getElementById('admCandRoomsCapFilter')?.value || '';
+    const filtered = _admCandRooms.filter(r => {
+      if (_admCandRoomFilterBldg !== 'ALL' && _admSpRoomBuildingCode(r) !== _admCandRoomFilterBldg) return false;
+      if (capF && String(r.capacity) !== String(capF)) return false;
+      if (q) {
+        const hay = `${r.room_name} ${_admCandRoomBuildingLabel(r)} ${r.capacity}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+    if (!filtered.length) { body.innerHTML = '<tr><td colspan="6" class="px-4 py-10 text-center text-slate-400 text-sm">No matching rooms.</td></tr>'; return; }
+    body.innerHTML = filtered.map(r => {
+      const allocated = (_admAllApps && _admAllApps.length ? _admAllApps : _admCandAllCandidates).filter(c => c.room_id === r.id).length;
       const building = _admCandRoomBuildingLabel(r);
-      return `<tr class="border-t border-slate-100">
-        <td class="px-3 py-2.5 font-bold">${_escHtml(r.room_name)}</td>
-        <td class="px-3 py-2.5 text-slate-500">${building ? _escHtml(building) : '<span class="text-slate-300">—</span>'}</td>
-        <td class="px-3 py-2.5">${r.capacity}</td>
-        <td class="px-3 py-2.5">${allocated}</td>
-        <td class="px-3 py-2.5 text-right">
-          <button onclick="_admCandRoomFormOpen(${r.id})" class="text-blue-600 text-xs font-bold mr-2">Edit</button>
-          <button onclick="_admCandRoomDelete(${r.id})" class="text-red-500 text-xs font-bold">Delete</button>
+      const lay = _admCandRoomLayoutSummary(r.id);
+      const layHtml = lay
+        ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-black ${lay.desks !== parseInt(r.capacity, 10) ? 'bg-amber-100 text-amber-800' : 'bg-emerald-50 text-emerald-700'}">★ ${lay.cols} cols · ${lay.desks} desks</span>`
+        : `<span class="text-[10px] text-slate-400 font-bold">Default</span>`;
+      return `<tr class="border-t border-slate-100 hover:bg-slate-50/70">
+        <td class="px-3 py-2 font-black text-slate-800">${_escHtml(r.room_name)}</td>
+        <td class="px-3 py-2 text-xs text-slate-500">${building ? _escHtml(building) : '<span class="text-slate-300">—</span>'}</td>
+        <td class="px-3 py-2 whitespace-nowrap">
+          <div class="inline-flex items-center gap-1">
+            <input type="number" min="1" id="admCandRoomInlineCap_${r.id}" value="${r.capacity}" onkeydown="if(event.key==='Enter')_admCandRoomInlineCapSave(${r.id})" class="w-16 px-2 py-1 text-center font-mono font-black text-xs bg-slate-50 focus:bg-white border border-slate-200 focus:border-blue-500 rounded-lg">
+            <button type="button" onclick="_admCandRoomInlineCapSave(${r.id})" title="Save seat capacity" class="px-2 py-1 bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 rounded-lg text-[10px] font-black transition-colors">✓</button>
+          </div>
+        </td>
+        <td class="px-3 py-2">${layHtml}</td>
+        <td class="px-3 py-2 font-mono text-xs font-bold ${allocated ? 'text-blue-600' : 'text-slate-400'}">${allocated}</td>
+        <td class="px-3 py-2 text-right whitespace-nowrap">
+          <button type="button" onclick="_admCandRoomOpenLayout(${r.id})" class="px-2 py-1 bg-indigo-50 hover:bg-indigo-600 hover:text-white text-indigo-700 rounded-lg text-[10px] font-black mr-1.5 transition-colors">🪑 Layout</button>
+          <button type="button" onclick="_admCandRoomFormOpen(${r.id})" class="text-blue-600 text-xs font-bold mr-2">Edit</button>
+          <button type="button" onclick="_admCandRoomDelete(${r.id})" class="text-red-500 text-xs font-bold">Delete</button>
         </td>
       </tr>`;
     }).join('');
@@ -54758,14 +55076,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const capacity = document.getElementById('admCandRoomCapacity').value.trim();
     const building = document.getElementById('admCandRoomBuilding')?.value || '';
     if (!room_name || !capacity) { showToast('Enter a room name and capacity', 'error'); return; }
+    // Auto-match existing room by name if user typed an existing room name directly
+    if (!_admCandEditingRoomId) {
+      const existing = _admCandRooms.find(r => String(r.room_name || '').trim().toLowerCase() === room_name.toLowerCase());
+      if (existing) _admCandEditingRoomId = existing.id;
+    }
     try {
       const res = await _admCandFetch('saveRoom', { id: _admCandEditingRoomId || undefined, circular_id: _admCandActiveCircularId, room_name, capacity, building });
       if (res.error) { showToast(res.error, 'error'); return; }
-      document.getElementById('admCandRoomName').value = '';
-      document.getElementById('admCandRoomCapacity').value = '';
-      document.getElementById('admCandRoomBuilding').value = '';
-      _admCandEditingRoomId = null;
-      showToast('Room saved', 'success');
+      const wasEdit = !!_admCandEditingRoomId;
+      _admCandRoomCancelEdit();
+      showToast(wasEdit ? `Updated ${room_name} (${capacity} seats)` : `Added ${room_name} (${capacity} seats)`, 'success');
       _admCandLoadRooms();
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
@@ -54776,7 +55097,11 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     document.getElementById('admCandRoomCapacity').value = room.capacity;
     const buildingSel = document.getElementById('admCandRoomBuilding');
     if (buildingSel) buildingSel.value = room.building || '';
+    const picker = document.getElementById('admCandRoomExistingPicker');
+    if (picker) picker.value = String(id);
     _admCandEditingRoomId = id;
+    _admCandRoomUpdateHint(room);
+    document.getElementById('admCandRoomCapacity')?.focus();
   }
   async function _admCandRoomDelete(id) {
     if (!confirm('Delete this room? Candidates allocated to it will need re-allocation.')) return;
