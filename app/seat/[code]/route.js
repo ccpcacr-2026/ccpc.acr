@@ -47,18 +47,23 @@ export async function GET(req, context) {
 
     /* 3D Campus Wayfinding Map */
     .campus-world { position: relative; width: 640px; height: 390px; transform-style: preserve-3d; transition: transform 0.35s ease-out; }
-    .campus-ground { position: absolute; inset: 0; background: linear-gradient(135deg,#132032,#0f172a); border: 2px solid #334155; border-radius: 20px; box-shadow: 0 32px 65px rgba(0,0,0,0.7); }
-    .road-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; transform: translateZ(2px); }
+    .campus-ground { position: absolute; inset: 0; background: linear-gradient(135deg,#132032,#0f172a); border: 2px solid #334155; border-radius: 20px; box-shadow: 0 32px 65px rgba(0,0,0,0.7); overflow: hidden; }
+    .campus-ground-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+    .campus-lm { position: absolute; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 800; pointer-events: none; transform: translateZ(3px); border: 1.5px dashed rgba(148,163,184,0.45); background: rgba(30,41,59,0.55); color: #cbd5e1; text-align: center; padding: 4px; }
+    .campus-lm.field { background: rgba(16,185,129,0.16); border-color: rgba(52,211,153,0.45); color: #a7f3d0; }
+    .campus-lm.helpdesk { background: rgba(245,158,11,0.18); border-color: rgba(251,191,36,0.55); color: #fde68a; }
+    .campus-lm.stairs { background: rgba(59,130,246,0.2); border-color: rgba(96,165,250,0.55); color: #bfdbfe; }
+    .road-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; transform: translateZ(5px); }
     .bldg-3d { position: absolute; transform-style: preserve-3d; transition: all 0.35s; }
-    .bldg-top { width: 100%; height: 100%; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 900; font-size: 12px; border: 2px solid #475569; background: #1e293b; color: #cbd5e1; box-shadow: 0 10px 25px rgba(0,0,0,0.45); transform: translateZ(34px); position: relative; }
-    .bldg-3d.target .bldg-top { background: linear-gradient(135deg,#059669,#10b981); border-color: #6ee7b7; color: #fff; transform: translateZ(56px); box-shadow: 0 0 34px rgba(16,185,129,0.7); }
-    .bldg-side-front { position: absolute; left: 0; right: 0; bottom: 0; height: 34px; background: #0f172a; border: 1px solid #334155; transform-origin: bottom; transform: rotateX(-90deg); }
-    .bldg-3d.target .bldg-side-front { height: 56px; background: linear-gradient(180deg,#047857,#064e3b); border-color: #34d399; }
-    .bldg-side-right { position: absolute; top: 0; bottom: 0; right: 0; width: 34px; background: #172033; border: 1px solid #334155; transform-origin: right; transform: rotateY(-90deg); }
-    .bldg-3d.target .bldg-side-right { width: 56px; background: linear-gradient(270deg,#065f46,#064e3b); border-color: #34d399; }
-    .bldg-beacon { position: absolute; left: 50%; top: 50%; transform-origin: center bottom; transform: translate(-50%,-100%) translateZ(66px) rotateX(-52deg); background: linear-gradient(135deg,#f59e0b,#d97706); color: #0f172a; font-size: 11px; font-weight: 900; padding: 5px 12px; border-radius: 999px; white-space: nowrap; box-shadow: 0 10px 24px rgba(245,158,11,0.55); border: 2px solid #fef3c7; pointer-events: none; }
+    .bldg-top { width: 100%; height: 100%; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 900; font-size: 12px; border: 2px solid #475569; background: #1e293b; color: #cbd5e1; box-shadow: 0 10px 25px rgba(0,0,0,0.45); position: relative; text-align: center; padding: 4px; }
+    .bldg-3d.target .bldg-top { background: linear-gradient(135deg,#059669,#10b981) !important; border-color: #6ee7b7 !important; color: #fff !important; box-shadow: 0 0 34px rgba(16,185,129,0.7); }
+    .bldg-side-front { position: absolute; left: 0; right: 0; bottom: 0; background: #0f172a; border: 1px solid #334155; transform-origin: bottom; transform: rotateX(-90deg); }
+    .bldg-3d.target .bldg-side-front { background: linear-gradient(180deg,#047857,#064e3b) !important; border-color: #34d399 !important; }
+    .bldg-side-right { position: absolute; top: 0; bottom: 0; right: 0; background: #172033; border: 1px solid #334155; transform-origin: right; transform: rotateY(-90deg); }
+    .bldg-3d.target .bldg-side-right { background: linear-gradient(270deg,#065f46,#064e3b) !important; border-color: #34d399 !important; }
+    .bldg-beacon { position: absolute; left: 50%; top: 50%; transform-origin: center bottom; background: linear-gradient(135deg,#f59e0b,#d97706); color: #0f172a; font-size: 11px; font-weight: 900; padding: 5px 12px; border-radius: 999px; white-space: nowrap; box-shadow: 0 10px 24px rgba(245,158,11,0.55); border: 2px solid #fef3c7; pointer-events: none; }
     .bldg-beacon::after { content: ''; position: absolute; left: 50%; bottom: -8px; transform: translateX(-50%); border: 5px solid transparent; border-top-color: #f59e0b; }
-    .gate-node { position: absolute; left: 26px; bottom: 26px; background: linear-gradient(135deg,#2563eb,#1d4ed8); border: 2px solid #93c5fd; color: #fff; font-size: 11px; font-weight: 900; padding: 6px 12px; border-radius: 10px; transform: translateZ(14px); box-shadow: 0 8px 20px rgba(37,99,235,0.5); }
+    .gate-node { position: absolute; background: linear-gradient(135deg,#2563eb,#1d4ed8); border: 2px solid #93c5fd; color: #fff; font-size: 11px; font-weight: 900; padding: 6px 12px; border-radius: 10px; transform: translate(-50%,-50%) translateZ(14px); box-shadow: 0 8px 20px rgba(37,99,235,0.5); white-space: nowrap; }
 
     /* Step Cards */
     .steps-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(175px, 1fr)); gap: 8px; margin-top: 12px; }
@@ -490,9 +495,10 @@ export async function GET(req, context) {
         cw.style.transform = 'scale(' + CAMPUS_CAM.scale + ') rotateX(' + CAMPUS_CAM.rx + 'deg) rotateZ(' + CAMPUS_CAM.rz + 'deg)';
         const bc = cw.querySelector('.bldg-beacon');
         if (bc) {
+          const bz = parseInt(bc.dataset.z || '66', 10) || 66;
           bc.style.transform = CAMPUS_CAM.rx < 10
-            ? 'translate(-50%,-115%) translateZ(66px)'
-            : 'translate(-50%,-100%) translateZ(66px) rotateZ(' + (-CAMPUS_CAM.rz) + 'deg) rotateX(' + (-CAMPUS_CAM.rx) + 'deg)';
+            ? 'translate(-50%,-115%) translateZ(' + bz + 'px)'
+            : 'translate(-50%,-100%) translateZ(' + bz + 'px) rotateZ(' + (-CAMPUS_CAM.rz) + 'deg) rotateX(' + (-CAMPUS_CAM.rx) + 'deg)';
         }
       }
     }
@@ -622,40 +628,92 @@ export async function GET(req, context) {
     function renderCampusHtml() {
       const s = DATA.seat;
       const code = (s.building_code || 'SB').toUpperCase();
-      const bldgs = [
-        { code: 'MB', name: 'Main Building (MB)', x: 220, y: 245, w: 185, h: 74, cx: 312, cy: 282 },
-        { code: 'SB', name: 'School Building (SB)', x: 85, y: 78, w: 195, h: 86, cx: 182, cy: 121 },
-        { code: 'CB', name: 'College Building (CB)', x: 355, y: 75, w: 195, h: 86, cx: 452, cy: 118 },
-        { code: 'JB', name: 'Junior Block (JB)', x: 455, y: 235, w: 145, h: 76, cx: 527, cy: 273 },
-        { code: 'HB', name: 'Honors Building (HB)', x: 255, y: 18, w: 130, h: 48, cx: 320, cy: 42 },
+      const cm = (DATA.campus_map && typeof DATA.campus_map === 'object') ? DATA.campus_map : {};
+      const defaultBldgs = [
+        { id: 'b_mb', code: 'MB', name: 'Main Building', x: 220, y: 245, w: 185, h: 74, floors: 4, color: '#334155', note: '' },
+        { id: 'b_sb', code: 'SB', name: 'School Building', x: 85, y: 78, w: 195, h: 86, floors: 5, color: '#1e3a8a', note: '' },
+        { id: 'b_cb', code: 'CB', name: 'College Building', x: 355, y: 75, w: 195, h: 86, floors: 5, color: '#312e81', note: '' },
+        { id: 'b_jb', code: 'JB', name: 'Junior Block', x: 455, y: 235, w: 145, h: 76, floors: 3, color: '#134e4a', note: '' },
+        { id: 'b_hb', code: 'HB', name: 'Honors Building', x: 255, y: 18, w: 130, h: 48, floors: 4, color: '#3730a3', note: '' },
       ];
-      const tgt = bldgs.find(b => b.code === code) || bldgs[1];
-      const routeD = 'M 75 340 L 180 340 L 180 205 L ' + tgt.cx + ' 205 L ' + tgt.cx + ' ' + tgt.cy;
+      const bldgs = (Array.isArray(cm.buildings) && cm.buildings.length ? cm.buildings : defaultBldgs).map(b => {
+        const x = Number(b.x) || 0, y = Number(b.y) || 0, w = Math.max(40, Number(b.w) || 120), h = Math.max(30, Number(b.h) || 64);
+        return {
+          code: String(b.code || 'B').toUpperCase(),
+          name: String(b.name || b.code || 'Building'),
+          x, y, w, h,
+          cx: Math.round(x + w / 2),
+          cy: Math.round(y + h / 2),
+          floors: Math.max(1, Math.min(10, parseInt(b.floors, 10) || 4)),
+          color: b.color || '#1e293b',
+          note: String(b.note || '').trim(),
+        };
+      });
+      const gate = (cm.gate && typeof cm.gate === 'object')
+        ? { label: String(cm.gate.label || 'MAIN GATE'), x: Number(cm.gate.x) || 75, y: Number(cm.gate.y) || 344 }
+        : { label: 'MAIN GATE', x: 75, y: 344 };
+      const landmarks = Array.isArray(cm.landmarks) ? cm.landmarks : [];
+      const lmIcons = { field: '🌿', helpdesk: 'ℹ️', stairs: '🪜', gate: '🚪', landmark: '📍' };
+
+      const tgt = bldgs.find(b => b.code === code)
+        || bldgs.find(b => s.building && b.name.toLowerCase().includes(String(s.building).toLowerCase()))
+        || bldgs[0];
+
+      const customPts = (cm.routes && Array.isArray(cm.routes[tgt.code]) && cm.routes[tgt.code].length >= 2)
+        ? cm.routes[tgt.code]
+        : null;
+      let routePts;
+      if (customPts) {
+        routePts = customPts;
+      } else {
+        const midY = Math.round((gate.y + tgt.cy) / 2);
+        routePts = [[gate.x, gate.y], [Math.min(Math.max(gate.x + 80, 120), 540), gate.y], [Math.min(Math.max(gate.x + 80, 120), 540), midY], [tgt.cx, midY], [tgt.cx, tgt.cy]];
+      }
+      const routeD = routePts.map((pt, i) => (i === 0 ? 'M ' : 'L ') + Math.round(pt[0]) + ' ' + Math.round(pt[1])).join(' ');
+      const endPt = routePts[routePts.length - 1] || [tgt.cx, tgt.cy];
+
+      const lmHtml = landmarks.map(lm => {
+        const t = lm.type || 'landmark';
+        const icon = lmIcons[t] || '📍';
+        return '<div class="campus-lm ' + esc(t) + '" style="left:' + (Number(lm.x) || 0) + 'px;top:' + (Number(lm.y) || 0) + 'px;width:' + Math.max(40, Number(lm.w) || 90) + 'px;height:' + Math.max(24, Number(lm.h) || 40) + 'px">' + icon + ' ' + esc(lm.label || '') + '</div>';
+      }).join('');
 
       const bHtml = bldgs.map(b => {
         const isT = b.code === tgt.code;
+        const zH = isT ? Math.max(48, Math.min(76, b.floors * 11 + 8)) : Math.max(24, Math.min(54, b.floors * 8 + 6));
+        const topStyle = 'transform:translateZ(' + zH + 'px);' + (isT ? '' : 'background:' + esc(b.color) + ';');
+        const sideFrontStyle = 'height:' + zH + 'px;';
+        const sideRightStyle = 'width:' + zH + 'px;';
         return '<div class="bldg-3d' + (isT ? ' target' : '') + '" style="left:' + b.x + 'px;top:' + b.y + 'px;width:' + b.w + 'px;height:' + b.h + 'px">' +
-          '<div class="bldg-side-front"></div>' +
-          '<div class="bldg-side-right"></div>' +
-          '<div class="bldg-top">' +
+          '<div class="bldg-side-front" style="' + sideFrontStyle + '"></div>' +
+          '<div class="bldg-side-right" style="' + sideRightStyle + '"></div>' +
+          '<div class="bldg-top" style="' + topStyle + '">' +
             '<div>' + esc(b.code) + '</div>' +
-            '<div style="font-size:9px;opacity:0.85;font-weight:700">' + esc(b.name.replace(/\\s*\\([^)]*\\)/, '')) + '</div>' +
+            '<div style="font-size:9px;opacity:0.88;font-weight:700">' + esc(b.name.replace(/\\s*\\([^)]*\\)/, '')) + '</div>' +
           '</div>' +
-          (isT ? '<div class="bldg-beacon">📍 Room ' + esc(s.room_name) + ' · ' + esc(s.floor_label) + '</div>' : '') +
+          (isT ? '<div class="bldg-beacon" data-z="' + (zH + 12) + '">📍 Room ' + esc(s.room_name) + ' · ' + esc(s.floor_label) + '</div>' : '') +
         '</div>';
       }).join('');
 
+      const floorStepTxt = tgt.note
+        ? ('Take the stairs to ' + s.floor_label + ' — ' + tgt.note)
+        : ('Take the stairs to ' + s.floor_label + '.');
+
       const steps = [
-        { n: 'Step 1 · Entry', t: 'Enter through CCPC Main Gate with your Admit Card.' },
-        { n: 'Step 2 · Building', t: 'Walk along the main path to ' + s.building + ' (' + s.building_code + ').' },
-        { n: 'Step 3 · Floor', t: 'Take the stairs to ' + s.floor_label + '.' },
+        { n: 'Step 1 · Entry', t: 'Enter through ' + gate.label + ' with your Admit Card.' },
+        { n: 'Step 2 · Building', t: 'Follow the glowing green route to ' + (tgt.name || s.building) + ' (' + tgt.code + ').' },
+        { n: 'Step 3 · Floor', t: floorStepTxt },
         { n: 'Step 4 · Exam Hall', t: 'Locate Room ' + s.room_name + ' and enter through the door.' },
         { n: 'Step 5 · Your Desk', t: 'Go to ' + (s.col_label || 'your column') + (s.row_number ? ', Row ' + s.row_number : '') + ' — Seat #' + s.seat_no + '.' },
       ];
 
+      const groundImgHtml = cm.ground_image
+        ? '<img class="campus-ground-img" src="' + esc(cm.ground_image) + '" style="opacity:' + Math.max(0.1, Math.min(1, Number(cm.ground_opacity ?? 0.45))) + '">'
+        : '';
+
       return '<div class="panel">' +
         '<div class="stage-bar">' +
-          '<div style="font-size:13px;font-weight:900;color:#e2e8f0">🧭 3D Wayfinding to ' + esc(s.building) + ' — Room ' + esc(s.room_name) + '</div>' +
+          '<div style="font-size:13px;font-weight:900;color:#e2e8f0">🧭 3D Wayfinding to ' + esc(tgt.name || s.building) + ' — Room ' + esc(s.room_name) + '</div>' +
           '<div class="btn-row">' +
             '<button class="pill-btn play" onclick="playGuidedWalk()">▶ Play Guided Walk</button>' +
             '<button class="pill-btn" onclick="setCamPreset(\\'iso\\')">3D View</button>' +
@@ -666,13 +724,14 @@ export async function GET(req, context) {
         '</div>' +
         '<div id="campusScene" class="scene-3d">' +
           '<div id="campusWorld3D" class="campus-world">' +
-            '<div class="campus-ground"></div>' +
+            '<div class="campus-ground">' + groundImgHtml + '</div>' +
+            lmHtml +
             '<svg class="road-svg" viewBox="0 0 640 390">' +
-              '<path d="' + routeD + '" fill="none" stroke="rgba(16,185,129,0.25)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>' +
+              '<path d="' + routeD + '" fill="none" stroke="rgba(16,185,129,0.28)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>' +
               '<path d="' + routeD + '" fill="none" stroke="#34d399" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" class="anim-route"/>' +
-              '<circle cx="' + tgt.cx + '" cy="' + tgt.cy + '" r="9" fill="#f59e0b" stroke="#fff" stroke-width="2.5"/>' +
+              '<circle cx="' + Math.round(endPt[0]) + '" cy="' + Math.round(endPt[1]) + '" r="9" fill="#f59e0b" stroke="#fff" stroke-width="2.5"/>' +
             '</svg>' +
-            '<div class="gate-node">🏫 MAIN GATE</div>' +
+            '<div class="gate-node" style="left:' + gate.x + 'px;top:' + gate.y + 'px">🏫 ' + esc(gate.label) + '</div>' +
             bHtml +
           '</div>' +
           '<div class="drag-tip">👆 Drag to rotate 3D campus map</div>' +

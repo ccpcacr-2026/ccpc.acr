@@ -55626,6 +55626,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   let _admSpLayShowName = true;
   let _admSpLayShowClass = true;
   let _admSpLayPrintOrient = 'auto'; // 'auto' | 'portrait' | 'landscape'
+  let _admSpSeatInfoDraft = null;
+  let _admSpCampusMap = null;
+  let _admSpCampusDirty = false;
+  let _admSpCampusSelectedId = 'b_sb';
+  let _admSpCampusTool = 'select'; // 'select' | 'draw_route'
+  let _admSpCampusPreview3D = false;
+  let _admSpCampusPreviewCam = { rx: 52, rz: -24, scale: 0.88 };
+  let _admSpCampusDrag = null;
   let _admSpCustomCols = [];
   let _admSpScanOptions = [];
   let _admSpSmsConfig = { api_key: '', sender_id: '8809617611050', has_api_key: false };
@@ -55924,6 +55932,13 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       _admSpSchedules = Array.isArray(res.schedules) ? res.schedules : [];
       _admSpRoomLayouts = (res.room_layouts && typeof res.room_layouts === 'object') ? res.room_layouts : {};
       _admSpLayoutsDirty = false;
+      _admSpCampusMap = (res.campus_map && typeof res.campus_map === 'object' && Array.isArray(res.campus_map.buildings) && res.campus_map.buildings.length)
+        ? res.campus_map
+        : _admSpDefaultCampusMap();
+      _admSpCampusDirty = false;
+      if (!_admSpCampusSelectedId || (!_admSpCampusMap.buildings.some(b => b.id === _admSpCampusSelectedId) && _admSpCampusSelectedId !== '__gate__')) {
+        _admSpCampusSelectedId = (_admSpCampusMap.buildings[0] && _admSpCampusMap.buildings[0].id) || '__gate__';
+      }
       _admSpCustomCols = Array.isArray(res.custom_columns) ? res.custom_columns : [];
       _admSpScanOptions = Array.isArray(res.scan_options) ? res.scan_options : [];
       _admSpSmsConfig = res.sms_config || { api_key: '', sender_id: '8809617611050', has_api_key: false };
@@ -57280,6 +57295,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       `;
     } else if (_admSpActiveSubView === 'layout') {
       bodyHtml = _admSpRenderLayoutDesignerHtml(sched, comp);
+    } else if (_admSpActiveSubView === 'campus') {
+      bodyHtml = _admSpRenderCampusDesignerHtml(sched, comp);
     } else if (_admSpActiveSubView === 'sms') {
       bodyHtml = _admSpRenderSmsPanelHtml(sched, comp);
     }
@@ -57376,6 +57393,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div class="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl flex-wrap">
             <button type="button" onclick="_admSpSetSubView('planner')" class="px-3 py-1.5 rounded-lg text-[11px] font-black transition-all ${_admSpActiveSubView === 'planner' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}">Live Planner</button>
             <button type="button" onclick="_admSpSetSubView('layout')" class="px-3 py-1.5 rounded-lg text-[11px] font-black transition-all ${_admSpActiveSubView === 'layout' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}">🪑 Room Layout</button>
+            <button type="button" onclick="_admSpSetSubView('campus')" class="px-3 py-1.5 rounded-lg text-[11px] font-black transition-all ${_admSpActiveSubView === 'campus' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}">🗺️ 3D Campus Map</button>
             <button type="button" onclick="_admSpSetSubView('outputs')" class="px-3 py-1.5 rounded-lg text-[11px] font-black transition-all ${_admSpActiveSubView === 'outputs' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}">Print Sheets &amp; Excel</button>
             <button type="button" onclick="_admSpSetSubView('sms')" class="px-3 py-1.5 rounded-lg text-[11px] font-black transition-all ${_admSpActiveSubView === 'sms' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}">Bulk SMS <span class="ml-1 px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[9px]">${smsSentCount}/${seatedCount}</span></button>
           </div>
@@ -57859,9 +57877,30 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       showToast('Swapped seats', 'success');
     }
   }
-  function _admSpLaySetDisplayField(v) { _admSpLayLabelField = v || ''; _admSpRenderStudio(); }
-  function _admSpLayToggleShowName(v) { _admSpLayShowName = !!v; _admSpRenderStudio(); }
-  function _admSpLayToggleShowClass(v) { _admSpLayShowClass = !!v; _admSpRenderStudio(); }
+  function _admSpLaySetDisplayField(v) {
+    _admSpLayLabelField = v || '';
+    const sched = _admSpActiveSchedule();
+    if (sched && sched.seat_info_cfg) sched.seat_info_cfg.main_field = '__sched_id__';
+    _admSpRenderStudio();
+  }
+  function _admSpLayToggleShowName(v) {
+    _admSpLayShowName = !!v;
+    const sched = _admSpActiveSchedule();
+    if (sched && sched.seat_info_cfg) {
+      const lines = (sched.seat_info_cfg.extra_lines || []).filter(k => k !== '__name_en__' && k !== '__name_bn__');
+      if (_admSpLayShowName) lines.unshift('__name_en__');
+      sched.seat_info_cfg.extra_lines = lines;
+    }
+    _admSpRenderStudio();
+  }
+  function _admSpLayToggleShowClass(v) {
+    _admSpLayShowClass = !!v;
+    const sched = _admSpActiveSchedule();
+    if (sched && sched.seat_info_cfg) {
+      sched.seat_info_cfg.badge_field = _admSpLayShowClass ? '__short_crit__' : '';
+    }
+    _admSpRenderStudio();
+  }
   function _admSpLaySetPrintOrient(v) { _admSpLayPrintOrient = v || 'auto'; }
   function _admSpLayCopyFromRoom(srcRoomIdStr) {
     const srcId = parseInt(srcRoomIdStr, 10);
@@ -58033,6 +58072,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       </div>`;
     }).join('');
 
+    const seatInfoCfg = _admSpGetSeatInfoCfg(sched);
+    const deskCardH = Math.max(62, 46 + (seatInfoCfg.extra_lines.length * 14));
     // Build visual columns grid
     const maxRows = layout.columns.reduce((m, c) => Math.max(m, parseInt(c.rows, 10) || 0), 0);
     const colsGridHtml = layout.columns.map((col, ci) => {
@@ -58046,35 +58087,40 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       const desksHtml = [];
       for (let r = 0; r < maxRows; r++) {
         if (r >= colRows) {
-          desksHtml.push(`<div class="h-[62px] rounded-xl border border-dashed border-transparent"></div>`);
+          desksHtml.push(`<div style="height:${deskCardH}px" class="rounded-xl border border-dashed border-transparent"></div>`);
           continue;
         }
         const crKey = `${ci}:${r}`;
         const isDisabled = disSet.has(crKey);
         if (isDisabled) {
-          desksHtml.push(`<button type="button" onclick="_admSpLaySeatClick(${ci}, ${r}, 0)" title="Disabled spot (pillar/door clearance) — click in Design Mode to restore" class="h-[62px] w-full rounded-xl border border-dashed border-slate-300 bg-slate-100/70 text-[10px] font-bold text-slate-400 flex items-center justify-center ${ _admSpLayMode === 'design' ? 'hover:border-emerald-500 hover:text-emerald-600 cursor-pointer' : 'cursor-default'}">✕ Empty</button>`);
+          desksHtml.push(`<button type="button" onclick="_admSpLaySeatClick(${ci}, ${r}, 0)" style="height:${deskCardH}px" title="Disabled spot (pillar/door clearance) — click in Design Mode to restore" class="w-full rounded-xl border border-dashed border-slate-300 bg-slate-100/70 text-[10px] font-bold text-slate-400 flex items-center justify-center ${ _admSpLayMode === 'design' ? 'hover:border-emerald-500 hover:text-emerald-600 cursor-pointer' : 'cursor-default'}">✕ Empty</button>`);
           continue;
         }
         const seatNo = slotNumByCR[crKey] || 0;
         const entry = slotMap[crKey] || null;
         const isSwapSel = _admSpLaySwapSeat === seatNo;
         if (!entry) {
-          desksHtml.push(`<button type="button" onclick="_admSpLaySeatClick(${ci}, ${r}, ${seatNo})" title="${_admSpLayMode === 'design' ? 'Click to disable this desk spot' : 'Vacant seat — click to swap'}" class="h-[62px] w-full rounded-xl border ${isSwapSel ? 'border-2 border-amber-500 ring-2 ring-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50/70 hover:border-blue-300'} p-1.5 flex flex-col items-center justify-center transition-all">
+          desksHtml.push(`<button type="button" onclick="_admSpLaySeatClick(${ci}, ${r}, ${seatNo})" style="height:${deskCardH}px" title="${_admSpLayMode === 'design' ? 'Click to disable this desk spot' : 'Vacant seat — click to swap'}" class="w-full rounded-xl border ${isSwapSel ? 'border-2 border-amber-500 ring-2 ring-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50/70 hover:border-blue-300'} p-1.5 flex flex-col items-center justify-center transition-all">
             <span class="text-[9px] font-black text-slate-400">Seat ${seatNo}</span>
             <span class="text-[10px] text-slate-300 font-bold">Open</span>
           </button>`);
         } else {
           const pal = ADM_SP_GROUP_PALETTE[(entry.group_idx || 0) % ADM_SP_GROUP_PALETTE.length];
-          const idVal = _admSpGetFieldVal(entry.cand, labelField) || entry.display_id || entry.tracking_id;
+          const mainVal = _admSpEvalSeatInfoField(entry, seatInfoCfg.main_field, sched, labelField) || entry.display_id || entry.tracking_id;
+          const badgeVal = seatInfoCfg.badge_field ? _admSpEvalSeatInfoField(entry, seatInfoCfg.badge_field, sched, labelField) : '';
+          const extraVals = (seatInfoCfg.extra_lines || []).map(fk => _admSpEvalSeatInfoField(entry, fk, sched, labelField)).filter(Boolean);
+          const photoSrc = seatInfoCfg.show_photo ? _admSpEvalSeatInfoPhoto(entry) : '';
           const stName = entry.cand.name_english || entry.cand.name_bangla || '';
-          const shortCrit = [entry.cls, entry.version ? entry.version.slice(0, 3) : ''].filter(Boolean).join('-');
-          desksHtml.push(`<button type="button" onclick="_admSpLaySeatClick(${ci}, ${r}, ${seatNo})" title="Seat ${seatNo}: ${_escHtml(idVal)} — ${_escHtml(stName)} (${_escHtml(entry.crit_label)})${_admSpLayMode === 'design' ? ' [Click to disable spot]' : ' [Click to swap seat]'}" style="background:${pal.bg};border-color:${isSwapSel ? '#f59e0b' : pal.border};border-left-width:4px" class="h-[62px] w-full rounded-xl border ${isSwapSel ? 'ring-2 ring-amber-400 shadow-md' : 'hover:shadow-sm'} px-2 py-1 text-left flex flex-col justify-between transition-all overflow-hidden">
-            <div class="flex items-center justify-between gap-1 w-full">
-              <span class="text-[9px] font-black opacity-65" style="color:${pal.text}">#${seatNo}</span>
-              ${_admSpLayShowClass ? `<span style="background:${pal.pillBg};color:${pal.text}" class="px-1 rounded text-[8px] font-black truncate max-w-[60px]">${_escHtml(shortCrit)}</span>` : ''}
+          desksHtml.push(`<button type="button" onclick="_admSpLaySeatClick(${ci}, ${r}, ${seatNo})" title="Seat ${seatNo}: ${_escHtml(mainVal)} — ${_escHtml(stName)} (${_escHtml(entry.crit_label)})${_admSpLayMode === 'design' ? ' [Click to disable spot]' : ' [Click to swap seat]'}" style="height:${deskCardH}px;background:${pal.bg};border-color:${isSwapSel ? '#f59e0b' : pal.border};border-left-width:4px" class="w-full rounded-xl border ${isSwapSel ? 'ring-2 ring-amber-400 shadow-md' : 'hover:shadow-sm'} px-2 py-1 text-left flex items-center gap-1.5 transition-all overflow-hidden">
+            ${photoSrc ? `<img src="${_escHtml(photoSrc)}" class="w-8 h-10 object-cover rounded-md border border-white/80 shrink-0">` : ''}
+            <div class="flex-1 min-w-0 h-full flex flex-col justify-between overflow-hidden">
+              <div class="flex items-center justify-between gap-1 w-full">
+                ${seatInfoCfg.show_seat_no !== false ? `<span class="text-[9px] font-black opacity-70" style="color:${pal.text}">#${seatNo}</span>` : '<span></span>'}
+                ${badgeVal ? `<span style="background:${pal.pillBg};color:${pal.text}" class="px-1 rounded text-[8px] font-black truncate max-w-[68px]">${_escHtml(badgeVal)}</span>` : ''}
+              </div>
+              <div class="font-mono font-black text-xs text-slate-900 truncate w-full leading-tight">${_escHtml(mainVal)}</div>
+              ${extraVals.map(v => `<div class="text-[9px] font-semibold text-slate-600 truncate w-full leading-tight">${_escHtml(v)}</div>`).join('')}
             </div>
-            <div class="font-mono font-black text-xs text-slate-900 truncate w-full leading-tight">${_escHtml(idVal)}</div>
-            ${_admSpLayShowName ? `<div class="text-[9px] font-semibold text-slate-600 truncate w-full leading-tight">${_escHtml(stName)}</div>` : ''}
           </button>`);
         }
       }
@@ -58186,7 +58232,8 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                   <button type="button" onclick="_admSpLayAutoFitCapacity(${Math.max(room.capacity, entries.length)})" class="px-2 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-[10px] font-black">Auto-Fit ${Math.max(room.capacity, entries.length)}</button>
                 ` : ''}
               </div>
-              <div class="flex items-center gap-3 flex-wrap">
+              <div class="flex items-center gap-2 flex-wrap">
+                <button type="button" onclick="_admSpOpenSeatInfoModal()" class="px-2.5 py-1 bg-purple-50 border border-purple-200 text-purple-700 hover:bg-purple-600 hover:text-white rounded-lg text-[10px] font-black uppercase transition-all" title="Choose exact fields shown on every seat card & visual printout">⚙ Configure Seat Info</button>
                 <label class="flex items-center gap-1 text-[11px] font-bold text-slate-600 cursor-pointer"><input type="checkbox" ${_admSpLayShowName ? 'checked' : ''} onchange="_admSpLayToggleShowName(this.checked)" class="rounded border-slate-300"> Show Name</label>
                 <label class="flex items-center gap-1 text-[11px] font-bold text-slate-600 cursor-pointer"><input type="checkbox" ${_admSpLayShowClass ? 'checked' : ''} onchange="_admSpLayToggleShowClass(this.checked)" class="rounded border-slate-300"> Show Class Tag</label>
                 ${(mixCfg.swaps && mixCfg.swaps.length && _admSpCanEdit) ? `<button type="button" onclick="_admSpLayResetSwaps()" class="px-2 py-1 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-[10px] font-black">Reset ${mixCfg.swaps.length} Swap(s)</button>` : ''}
@@ -58318,11 +58365,14 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       ).join('');
 
       // Dense row height auto-scales nicely when a column has >10 rows so 1 room ALWAYS fits on 1 single page!
+      const seatInfoCfg = _admSpGetSeatInfoCfg(sched);
+      const extraCnt = (seatInfoCfg.extra_lines || []).length;
       const compact = maxRows > 10 || layout.columns.length > 5;
-      const cardPad = compact ? '3px 4px' : '5px 6px';
+      const cardPad = compact ? '3px 4px' : '4px 6px';
       const idFont = compact ? '9.5pt' : '11pt';
-      const nameFont = compact ? '6.8pt' : '7.5pt';
-      const cardH = compact ? '36px' : '46px';
+      const nameFont = compact ? '6.6pt' : '7.4pt';
+      const baseH = compact ? 34 : 42;
+      const cardH = (baseH + Math.max(0, extraCnt - 1) * (compact ? 9 : 11)) + 'px';
 
       const colsHtml = layout.columns.map((col, ci) => {
         const colRows = parseInt(col.rows, 10) || 0;
@@ -58349,16 +58399,20 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
             cells.push(`<div style="height:${cardH};border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#94a3b8;font-size:7.5pt;font-weight:700"><span>#${seatNo}</span></div>`);
           } else {
             const pal = ADM_SP_GROUP_PALETTE[(entry.group_idx || 0) % ADM_SP_GROUP_PALETTE.length];
-            const idVal = _admSpGetFieldVal(entry.cand, labelField) || entry.display_id || entry.tracking_id;
-            const stName = entry.cand.name_english || entry.cand.name_bangla || '';
-            const shortCrit = [entry.cls, entry.version ? entry.version.slice(0, 3) : ''].filter(Boolean).join('-');
-            cells.push(`<div style="height:${cardH};border:1.2px solid ${pal.border};border-left:4px solid ${pal.border};border-radius:6px;background:${pal.bg};padding:${cardPad};display:flex;flex-direction:column;justify-content:space-between;overflow:hidden">
-              <div style="display:flex;justify-content:space-between;align-items:center;gap:2px">
-                <span style="font-size:7pt;font-weight:900;color:${pal.text}">#${seatNo}</span>
-                ${_admSpLayShowClass ? `<span style="font-size:6.5pt;font-weight:900;background:${pal.pillBg};color:${pal.text};padding:0 3px;border-radius:3px;white-space:nowrap">${_escHtml(shortCrit)}</span>` : ''}
+            const mainVal = _admSpEvalSeatInfoField(entry, seatInfoCfg.main_field, sched, labelField) || entry.display_id || entry.tracking_id;
+            const badgeVal = seatInfoCfg.badge_field ? _admSpEvalSeatInfoField(entry, seatInfoCfg.badge_field, sched, labelField) : '';
+            const extraVals = (seatInfoCfg.extra_lines || []).map(fk => _admSpEvalSeatInfoField(entry, fk, sched, labelField)).filter(Boolean);
+            const photoSrc = seatInfoCfg.show_photo ? _admSpEvalSeatInfoPhoto(entry) : '';
+            cells.push(`<div style="height:${cardH};border:1.2px solid ${pal.border};border-left:4px solid ${pal.border};border-radius:6px;background:${pal.bg};padding:${cardPad};display:flex;align-items:center;gap:4px;overflow:hidden">
+              ${photoSrc ? `<img src="${_escHtml(photoSrc)}" style="width:24px;height:30px;object-fit:cover;border-radius:3px;border:1px solid #cbd5e1;flex-shrink:0">` : ''}
+              <div style="flex:1;min-width:0;height:100%;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:2px">
+                  ${seatInfoCfg.show_seat_no !== false ? `<span style="font-size:7pt;font-weight:900;color:${pal.text}">#${seatNo}</span>` : '<span></span>'}
+                  ${badgeVal ? `<span style="font-size:6.5pt;font-weight:900;background:${pal.pillBg};color:${pal.text};padding:0 3px;border-radius:3px;white-space:nowrap">${_escHtml(badgeVal)}</span>` : ''}
+                </div>
+                <div style="font-family:monospace;font-size:${idFont};font-weight:900;color:#0f172a;text-align:center;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escHtml(mainVal)}</div>
+                ${extraVals.map(v => `<div style="font-size:${nameFont};font-weight:600;color:#334155;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.05">${_escHtml(v)}</div>`).join('')}
               </div>
-              <div style="font-family:monospace;font-size:${idFont};font-weight:900;color:#0f172a;text-align:center;line-height:1.05;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escHtml(idVal)}</div>
-              ${_admSpLayShowName ? `<div style="font-size:${nameFont};font-weight:600;color:#334155;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.05">${_escHtml(stName)}</div>` : ''}
             </div>`);
           }
         }
@@ -58418,6 +58472,796 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
       body { margin: 0; font-family: Arial, sans-serif; color: #0f172a; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       * { box-sizing: border-box; }`;
     _gfOpenPrintWindow(`${sched.name} — Visual Room Seat Plan`, pages.join(''), css);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // CONFIGURE SEAT CARD INFO PICKER (Room Layout Live View + Printout)
+  // ══════════════════════════════════════════════════════════════════════════
+  const ADM_SP_DEFAULT_SEAT_INFO = {
+    show_seat_no: true,
+    badge_field: '__short_crit__',
+    main_field: '__sched_id__',
+    extra_lines: ['__name_en__'],
+    show_photo: false,
+  };
+  function _admSpGetSeatInfoCfg(sched) {
+    if (sched && sched.seat_info_cfg && typeof sched.seat_info_cfg === 'object') {
+      return {
+        show_seat_no: sched.seat_info_cfg.show_seat_no !== false,
+        badge_field: sched.seat_info_cfg.badge_field !== undefined ? sched.seat_info_cfg.badge_field : (_admSpLayShowClass ? '__short_crit__' : ''),
+        main_field: sched.seat_info_cfg.main_field || '__sched_id__',
+        extra_lines: Array.isArray(sched.seat_info_cfg.extra_lines) ? sched.seat_info_cfg.extra_lines : (_admSpLayShowName ? ['__name_en__'] : []),
+        show_photo: !!sched.seat_info_cfg.show_photo,
+      };
+    }
+    return {
+      show_seat_no: true,
+      badge_field: _admSpLayShowClass ? '__short_crit__' : '',
+      main_field: '__sched_id__',
+      extra_lines: _admSpLayShowName ? ['__name_en__'] : [],
+      show_photo: false,
+    };
+  }
+  function _admSpSeatInfoFieldOptions(includeNone) {
+    const base = [];
+    if (includeNone) base.push({ value: '', label: '— None (Hide) —' });
+    base.push(
+      { value: '__sched_id__', label: 'Auto: Selected Desk ID Field' },
+      { value: 'index_id', label: 'Index ID' },
+      { value: 'token', label: 'Tracking ID / Token' },
+      { value: '__name_en__', label: 'Student Name (English)' },
+      { value: '__name_bn__', label: 'Student Name (Bangla)' },
+      { value: '__short_crit__', label: 'Short Class-Version Tag (e.g. Three-Ban)' },
+      { value: '__crit__', label: 'Class · Version · Category' },
+      { value: '__class__', label: 'Class' },
+      { value: '__version__', label: 'Version' },
+      { value: '__category__', label: 'Category' },
+      { value: '__father__', label: "Father's Name" },
+      { value: '__mother__', label: "Mother's Name" },
+      { value: '__phone__', label: 'Mobile / Phone' },
+      { value: '__room_seat__', label: 'Room / Seat No.' }
+    );
+    const seen = new Set(base.map(o => o.value));
+    _admSpFieldOptionsList().forEach(o => {
+      if (!seen.has(o.value)) { seen.add(o.value); base.push(o); }
+    });
+    return base;
+  }
+  function _admSpEvalSeatInfoField(entry, fieldKey, sched, fallbackLabelField) {
+    if (!entry || !fieldKey) return '';
+    const c = entry.cand || {};
+    const ef = c.extra_fields || {};
+    if (fieldKey === '__sched_id__') {
+      return _admSpGetFieldVal(c, fallbackLabelField || (sched && sched.index_display_col) || 'index_id') || entry.display_id || entry.tracking_id || '';
+    }
+    if (fieldKey === '__name_en__') return String(c.name_english || c.name_bangla || '').trim();
+    if (fieldKey === '__name_bn__') return String(c.name_bangla || c.name_english || '').trim();
+    if (fieldKey === '__short_crit__') return [entry.cls, entry.version ? String(entry.version).slice(0, 3) : ''].filter(Boolean).join('-');
+    if (fieldKey === '__crit__') return [entry.cls, entry.version, entry.category].filter(Boolean).join(' · ');
+    if (fieldKey === '__class__') return String(entry.cls || c.class || '').trim();
+    if (fieldKey === '__version__') return String(entry.version || c.version || '').trim();
+    if (fieldKey === '__category__') return String(entry.category || c.category || '').trim();
+    if (fieldKey === '__father__') return String(c.father_name || ef.father_name || ef.FatherName || '').trim();
+    if (fieldKey === '__mother__') return String(c.mother_name || ef.mother_name || ef.MotherName || '').trim();
+    if (fieldKey === '__phone__') return _admSpGetPhone(c);
+    if (fieldKey === '__room_seat__') return `${entry.room_name || ''} / #${entry.seat_no || ''}`;
+    return _admSpGetFieldVal(c, fieldKey);
+  }
+  function _admSpEvalSeatInfoPhoto(entry) {
+    const c = (entry && entry.cand) || {};
+    const ef = c.extra_fields || {};
+    return String(ef.photo_url || ef.PhotoPathS || ef.photo || c.photo_url || '').trim();
+  }
+  function _admSpOpenSeatInfoModal() {
+    const sched = _admSpActiveSchedule();
+    if (!sched) return;
+    const cur = _admSpGetSeatInfoCfg(sched);
+    _admSpSeatInfoDraft = {
+      show_seat_no: cur.show_seat_no,
+      badge_field: cur.badge_field,
+      main_field: cur.main_field,
+      extra_lines: cur.extra_lines.slice(),
+      show_photo: cur.show_photo,
+    };
+    _admSpRenderSeatInfoModal();
+  }
+  function _admSpRenderSeatInfoModal() {
+    const d = _admSpSeatInfoDraft;
+    if (!d) return;
+    const optsNoNone = _admSpSeatInfoFieldOptions(false);
+    const optsWithNone = _admSpSeatInfoFieldOptions(true);
+    const extraHtml = (d.extra_lines || []).map((fk, idx) => `
+      <div class="flex items-center gap-1.5 p-2 bg-slate-50 border border-slate-200 rounded-xl">
+        <span class="text-[10px] font-mono font-black text-slate-400 w-5 text-center">${idx + 1}</span>
+        <select onchange="_admSpSeatInfoUpdateLine(${idx}, this.value)" class="flex-1 px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+          ${optsNoNone.map(o => `<option value="${_escHtml(o.value)}" ${o.value === fk ? 'selected' : ''}>${_escHtml(o.label)}</option>`).join('')}
+        </select>
+        <button type="button" onclick="_admSpSeatInfoMoveLine(${idx}, -1)" ${idx === 0 ? 'disabled' : ''} class="px-1.5 py-1 border border-slate-200 bg-white rounded text-xs disabled:opacity-30">↑</button>
+        <button type="button" onclick="_admSpSeatInfoMoveLine(${idx}, 1)" ${idx === d.extra_lines.length - 1 ? 'disabled' : ''} class="px-1.5 py-1 border border-slate-200 bg-white rounded text-xs disabled:opacity-30">↓</button>
+        <button type="button" onclick="_admSpSeatInfoRemoveLine(${idx})" class="px-1.5 py-1 text-red-500 hover:bg-red-50 rounded font-black text-xs">×</button>
+      </div>
+    `).join('') || '<p class="text-[11px] text-slate-400 py-1">No extra info lines — only Seat # and Main Line will be shown.</p>';
+
+    _diaryShowSimpleModal('⚙ Configure Information Shown on Every Seat', `
+      <p class="text-[11px] text-slate-500 mb-3">Choose exactly what information appears inside each desk card in the <b>Live Room Layout</b> and the <b>Architectural Room-Wise Printout</b>.</p>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+        <div class="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+          <label class="text-[9px] uppercase font-black text-slate-400 block mb-1">Main Bold Line (Center)</label>
+          <select onchange="_admSpSeatInfoSetField('main_field', this.value)" class="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+            ${optsNoNone.map(o => `<option value="${_escHtml(o.value)}" ${o.value === d.main_field ? 'selected' : ''}>${_escHtml(o.label)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+          <label class="text-[9px] uppercase font-black text-slate-400 block mb-1">Top-Right Corner Badge</label>
+          <select onchange="_admSpSeatInfoSetField('badge_field', this.value)" class="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold">
+            ${optsWithNone.map(o => `<option value="${_escHtml(o.value)}" ${o.value === d.badge_field ? 'selected' : ''}>${_escHtml(o.label)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-5 flex-wrap mb-3 p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+        <label class="flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer">
+          <input type="checkbox" ${d.show_seat_no ? 'checked' : ''} onchange="_admSpSeatInfoToggle('show_seat_no', this.checked)" class="rounded border-slate-300"> Show Seat # (e.g. #14)
+        </label>
+        <label class="flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer">
+          <input type="checkbox" ${d.show_photo ? 'checked' : ''} onchange="_admSpSeatInfoToggle('show_photo', this.checked)" class="rounded border-slate-300"> Show Photo Thumbnail (if available)
+        </label>
+      </div>
+
+      <div class="mb-3">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-[10px] font-black uppercase text-slate-400">Extra Info Lines Below Main Line (${d.extra_lines.length})</span>
+          <button type="button" onclick="_admSpSeatInfoAddLine()" class="px-2.5 py-1 bg-blue-50 border border-blue-200 text-blue-700 rounded-lg text-[10px] font-black uppercase hover:bg-blue-600 hover:text-white">+ Add Info Line</button>
+        </div>
+        <div class="space-y-1.5 max-h-[210px] overflow-y-auto pr-1">${extraHtml}</div>
+      </div>
+
+      <div class="flex gap-2 pt-2 border-t border-slate-100">
+        <button type="button" onclick="_admSpSeatInfoReset()" class="px-3 py-2 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase hover:bg-slate-50">Reset Default</button>
+        <button type="button" onclick="_admSpSeatInfoSave()" class="flex-1 px-4 py-2 bg-purple-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black">Save Seat Display</button>
+      </div>
+    `);
+  }
+  function _admSpSeatInfoToggle(prop, val) {
+    if (!_admSpSeatInfoDraft) return;
+    _admSpSeatInfoDraft[prop] = !!val;
+  }
+  function _admSpSeatInfoSetField(prop, val) {
+    if (!_admSpSeatInfoDraft) return;
+    _admSpSeatInfoDraft[prop] = val;
+  }
+  function _admSpSeatInfoAddLine() {
+    if (!_admSpSeatInfoDraft) return;
+    if (_admSpSeatInfoDraft.extra_lines.length >= 4) { showToast('Up to 4 extra lines fit cleanly on a seat card', 'info'); return; }
+    const nextDefault = !_admSpSeatInfoDraft.extra_lines.includes('__name_en__') ? '__name_en__'
+      : (!_admSpSeatInfoDraft.extra_lines.includes('token') ? 'token'
+      : (!_admSpSeatInfoDraft.extra_lines.includes('__father__') ? '__father__' : '__crit__'));
+    _admSpSeatInfoDraft.extra_lines.push(nextDefault);
+    _admSpRenderSeatInfoModal();
+  }
+  function _admSpSeatInfoUpdateLine(idx, val) {
+    if (!_admSpSeatInfoDraft || !_admSpSeatInfoDraft.extra_lines) return;
+    _admSpSeatInfoDraft.extra_lines[idx] = val;
+  }
+  function _admSpSeatInfoMoveLine(idx, delta) {
+    if (!_admSpSeatInfoDraft) return;
+    const t = idx + delta;
+    if (t < 0 || t >= _admSpSeatInfoDraft.extra_lines.length) return;
+    const [m] = _admSpSeatInfoDraft.extra_lines.splice(idx, 1);
+    _admSpSeatInfoDraft.extra_lines.splice(t, 0, m);
+    _admSpRenderSeatInfoModal();
+  }
+  function _admSpSeatInfoRemoveLine(idx) {
+    if (!_admSpSeatInfoDraft) return;
+    _admSpSeatInfoDraft.extra_lines.splice(idx, 1);
+    _admSpRenderSeatInfoModal();
+  }
+  function _admSpSeatInfoReset() {
+    _admSpSeatInfoDraft = {
+      show_seat_no: true,
+      badge_field: '__short_crit__',
+      main_field: '__sched_id__',
+      extra_lines: ['__name_en__'],
+      show_photo: false,
+    };
+    _admSpRenderSeatInfoModal();
+  }
+  async function _admSpSeatInfoSave() {
+    const sched = _admSpActiveSchedule();
+    if (!sched || !_admSpSeatInfoDraft) return;
+    sched.seat_info_cfg = {
+      show_seat_no: !!_admSpSeatInfoDraft.show_seat_no,
+      badge_field: _admSpSeatInfoDraft.badge_field || '',
+      main_field: _admSpSeatInfoDraft.main_field || '__sched_id__',
+      extra_lines: (_admSpSeatInfoDraft.extra_lines || []).filter(Boolean),
+      show_photo: !!_admSpSeatInfoDraft.show_photo,
+    };
+    _admSpLayShowClass = !!sched.seat_info_cfg.badge_field;
+    _admSpLayShowName = sched.seat_info_cfg.extra_lines.includes('__name_en__') || sched.seat_info_cfg.extra_lines.includes('__name_bn__');
+    _admSpMarkDirty();
+    _diaryCloseSimpleModal();
+    _admSpRenderStudio();
+    if (_admSpCanEdit) {
+      try {
+        await _admCandFetch('saveSeatPlanSchedules', { circular_id: _admCandActiveCircularId, schedules: _admSpSchedules });
+        _admSpDirty = false;
+        document.getElementById('admSpDirtyBadge')?.classList.add('hidden');
+      } catch (_) {}
+    }
+    showToast('Seat card information saved!', 'success');
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // GLOBAL 3D CAMPUS MAP & ROUTE-TO-SEAT DESIGNER (Visual Drag + Route Drawer)
+  // ══════════════════════════════════════════════════════════════════════════
+  function _admSpDefaultCampusMap() {
+    return {
+      ground_image: '',
+      ground_opacity: 0.45,
+      gate: { label: 'MAIN GATE', x: 75, y: 344 },
+      buildings: [
+        { id: 'b_sb', code: 'SB', name: 'School Building', x: 85, y: 78, w: 195, h: 86, floors: 5, color: '#1e3a8a', note: '' },
+        { id: 'b_mb', code: 'MB', name: 'Main Building', x: 220, y: 245, w: 185, h: 74, floors: 4, color: '#334155', note: '' },
+        { id: 'b_cb', code: 'CB', name: 'College Building', x: 355, y: 75, w: 195, h: 86, floors: 5, color: '#312e81', note: '' },
+        { id: 'b_jb', code: 'JB', name: 'Junior Block', x: 455, y: 235, w: 145, h: 76, floors: 3, color: '#134e4a', note: '' },
+        { id: 'b_hb', code: 'HB', name: 'Honors Building', x: 255, y: 18, w: 130, h: 48, floors: 4, color: '#3730a3', note: '' },
+      ],
+      landmarks: [
+        { id: 'lm_field', type: 'field', label: 'Campus Field', x: 28, y: 196, w: 138, h: 84 },
+      ],
+      routes: {
+        SB: [[75, 344], [182, 344], [182, 121]],
+        MB: [[75, 344], [312, 344], [312, 282]],
+        CB: [[75, 344], [190, 344], [190, 204], [452, 204], [452, 118]],
+        JB: [[75, 344], [527, 344], [527, 273]],
+        HB: [[75, 344], [190, 344], [190, 204], [320, 204], [320, 42]],
+      },
+    };
+  }
+  function _admSpGetCampusMap() {
+    if (!_admSpCampusMap || !Array.isArray(_admSpCampusMap.buildings)) {
+      _admSpCampusMap = _admSpDefaultCampusMap();
+    }
+    if (!_admSpCampusMap.gate) _admSpCampusMap.gate = { label: 'MAIN GATE', x: 75, y: 344 };
+    if (!Array.isArray(_admSpCampusMap.landmarks)) _admSpCampusMap.landmarks = [];
+    if (!_admSpCampusMap.routes || typeof _admSpCampusMap.routes !== 'object') _admSpCampusMap.routes = {};
+    return _admSpCampusMap;
+  }
+  function _admSpCmGetSelectedObj(cm) {
+    if (_admSpCampusSelectedId === '__gate__') return { kind: 'gate', obj: cm.gate };
+    const b = cm.buildings.find(x => x.id === _admSpCampusSelectedId);
+    if (b) return { kind: 'building', obj: b };
+    const lm = cm.landmarks.find(x => x.id === _admSpCampusSelectedId);
+    if (lm) return { kind: 'landmark', obj: lm };
+    if (cm.buildings[0]) { _admSpCampusSelectedId = cm.buildings[0].id; return { kind: 'building', obj: cm.buildings[0] }; }
+    return { kind: 'gate', obj: cm.gate };
+  }
+  function _admSpCmRouteForBuilding(cm, b) {
+    if (!b) return [];
+    const saved = cm.routes && Array.isArray(cm.routes[b.code]) && cm.routes[b.code].length >= 2 ? cm.routes[b.code] : null;
+    if (saved) return saved;
+    const gx = Number(cm.gate.x) || 75, gy = Number(cm.gate.y) || 344;
+    const cx = Math.round((Number(b.x) || 0) + (Number(b.w) || 120) / 2);
+    const cy = Math.round((Number(b.y) || 0) + (Number(b.h) || 64) / 2);
+    const midY = Math.round((gy + cy) / 2);
+    return [[gx, gy], [cx, midY], [cx, cy]];
+  }
+  function _admSpRenderCampusDesignerHtml(sched, comp) {
+    const cm = _admSpGetCampusMap();
+    const sel = _admSpCmGetSelectedObj(cm);
+    const activeBldg = sel.kind === 'building' ? sel.obj : (cm.buildings[0] || null);
+    const activeCode = activeBldg ? activeBldg.code : '';
+    const activeRoute = activeBldg ? ((cm.routes && Array.isArray(cm.routes[activeCode])) ? cm.routes[activeCode] : []) : [];
+    const displayRoute = activeRoute.length >= 2 ? activeRoute : (activeBldg ? _admSpCmRouteForBuilding(cm, activeBldg) : []);
+    const routeD = displayRoute.map((p, i) => `${i === 0 ? 'M' : 'L'} ${Math.round(p[0])} ${Math.round(p[1])}`).join(' ');
+    const lmIcons = { field: '🌿', helpdesk: 'ℹ️', stairs: '🪜', gate: '🚪', landmark: '📍' };
+
+    // Left list of buildings & landmarks
+    const bldgListHtml = cm.buildings.map(b => {
+      const isAct = _admSpCampusSelectedId === b.id;
+      const hasCustomR = Array.isArray(cm.routes[b.code]) && cm.routes[b.code].length >= 2;
+      return `<button type="button" onclick="_admSpCmSelectItem('${_escHtml(b.id)}')" class="w-full text-left px-3 py-2 border-b border-slate-100 flex items-center justify-between gap-2 transition-colors ${isAct ? 'bg-blue-600 text-white' : 'hover:bg-slate-50 text-slate-700'}">
+        <div class="min-w-0">
+          <div class="font-black text-xs flex items-center gap-1.5">
+            <span class="w-2.5 h-2.5 rounded-sm shrink-0" style="background:${_escHtml(b.color || '#1e3a8a')};border:1px solid rgba(255,255,255,0.5)"></span>
+            <span class="truncate">${_escHtml(b.code)} — ${_escHtml(b.name)}</span>
+          </div>
+          <div class="text-[10px] ${isAct ? 'text-blue-100' : 'text-slate-400'}">${b.floors || 4} floors · ${hasCustomR ? `${cm.routes[b.code].length} route pts` : 'Auto route'}</div>
+        </div>
+      </button>`;
+    }).join('');
+    const lmListHtml = cm.landmarks.map(lm => {
+      const isAct = _admSpCampusSelectedId === lm.id;
+      return `<button type="button" onclick="_admSpCmSelectItem('${_escHtml(lm.id)}')" class="w-full text-left px-3 py-1.5 border-b border-slate-100 flex items-center justify-between gap-2 text-xs font-bold transition-colors ${isAct ? 'bg-indigo-600 text-white' : 'hover:bg-slate-50 text-slate-600'}">
+        <span class="truncate">${lmIcons[lm.type] || '📍'} ${_escHtml(lm.label || lm.type)}</span>
+      </button>`;
+    }).join('');
+
+    // Canvas area: either 2D Interactive Designer OR Live 3D Isometric Preview
+    let stageHtml = '';
+    if (_admSpCampusPreview3D) {
+      const cam = _admSpCampusPreviewCam;
+      const b3dHtml = cm.buildings.map(b => {
+        const isT = activeBldg && b.id === activeBldg.id;
+        const zH = isT ? Math.max(48, Math.min(76, (b.floors || 4) * 11 + 8)) : Math.max(24, Math.min(54, (b.floors || 4) * 8 + 6));
+        return `<div style="position:absolute;left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;transform-style:preserve-3d">
+          <div style="position:absolute;left:0;right:0;bottom:0;height:${zH}px;background:${isT ? 'linear-gradient(180deg,#047857,#064e3b)' : '#0f172a'};border:1px solid ${isT ? '#34d399' : '#334155'};transform-origin:bottom;transform:rotateX(-90deg)"></div>
+          <div style="position:absolute;top:0;bottom:0;right:0;width:${zH}px;background:${isT ? 'linear-gradient(270deg,#065f46,#064e3b)' : '#172033'};border:1px solid ${isT ? '#34d399' : '#334155'};transform-origin:right;transform:rotateY(-90deg)"></div>
+          <div style="width:100%;height:100%;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:900;font-size:12px;border:2px solid ${isT ? '#6ee7b7' : '#475569'};background:${isT ? 'linear-gradient(135deg,#059669,#10b981)' : _escHtml(b.color || '#1e293b')};color:#fff;transform:translateZ(${zH}px);box-shadow:${isT ? '0 0 28px rgba(16,185,129,0.75)' : '0 10px 22px rgba(0,0,0,0.45)'};text-align:center;padding:4px">
+            <div>${_escHtml(b.code)}</div>
+            <div style="font-size:9px;opacity:0.88;font-weight:700">${_escHtml(b.name)}</div>
+          </div>
+          ${isT ? `<div style="position:absolute;left:50%;top:50%;transform-origin:center bottom;transform:translate(-50%,-100%) translateZ(${zH + 12}px) rotateZ(${-cam.rz}deg) rotateX(${-cam.rx}deg);background:linear-gradient(135deg,#f59e0b,#d97706);color:#0f172a;font-size:10px;font-weight:900;padding:4px 10px;border-radius:999px;white-space:nowrap;border:2px solid #fef3c7;box-shadow:0 8px 18px rgba(245,158,11,0.55)">📍 ${_escHtml(b.code)} · Preview Route</div>` : ''}
+        </div>`;
+      }).join('');
+      const lm3dHtml = cm.landmarks.map(lm =>
+        `<div style="position:absolute;left:${lm.x}px;top:${lm.y}px;width:${lm.w}px;height:${lm.h}px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;transform:translateZ(3px);border:1.5px dashed rgba(148,163,184,0.5);background:${lm.type === 'field' ? 'rgba(16,185,129,0.18)' : 'rgba(30,41,59,0.6)'};color:#e2e8f0">${lmIcons[lm.type] || '📍'} ${_escHtml(lm.label)}</div>`
+      ).join('');
+      const endP = displayRoute[displayRoute.length - 1] || [320, 195];
+      stageHtml = `
+        <div class="relative w-full min-h-[450px] rounded-2xl overflow-hidden flex items-center justify-center border border-slate-800" style="background:radial-gradient(circle at 50% 35%, #1e293b 0%, #0b1222 80%);perspective:1200px">
+          <div style="position:relative;width:640px;height:390px;transform-style:preserve-3d;transform:scale(${cam.scale}) rotateX(${cam.rx}deg) rotateZ(${cam.rz}deg);transition:transform 0.3s ease">
+            <div style="position:absolute;inset:0;background:linear-gradient(135deg,#132032,#0f172a);border:2px solid #334155;border-radius:20px;box-shadow:0 30px 60px rgba(0,0,0,0.7);overflow:hidden">
+              ${cm.ground_image ? `<img src="${_escHtml(cm.ground_image)}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:${cm.ground_opacity ?? 0.45}">` : ''}
+            </div>
+            ${lm3dHtml}
+            <svg viewBox="0 0 640 390" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;transform:translateZ(5px)">
+              ${routeD ? `<path d="${routeD}" fill="none" stroke="rgba(16,185,129,0.3)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><path d="${routeD}" fill="none" stroke="#34d399" stroke-width="5" stroke-dasharray="10 8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${Math.round(endP[0])}" cy="${Math.round(endP[1])}" r="8" fill="#f59e0b" stroke="#fff" stroke-width="2"/>` : ''}
+            </svg>
+            <div style="position:absolute;left:${cm.gate.x}px;top:${cm.gate.y}px;transform:translate(-50%,-50%) translateZ(14px);background:linear-gradient(135deg,#2563eb,#1d4ed8);border:2px solid #93c5fd;color:#fff;font-size:11px;font-weight:900;padding:5px 11px;border-radius:10px;white-space:nowrap">🏫 ${_escHtml(cm.gate.label || 'MAIN GATE')}</div>
+            ${b3dHtml}
+          </div>
+          <div class="absolute bottom-3 right-3 flex items-center gap-1.5">
+            <button type="button" onclick="_admSpCmPreviewPreset('iso')" class="px-2.5 py-1 bg-slate-800/90 border border-slate-600 text-white rounded-lg text-[10px] font-black hover:bg-blue-600">3D Isometric</button>
+            <button type="button" onclick="_admSpCmPreviewPreset('front')" class="px-2.5 py-1 bg-slate-800/90 border border-slate-600 text-white rounded-lg text-[10px] font-black hover:bg-blue-600">Front Tilt</button>
+            <button type="button" onclick="_admSpCmPreviewPreset('top')" class="px-2.5 py-1 bg-slate-800/90 border border-slate-600 text-white rounded-lg text-[10px] font-black hover:bg-blue-600">2D Top</button>
+          </div>
+          <div class="absolute top-3 left-3 px-2.5 py-1 bg-emerald-600/90 text-white rounded-full text-[10px] font-black">Live 3D Preview — Route to ${_escHtml(activeCode || 'Building')}</div>
+        </div>`;
+    } else {
+      const isDraw = _admSpCampusTool === 'draw_route';
+      const lm2dHtml = cm.landmarks.map(lm => {
+        const isSel = _admSpCampusSelectedId === lm.id;
+        return `<div onmousedown="_admSpCmStartDrag(event, '${_escHtml(lm.id)}')" style="position:absolute;left:${lm.x}px;top:${lm.y}px;width:${lm.w}px;height:${lm.h}px;cursor:${isDraw ? 'crosshair' : 'move'}" class="rounded-xl border-2 border-dashed flex items-center justify-center text-[11px] font-black select-none ${isSel ? 'border-amber-400 ring-2 ring-amber-300/60 z-20' : 'border-emerald-400/50 z-10'} ${lm.type === 'field' ? 'bg-emerald-500/20 text-emerald-200' : 'bg-slate-700/60 text-slate-200'}">
+          <span>${lmIcons[lm.type] || '📍'} ${_escHtml(lm.label)}</span>
+          ${(!isDraw && _admSpCanEdit) ? `<div onmousedown="_admSpCmStartResize(event, '${_escHtml(lm.id)}')" title="Drag to resize" class="absolute right-0 bottom-0 w-3.5 h-3.5 bg-amber-400 rounded-tl-md rounded-br-lg cursor-nwse-resize"></div>` : ''}
+        </div>`;
+      }).join('');
+      const b2dHtml = cm.buildings.map(b => {
+        const isSel = _admSpCampusSelectedId === b.id;
+        return `<div onmousedown="_admSpCmStartDrag(event, '${_escHtml(b.id)}')" style="position:absolute;left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;background:${isSel ? 'linear-gradient(135deg,#059669,#10b981)' : _escHtml(b.color || '#1e293b')};cursor:${isDraw ? 'crosshair' : 'move'}" class="rounded-xl border-2 flex flex-col items-center justify-center text-white select-none shadow-lg transition-shadow ${isSel ? 'border-amber-300 ring-2 ring-amber-300/70 z-30' : 'border-slate-400/60 z-20'}">
+          <div class="font-black text-xs leading-tight">${_escHtml(b.code)}</div>
+          <div class="text-[10px] opacity-90 font-bold truncate max-w-[92%]">${_escHtml(b.name)}</div>
+          <div class="text-[9px] opacity-70 font-mono">${b.floors || 4}F</div>
+          ${(!isDraw && _admSpCanEdit) ? `<div onmousedown="_admSpCmStartResize(event, '${_escHtml(b.id)}')" title="Drag to resize building" class="absolute right-0 bottom-0 w-4 h-4 bg-amber-400 border border-slate-900 rounded-tl-md rounded-br-lg cursor-nwse-resize"></div>` : ''}
+        </div>`;
+      }).join('');
+      const routeDotsHtml = (isDraw ? activeRoute : displayRoute).map((p, i) =>
+        `<circle cx="${Math.round(p[0])}" cy="${Math.round(p[1])}" r="${i === 0 ? 6 : 5}" fill="${i === 0 ? '#3b82f6' : '#f59e0b'}" stroke="#fff" stroke-width="2"/>`
+      ).join('');
+      stageHtml = `
+        <div class="overflow-x-auto pb-1">
+          <div id="admSpCmCanvas" onclick="_admSpCmCanvasClick(event)" style="position:relative;width:640px;height:390px;margin:0 auto;background-color:#0f172a;background-image:linear-gradient(to right,rgba(148,163,184,0.12) 1px,transparent 1px),linear-gradient(to bottom,rgba(148,163,184,0.12) 1px,transparent 1px);background-size:20px 20px;cursor:${isDraw ? 'crosshair' : 'default'}" class="rounded-2xl border-2 ${isDraw ? 'border-emerald-400 ring-4 ring-emerald-500/20' : 'border-slate-700'} overflow-hidden shadow-xl select-none">
+            ${cm.ground_image ? `<img src="${_escHtml(cm.ground_image)}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:${cm.ground_opacity ?? 0.45};pointer-events:none">` : ''}
+            ${lm2dHtml}
+            <svg viewBox="0 0 640 390" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:25">
+              ${routeD ? `<path d="${routeD}" fill="none" stroke="rgba(16,185,129,0.32)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/><path d="${routeD}" fill="none" stroke="#34d399" stroke-width="4" stroke-dasharray="8 6" stroke-linecap="round" stroke-linejoin="round"/>` : ''}
+              ${routeDotsHtml}
+            </svg>
+            ${b2dHtml}
+            <div onmousedown="_admSpCmStartDrag(event, '__gate__')" style="position:absolute;left:${cm.gate.x}px;top:${cm.gate.y}px;transform:translate(-50%,-50%);cursor:${isDraw ? 'crosshair' : 'move'}" class="px-2.5 py-1 rounded-lg bg-blue-600 border-2 ${_admSpCampusSelectedId === '__gate__' ? 'border-amber-300 ring-2 ring-amber-300/70' : 'border-blue-300'} text-white text-[10px] font-black shadow-lg z-40 whitespace-nowrap">🏫 ${_escHtml(cm.gate.label || 'MAIN GATE')}</div>
+          </div>
+        </div>
+        <p class="text-center text-[11px] font-bold mt-2 ${isDraw ? 'text-emerald-600' : 'text-slate-400'}">
+          ${isDraw
+            ? `✏️ ROUTE DRAWING MODE for <b>${_escHtml(activeCode)}</b>: Click points on the map from Gate → turns → Building entrance (${activeRoute.length} pt${activeRoute.length === 1 ? '' : 's'}).`
+            : 'Drag any Building, Landmark, or Gate to reposition · Drag amber corner handles to resize · Switch to ✏️ Draw Route to plot exact walkways.'}
+        </p>`;
+    }
+
+    // Right Inspector Panel
+    let inspectorHtml = '';
+    if (sel.kind === 'gate') {
+      inspectorHtml = `
+        <div class="space-y-2.5">
+          <div class="text-xs font-black text-blue-700 uppercase">🏫 Entry Gate Settings</div>
+          <div>
+            <label class="text-[9px] uppercase font-black text-slate-400">Gate Label</label>
+            <input type="text" value="${_escHtml(cm.gate.label || 'MAIN GATE')}" ${_admSpCanEdit ? '' : 'disabled'} oninput="_admSpCmUpdateGate('label', this.value)" class="w-full mt-0.5 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold">
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div><label class="text-[9px] uppercase font-black text-slate-400">X</label><input type="number" value="${Math.round(cm.gate.x)}" ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpCmUpdateGate('x', this.value)" class="w-full mt-0.5 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono"></div>
+            <div><label class="text-[9px] uppercase font-black text-slate-400">Y</label><input type="number" value="${Math.round(cm.gate.y)}" ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpCmUpdateGate('y', this.value)" class="w-full mt-0.5 px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono"></div>
+          </div>
+        </div>`;
+    } else if (sel.kind === 'building') {
+      const b = sel.obj;
+      inspectorHtml = `
+        <div class="space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-black text-slate-800 uppercase">🏢 Building Properties</span>
+            ${(_admSpCanEdit && cm.buildings.length > 1) ? `<button type="button" onclick="_admSpCmDeleteSelected()" class="px-2 py-0.5 text-red-600 bg-red-50 hover:bg-red-600 hover:text-white rounded text-[10px] font-black">Delete</button>` : ''}
+          </div>
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <label class="text-[9px] uppercase font-black text-slate-400">Prefix Code</label>
+              <input type="text" value="${_escHtml(b.code)}" ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpCmUpdateSelected('code', this.value)" placeholder="SB" class="w-full mt-0.5 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-black uppercase">
+            </div>
+            <div class="col-span-2">
+              <label class="text-[9px] uppercase font-black text-slate-400">Building Name</label>
+              <input type="text" value="${_escHtml(b.name)}" ${_admSpCanEdit ? '' : 'disabled'} oninput="_admSpCmUpdateSelected('name', this.value)" class="w-full mt-0.5 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-[9px] uppercase font-black text-slate-400">Floors (3D Height)</label>
+              <input type="number" min="1" max="10" value="${b.floors || 4}" ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpCmUpdateSelected('floors', this.value)" class="w-full mt-0.5 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold">
+            </div>
+            <div>
+              <label class="text-[9px] uppercase font-black text-slate-400">3D Block Color</label>
+              <input type="color" value="${_escHtml(b.color || '#1e3a8a')}" ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpCmUpdateSelected('color', this.value)" class="w-full h-8 mt-0.5 p-0.5 bg-white border border-slate-200 rounded-lg cursor-pointer">
+            </div>
+          </div>
+          <div>
+            <label class="text-[9px] uppercase font-black text-slate-400">Custom Stairs / Direction Tip (Step 3)</label>
+            <input type="text" value="${_escHtml(b.note || '')}" ${_admSpCanEdit ? '' : 'disabled'} oninput="_admSpCmUpdateSelected('note', this.value)" placeholder="e.g. Use the South Staircase next to Canteen" class="w-full mt-0.5 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold">
+          </div>
+          <div class="pt-2 border-t border-slate-100">
+            <div class="text-[10px] font-black uppercase text-emerald-700 mb-1.5">🧭 Walking Route to ${_escHtml(b.code)} (${activeRoute.length} custom pts)</div>
+            ${_admSpCanEdit ? `
+              <div class="flex flex-wrap gap-1.5">
+                <button type="button" onclick="_admSpCmSetTool('${_admSpCampusTool === 'draw_route' ? 'select' : 'draw_route'}')" class="px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase ${_admSpCampusTool === 'draw_route' ? 'bg-emerald-600 text-white shadow-sm' : 'bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-600 hover:text-white'}">${_admSpCampusTool === 'draw_route' ? '✓ Done Drawing' : '✏️ Draw Route'}</button>
+                <button type="button" onclick="_admSpCmRouteUndo()" ${activeRoute.length ? '' : 'disabled'} class="px-2 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-[10px] font-black disabled:opacity-40">Undo Pt</button>
+                <button type="button" onclick="_admSpCmRouteAuto()" class="px-2 py-1.5 border border-blue-200 bg-blue-50 text-blue-700 rounded-lg text-[10px] font-black">Auto Route</button>
+                <button type="button" onclick="_admSpCmRouteClear()" ${activeRoute.length ? '' : 'disabled'} class="px-2 py-1.5 border border-red-200 text-red-600 rounded-lg text-[10px] font-black disabled:opacity-40">Clear</button>
+              </div>
+            ` : ''}
+          </div>
+        </div>`;
+    } else {
+      const lm = sel.obj;
+      inspectorHtml = `
+        <div class="space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-black text-indigo-700 uppercase">📍 Landmark Properties</span>
+            ${_admSpCanEdit ? `<button type="button" onclick="_admSpCmDeleteSelected()" class="px-2 py-0.5 text-red-600 bg-red-50 hover:bg-red-600 hover:text-white rounded text-[10px] font-black">Delete</button>` : ''}
+          </div>
+          <div>
+            <label class="text-[9px] uppercase font-black text-slate-400">Type</label>
+            <select ${_admSpCanEdit ? '' : 'disabled'} onchange="_admSpCmUpdateSelected('type', this.value)" class="w-full mt-0.5 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold">
+              <option value="field" ${lm.type === 'field' ? 'selected' : ''}>🌿 Play Ground / Field</option>
+              <option value="helpdesk" ${lm.type === 'helpdesk' ? 'selected' : ''}>ℹ️ Help Desk / Booth</option>
+              <option value="stairs" ${lm.type === 'stairs' ? 'selected' : ''}>🪜 Main Stairs / Entry</option>
+              <option value="gate" ${lm.type === 'gate' ? 'selected' : ''}>🚪 Secondary Gate</option>
+              <option value="landmark" ${lm.type === 'landmark' ? 'selected' : ''}>📍 General Landmark</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-[9px] uppercase font-black text-slate-400">Label</label>
+            <input type="text" value="${_escHtml(lm.label || '')}" ${_admSpCanEdit ? '' : 'disabled'} oninput="_admSpCmUpdateSelected('label', this.value)" class="w-full mt-0.5 px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold">
+          </div>
+        </div>`;
+    }
+
+    return `
+      <div class="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
+        <!-- Left Panel: Buildings, Gate & Landmarks -->
+        <div class="xl:col-span-3 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+          <div class="p-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-2">
+            <h4 class="font-black text-slate-800 text-xs uppercase tracking-wider">Campus Blocks</h4>
+            ${_admSpCanEdit ? `<button type="button" onclick="_admSpCmAddBuilding()" class="px-2 py-1 bg-blue-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-black">+ Building</button>` : ''}
+          </div>
+          <button type="button" onclick="_admSpCmSelectItem('__gate__')" class="w-full text-left px-3 py-2 border-b border-slate-100 text-xs font-black flex items-center gap-1.5 ${_admSpCampusSelectedId === '__gate__' ? 'bg-blue-600 text-white' : 'bg-blue-50/50 text-blue-700 hover:bg-blue-50'}">🏫 ${_escHtml(cm.gate.label || 'MAIN GATE')} <span class="ml-auto text-[9px] opacity-75">Entry</span></button>
+          <div>${bldgListHtml}</div>
+          <div class="p-2.5 bg-slate-50 border-y border-slate-100 flex items-center justify-between">
+            <span class="text-[10px] font-black uppercase text-slate-500">Landmarks (${cm.landmarks.length})</span>
+            ${_admSpCanEdit ? `<button type="button" onclick="_admSpCmAddLandmark()" class="px-2 py-0.5 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded text-[10px] font-black hover:bg-indigo-600 hover:text-white">+ Landmark</button>` : ''}
+          </div>
+          <div>${lmListHtml || '<p class="p-3 text-[11px] text-slate-400">No landmarks yet.</p>'}</div>
+        </div>
+
+        <!-- Center + Right Workspace -->
+        <div class="xl:col-span-9 space-y-4">
+          <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-4">
+            <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+              <div>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <h3 class="font-black text-slate-900 text-base">🗺️ 3D Campus Map &amp; Route-to-Seat Designer</h3>
+                  <span class="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-black">🌐 Global Campus Map</span>
+                  ${_admSpCampusDirty ? '<span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-black">Unsaved Changes</span>' : ''}
+                </div>
+                <p class="text-[11px] text-slate-400 font-semibold mt-0.5">Match room prefixes (e.g. <code>SB-503</code> → Building Code <code>SB</code>). Saved globally for every student's <code>/seat/&lt;ID&gt;</code> link.</p>
+              </div>
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <button type="button" onclick="_admSpCmTogglePreview3D()" class="px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all ${_admSpCampusPreview3D ? 'bg-emerald-600 text-white shadow-sm' : 'bg-slate-800 text-white hover:bg-black'}">${_admSpCampusPreview3D ? '✏️ Back to 2D Editor' : '🧊 Live 3D Preview'}</button>
+                ${_admSpCanEdit ? `
+                  <button type="button" onclick="_admSpCmResetDefault()" class="px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-xl text-[10px] font-black uppercase hover:bg-slate-50">Reset</button>
+                  <button type="button" onclick="_admSpCmSave()" class="px-4 py-1.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase hover:bg-black shadow-sm">Save Campus Map</button>
+                ` : ''}
+              </div>
+            </div>
+
+            ${stageHtml}
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <!-- Selected Item Inspector -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-4">${inspectorHtml}</div>
+
+            <!-- Optional Campus Satellite / Floorplan Ground Image -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 space-y-2.5">
+              <div class="text-xs font-black text-slate-800 uppercase">🛰️ Optional Campus Ground Map / Satellite Photo</div>
+              <p class="text-[11px] text-slate-400">Upload a screenshot of CCPC from Google Maps or a campus sketch — it renders right under your 3D buildings and glowing route!</p>
+              ${_admSpCanEdit ? `
+                <div class="flex items-center gap-2 flex-wrap">
+                  <label class="px-3 py-1.5 bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-700 rounded-xl text-[10px] font-black uppercase cursor-pointer transition-all">
+                    Upload Map Image
+                    <input type="file" accept="image/*" onchange="_admSpCmUploadGround(this)" class="hidden">
+                  </label>
+                  ${cm.ground_image ? `<button type="button" onclick="_admSpCmClearGround()" class="px-2.5 py-1.5 border border-red-200 text-red-600 rounded-xl text-[10px] font-black uppercase hover:bg-red-50">Remove Image</button>` : ''}
+                </div>
+                ${cm.ground_image ? `
+                  <div class="flex items-center gap-2 text-xs font-bold text-slate-600">
+                    <span class="text-[10px] uppercase text-slate-400 font-black">Opacity</span>
+                    <input type="range" min="15" max="100" value="${Math.round((cm.ground_opacity ?? 0.45) * 100)}" oninput="_admSpCmSetGroundOpacity(this.value)" class="flex-1">
+                    <span class="font-mono text-[11px] w-9 text-right">${Math.round((cm.ground_opacity ?? 0.45) * 100)}%</span>
+                  </div>
+                ` : ''}
+              ` : ''}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+  function _admSpCmSelectItem(id) {
+    _admSpCampusSelectedId = id;
+    if (id === '__gate__' || (_admSpCampusMap && (_admSpCampusMap.landmarks || []).some(l => l.id === id))) {
+      _admSpCampusTool = 'select';
+    }
+    _admSpRenderStudio();
+  }
+  function _admSpCmSetTool(t) {
+    _admSpCampusTool = t || 'select';
+    _admSpCampusPreview3D = false;
+    _admSpRenderStudio();
+  }
+  function _admSpCmTogglePreview3D() {
+    _admSpCampusPreview3D = !_admSpCampusPreview3D;
+    if (_admSpCampusPreview3D) _admSpCampusTool = 'select';
+    _admSpRenderStudio();
+  }
+  function _admSpCmPreviewPreset(kind) {
+    if (kind === 'iso') _admSpCampusPreviewCam = { rx: 52, rz: -24, scale: 0.88 };
+    else if (kind === 'front') _admSpCampusPreviewCam = { rx: 62, rz: 0, scale: 0.9 };
+    else _admSpCampusPreviewCam = { rx: 0, rz: 0, scale: 0.94 };
+    _admSpRenderStudio();
+  }
+  function _admSpCmStartDrag(ev, itemId) {
+    if (!_admSpCanEdit || _admSpCampusTool === 'draw_route') return;
+    ev.stopPropagation();
+    ev.preventDefault();
+    _admSpCampusSelectedId = itemId;
+    const cm = _admSpGetCampusMap();
+    const target = itemId === '__gate__'
+      ? cm.gate
+      : (cm.buildings.find(b => b.id === itemId) || cm.landmarks.find(l => l.id === itemId));
+    if (!target) return;
+    const startX = ev.clientX, startY = ev.clientY;
+    const origX = Number(target.x) || 0, origY = Number(target.y) || 0;
+    const onMove = (me) => {
+      const dx = me.clientX - startX, dy = me.clientY - startY;
+      target.x = Math.max(8, Math.min(640 - (target.w || 40), Math.round(origX + dx)));
+      target.y = Math.max(8, Math.min(390 - (target.h || 26), Math.round(origY + dy)));
+      _admSpCampusDirty = true;
+      _admSpRenderStudio();
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      _admSpRenderStudio();
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+  function _admSpCmStartResize(ev, itemId) {
+    if (!_admSpCanEdit || _admSpCampusTool === 'draw_route') return;
+    ev.stopPropagation();
+    ev.preventDefault();
+    _admSpCampusSelectedId = itemId;
+    const cm = _admSpGetCampusMap();
+    const target = cm.buildings.find(b => b.id === itemId) || cm.landmarks.find(l => l.id === itemId);
+    if (!target) return;
+    const startX = ev.clientX, startY = ev.clientY;
+    const origW = Number(target.w) || 120, origH = Number(target.h) || 64;
+    const onMove = (me) => {
+      target.w = Math.max(54, Math.min(640 - target.x, Math.round(origW + (me.clientX - startX))));
+      target.h = Math.max(32, Math.min(390 - target.y, Math.round(origH + (me.clientY - startY))));
+      _admSpCampusDirty = true;
+      _admSpRenderStudio();
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      _admSpRenderStudio();
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+  function _admSpCmCanvasClick(ev) {
+    if (!_admSpCanEdit || _admSpCampusTool !== 'draw_route') return;
+    const canvas = document.getElementById('admSpCmCanvas');
+    if (!canvas) return;
+    const cm = _admSpGetCampusMap();
+    const sel = _admSpCmGetSelectedObj(cm);
+    if (sel.kind !== 'building') { showToast('Select a Building first to draw its route', 'info'); return; }
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.max(6, Math.min(634, Math.round((ev.clientX - rect.left) * (640 / rect.width))));
+    const y = Math.max(6, Math.min(384, Math.round((ev.clientY - rect.top) * (390 / rect.height))));
+    const code = sel.obj.code;
+    if (!Array.isArray(cm.routes[code])) cm.routes[code] = [];
+    cm.routes[code].push([x, y]);
+    _admSpCampusDirty = true;
+    _admSpRenderStudio();
+  }
+  function _admSpCmAddBuilding() {
+    if (!_admSpCanEdit) return;
+    const cm = _admSpGetCampusMap();
+    const n = cm.buildings.length + 1;
+    const id = 'b_' + Date.now().toString(36);
+    const code = 'B' + n;
+    cm.buildings.push({ id, code, name: `Building ${n}`, x: 240, y: 145, w: 150, h: 72, floors: 4, color: '#1e40af', note: '' });
+    _admSpCampusSelectedId = id;
+    _admSpCampusDirty = true;
+    _admSpRenderStudio();
+  }
+  function _admSpCmAddLandmark() {
+    if (!_admSpCanEdit) return;
+    const cm = _admSpGetCampusMap();
+    const id = 'lm_' + Date.now().toString(36);
+    cm.landmarks.push({ id, type: 'helpdesk', label: 'Help Desk', x: 120, y: 270, w: 105, h: 40 });
+    _admSpCampusSelectedId = id;
+    _admSpCampusTool = 'select';
+    _admSpCampusDirty = true;
+    _admSpRenderStudio();
+  }
+  function _admSpCmDeleteSelected() {
+    if (!_admSpCanEdit) return;
+    const cm = _admSpGetCampusMap();
+    const bi = cm.buildings.findIndex(b => b.id === _admSpCampusSelectedId);
+    if (bi >= 0) {
+      if (cm.buildings.length <= 1) { showToast('Keep at least one building', 'error'); return; }
+      const code = cm.buildings[bi].code;
+      cm.buildings.splice(bi, 1);
+      if (cm.routes) delete cm.routes[code];
+      _admSpCampusSelectedId = cm.buildings[0].id;
+      _admSpCampusDirty = true;
+      _admSpRenderStudio();
+      return;
+    }
+    const li = cm.landmarks.findIndex(l => l.id === _admSpCampusSelectedId);
+    if (li >= 0) {
+      cm.landmarks.splice(li, 1);
+      _admSpCampusSelectedId = (cm.buildings[0] && cm.buildings[0].id) || '__gate__';
+      _admSpCampusDirty = true;
+      _admSpRenderStudio();
+    }
+  }
+  function _admSpCmUpdateSelected(prop, val) {
+    if (!_admSpCanEdit) return;
+    const cm = _admSpGetCampusMap();
+    const sel = _admSpCmGetSelectedObj(cm);
+    if (sel.kind === 'building') {
+      if (prop === 'code') {
+        const oldCode = sel.obj.code;
+        const newCode = String(val || 'B').trim().toUpperCase().slice(0, 6) || 'B';
+        if (oldCode !== newCode && cm.routes && cm.routes[oldCode]) {
+          cm.routes[newCode] = cm.routes[oldCode];
+          delete cm.routes[oldCode];
+        }
+        sel.obj.code = newCode;
+      } else if (prop === 'floors') {
+        sel.obj.floors = Math.max(1, Math.min(10, parseInt(val, 10) || 4));
+      } else {
+        sel.obj[prop] = val;
+      }
+    } else if (sel.kind === 'landmark') {
+      sel.obj[prop] = val;
+    }
+    _admSpCampusDirty = true;
+    if (prop === 'code' || prop === 'floors' || prop === 'color' || prop === 'type') _admSpRenderStudio();
+  }
+  function _admSpCmUpdateGate(prop, val) {
+    if (!_admSpCanEdit) return;
+    const cm = _admSpGetCampusMap();
+    if (prop === 'x' || prop === 'y') cm.gate[prop] = Math.max(10, Math.min(prop === 'x' ? 630 : 380, parseInt(val, 10) || 75));
+    else cm.gate[prop] = val;
+    _admSpCampusDirty = true;
+    if (prop === 'x' || prop === 'y') _admSpRenderStudio();
+  }
+  function _admSpCmRouteUndo() {
+    const cm = _admSpGetCampusMap();
+    const sel = _admSpCmGetSelectedObj(cm);
+    if (sel.kind !== 'building' || !Array.isArray(cm.routes[sel.obj.code])) return;
+    cm.routes[sel.obj.code].pop();
+    _admSpCampusDirty = true;
+    _admSpRenderStudio();
+  }
+  function _admSpCmRouteClear() {
+    const cm = _admSpGetCampusMap();
+    const sel = _admSpCmGetSelectedObj(cm);
+    if (sel.kind !== 'building') return;
+    cm.routes[sel.obj.code] = [];
+    _admSpCampusDirty = true;
+    _admSpRenderStudio();
+  }
+  function _admSpCmRouteAuto() {
+    const cm = _admSpGetCampusMap();
+    const sel = _admSpCmGetSelectedObj(cm);
+    if (sel.kind !== 'building') return;
+    const gx = Number(cm.gate.x) || 75, gy = Number(cm.gate.y) || 344;
+    const cx = Math.round(sel.obj.x + sel.obj.w / 2), cy = Math.round(sel.obj.y + sel.obj.h / 2);
+    const midY = Math.round((gy + cy) / 2);
+    cm.routes[sel.obj.code] = [[gx, gy], [cx, gy], [cx, midY], [cx, cy]];
+    _admSpCampusDirty = true;
+    _admSpRenderStudio();
+  }
+  function _admSpCmUploadGround(inputEl) {
+    const file = inputEl && inputEl.files && inputEl.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxW = 960;
+        const scale = Math.min(1, maxW / (img.width || maxW));
+        const cv = document.createElement('canvas');
+        cv.width = Math.round(img.width * scale);
+        cv.height = Math.round(img.height * scale);
+        const ctx = cv.getContext('2d');
+        ctx.drawImage(img, 0, 0, cv.width, cv.height);
+        const cm = _admSpGetCampusMap();
+        cm.ground_image = cv.toDataURL('image/jpeg', 0.78);
+        _admSpCampusDirty = true;
+        _admSpRenderStudio();
+        showToast('Campus ground map loaded — click Save Campus Map to publish!', 'success');
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  }
+  function _admSpCmSetGroundOpacity(val) {
+    const cm = _admSpGetCampusMap();
+    cm.ground_opacity = Math.max(0.15, Math.min(1, (parseInt(val, 10) || 45) / 100));
+    _admSpCampusDirty = true;
+    _admSpRenderStudio();
+  }
+  function _admSpCmClearGround() {
+    const cm = _admSpGetCampusMap();
+    cm.ground_image = '';
+    _admSpCampusDirty = true;
+    _admSpRenderStudio();
+  }
+  function _admSpCmResetDefault() {
+    showConfirm('Reset the 3D Campus Map back to the default 5-building CCPC layout?', () => {
+      _admSpCampusMap = _admSpDefaultCampusMap();
+      _admSpCampusSelectedId = 'b_sb';
+      _admSpCampusDirty = true;
+      _admSpRenderStudio();
+    });
+  }
+  async function _admSpCmSave() {
+    if (!_admSpCanEdit) return;
+    try {
+      const res = await _admCandFetch('saveSeatPlanCampusMap', {
+        circular_id: _admCandActiveCircularId,
+        campus_map: _admSpGetCampusMap(),
+      });
+      if (res.error) { showToast(res.error, 'error'); return; }
+      _admSpCampusDirty = false;
+      _admSpRenderStudio();
+      showToast('3D Campus Map & Routes saved globally! All /seat links updated.', 'success');
+    } catch (e) { showToast(e.message || 'Failed to save campus map', 'error'); }
   }
 
   // ══════════════════════════════════════════════════════════════════════════

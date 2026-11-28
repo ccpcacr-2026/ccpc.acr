@@ -985,7 +985,7 @@ export async function POST(req) {
     const canEdit = isFullAdmin || _tabOk(false, perms, 'alloc', 'edit');
 
     const candSelect = 'id,token,external_key,tracking_id,index_id,class,version,category,status,source,name_english,name_bangla,father_name,mother_name,mobile,father_contact,mother_contact,room_id,seat_no,scan_values,extra_fields,created_at';
-    const [candRows, roomRows, bldgRows, schedSetting, customColsSetting, smsSetting, roomLayoutsSetting, scanOptRows, circRows] = await Promise.all([
+    const [candRows, roomRows, bldgRows, schedSetting, customColsSetting, smsSetting, roomLayoutsSetting, campusMapSetting, scanOptRows, circRows] = await Promise.all([
       sbAdmission(`admission_applications?select=${candSelect}&circular_id=eq.${circularId}&order=id.asc&limit=10000`),
       sbInventory('rooms?select=id,name,capacity,building_id&order=name.asc'),
       sbInventory('buildings?select=id,name'),
@@ -993,6 +993,7 @@ export async function POST(req) {
       _getAdmissionSetting('custom_merged_columns'),
       _getAdmissionSetting('seat_plan_sms_config'),
       _getAdmissionSetting('seat_plan_room_layouts'),
+      _getAdmissionSetting('seat_plan_campus_map'),
       sbAdmission(`candidate_scan_options?circular_id=eq.${circularId}&order=sort_order.asc,id.asc`),
       sbAdmission(`exam_circulars?id=eq.${circularId}&select=id,name,session_id`),
     ]);
@@ -1020,6 +1021,7 @@ export async function POST(req) {
       rooms,
       schedules,
       room_layouts: (roomLayoutsSetting && typeof roomLayoutsSetting === 'object') ? roomLayoutsSetting : {},
+      campus_map: (campusMapSetting && typeof campusMapSetting === 'object') ? campusMapSetting : null,
       custom_columns: Array.isArray(customColsSetting) ? customColsSetting : [],
       scan_options: Array.isArray(scanOptRows) ? scanOptRows : [],
       sms_config: {
@@ -1040,6 +1042,17 @@ export async function POST(req) {
     }
     const room_layouts = (payload.room_layouts && typeof payload.room_layouts === 'object') ? payload.room_layouts : {};
     const res = await _upsertAdmissionSetting('seat_plan_room_layouts', room_layouts);
+    if (res?.error) return NextResponse.json({ error: res.error });
+    return NextResponse.json({ success: true });
+  }
+
+  if (action === 'saveSeatPlanCampusMap') {
+    const circularId = parseInt(payload.circular_id, 10);
+    if (!isFullAdmin) {
+      if (!circularId || !_tabOk(false, await _getCommitteePerms(user_id, circularId), 'alloc', 'edit')) return _forbidden();
+    }
+    const campus_map = (payload.campus_map && typeof payload.campus_map === 'object') ? payload.campus_map : {};
+    const res = await _upsertAdmissionSetting('seat_plan_campus_map', campus_map);
     if (res?.error) return NextResponse.json({ error: res.error });
     return NextResponse.json({ success: true });
   }

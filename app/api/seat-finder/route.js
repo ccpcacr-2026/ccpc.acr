@@ -136,7 +136,7 @@ export async function GET(req) {
   if (!code) return NextResponse.json({ error: 'Enter your Index ID or Tracking ID.' }, { status: 400 });
 
   const enc = encodeURIComponent(code);
-  const sel = 'id,circular_id,token,tracking_id,index_id,external_key,name_english,name_bangla,class,version,category,room_id,room_no,seat_no';
+  const sel = 'id,circular_id,token,tracking_id,index_id,external_key,name_english,name_bangla,father_name,mother_name,class,version,category,room_id,room_no,seat_no';
   let q = `admission_applications?select=${sel}&or=(index_id.eq.${enc},token.eq.${enc},tracking_id.eq.${enc},external_key.eq.${enc})&order=id.desc&limit=5`;
   if (circularParam) q += `&circular_id=eq.${circularParam}`;
 
@@ -147,9 +147,10 @@ export async function GET(req) {
   // Prefer a row that already has a room assigned
   const app = rows.find(r => r.room_id || r.room_no) || rows[0];
 
-  const [circRows, layoutsRows, schedRows, roomRows, bldgRows] = await Promise.all([
+  const [circRows, layoutsRows, campusMapRows, schedRows, roomRows, bldgRows] = await Promise.all([
     app.circular_id ? sbAdmission(`exam_circulars?id=eq.${app.circular_id}&select=id,name,session_id`) : Promise.resolve(null),
     sbAdmission('admission_settings?key=eq.seat_plan_room_layouts&select=value'),
+    sbAdmission('admission_settings?key=eq.seat_plan_campus_map&select=value'),
     app.circular_id ? sbAdmission(`admission_settings?key=eq.seat_plan_schedules_${app.circular_id}&select=value`) : Promise.resolve(null),
     app.room_id ? sbInventory(`rooms?id=eq.${app.room_id}&select=id,name,capacity,building_id`) : Promise.resolve(null),
     sbInventory('buildings?select=id,name'),
@@ -191,9 +192,16 @@ export async function GET(req) {
   const slots = getLayoutSlots(layout);
   const mySlot = seatNo > 0 ? (slots.find(s => s.seatNo === seatNo) || null) : null;
 
+  const campusMap = (Array.isArray(campusMapRows) && campusMapRows[0] && campusMapRows[0].value && typeof campusMapRows[0].value === 'object')
+    ? campusMapRows[0].value
+    : null;
+
   return NextResponse.json({
     student: {
       name: app.name_english || app.name_bangla || 'Applicant',
+      name_bangla: app.name_bangla || '',
+      father_name: app.father_name || '',
+      mother_name: app.mother_name || '',
       index_id: app.index_id || '',
       tracking_id: app.tracking_id || app.token || app.external_key || '',
       class: app.class || '',
@@ -223,5 +231,7 @@ export async function GET(req) {
       total_desks: slots.length,
     },
     room_layout: layout,
+    campus_map: campusMap,
+    seat_info_cfg: (matchedSched && matchedSched.seat_info_cfg) || null,
   });
 }
