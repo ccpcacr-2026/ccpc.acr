@@ -14949,13 +14949,16 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
           <div id="exSeatAllocResult" class="mt-3 text-xs text-slate-500 font-bold"></div>
         </div>
 
-        <div class="flex items-baseline gap-3 mb-3"><h3 class="text-sm font-black text-slate-800 uppercase tracking-widest">Printing</h3></div>
+        <div class="flex items-baseline gap-3 mb-3"><h3 class="text-sm font-black text-slate-800 uppercase tracking-widest">Printing &amp; Global Room Layouts</h3></div>
         <div class="bg-white rounded-2xl border border-slate-200 p-4">
           <div class="flex items-center gap-2 flex-wrap">
             <select id="exSeatPrintRoomSelect" class="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-xs"><option value="">All rooms</option></select>
             <button onclick="_exSeatPrintSignatureSheet()" class="px-4 py-2.5 bg-blue-600 text-white rounded-xl font-black text-[10px] uppercase">Print Signature Sheet</button>
             <button onclick="_exSeatPrintRoomList()" class="px-4 py-2.5 border border-slate-200 text-slate-600 rounded-xl font-black text-[10px] uppercase">Print Room List</button>
+            <button onclick="_exSeatOpenGlobalLayoutDesigner()" class="px-4 py-2.5 bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-600 hover:text-white rounded-xl font-black text-[10px] uppercase transition-all">🪑 Global Room Layout Designer</button>
+            <button onclick="_exSeatPrintVisualRoomLayout()" class="px-4 py-2.5 bg-emerald-600 text-white rounded-xl font-black text-[10px] uppercase hover:bg-black transition-all">🖨 Print Visual Room Layout</button>
           </div>
+          <p class="text-[11px] text-slate-400 mt-2">Room layouts (columns, rows, aisles, doors &amp; fixtures) are saved <b>globally</b> — design a room once here or in Admission and reuse it across every regular exam and admission test.</p>
         </div>
       </div>
     `;
@@ -15003,6 +15006,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     try {
       const res = await _adminFetch('listExamRooms', {});
       _exSeatRooms = (res && res.result === 'success' && res.rooms) || [];
+      if (res && res.room_layouts && typeof res.room_layouts === 'object') {
+        _admSpRoomLayouts = res.room_layouts;
+      }
       _exSeatRenderRoomsTable();
       _exSeatPopulateRoomBuildingSelect();
       _exSeatRenderAllocRoomPicker();
@@ -15022,15 +15028,22 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     const body = document.getElementById('exSeatRoomsBody');
     if (!body) return;
     if (!_exSeatRooms.length) { body.innerHTML = '<tr><td colspan="4" class="py-6 px-3 text-center text-slate-400 text-xs">No rooms yet.</td></tr>'; return; }
-    body.innerHTML = _exSeatRooms.map(r => `<tr class="border-t border-slate-100">
-      <td class="py-2 px-3 font-bold">${_escHtml(r.room_name)}</td>
+    body.innerHTML = _exSeatRooms.map(r => {
+      const lay = _admSpRoomLayouts && _admSpRoomLayouts[String(r.id)];
+      const layBadge = lay && Array.isArray(lay.columns)
+        ? `<span class="ml-1.5 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[9px] font-black" title="Global custom layout saved">${lay.columns.length} cols</span>`
+        : '';
+      return `<tr class="border-t border-slate-100">
+      <td class="py-2 px-3 font-bold">${_escHtml(r.room_name)}${layBadge}</td>
       <td class="py-2 px-3 text-slate-500">${r.building ? _escHtml(r.building) : '<span class="text-slate-300">—</span>'}</td>
       <td class="py-2 px-3">${r.capacity}</td>
-      <td class="py-2 px-3 text-right">
+      <td class="py-2 px-3 text-right whitespace-nowrap">
+        <button onclick="_exSeatOpenGlobalLayoutDesigner(${r.id})" class="text-indigo-600 text-[10px] font-black uppercase mr-2">🪑 Layout</button>
         <button onclick="_exSeatRoomEdit(${r.id})" class="text-blue-600 text-[10px] font-black uppercase mr-2">Edit</button>
         <button onclick="_exSeatRoomDelete(${r.id})" class="text-red-500 text-[10px] font-black uppercase">Delete</button>
       </td>
-    </tr>`).join('');
+    </tr>`;
+    }).join('');
   }
   function _exSeatPopulateRoomBuildingSelect() {
     const sel = document.getElementById('exSeatRoomBuilding');
@@ -15178,6 +15191,157 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
         <table><thead><tr><th>Room</th><th>Seat</th><th>Name</th><th>Roll</th><th>Class</th></tr></thead><tbody>${rows}</tbody></table>`;
       const css = `@page { size: A4 portrait; margin: 12mm; } table { width:100%; border-collapse:collapse; font-size:11px; } th, td { border:1px solid #cbd5e1; padding:4px 6px; text-align:left; } th { background:#f1f5f9; text-transform:uppercase; font-size:9px; }`;
       _gfOpenPrintWindow('Seat Plan — Room List', body, css);
+    } catch (e) { showToast(e.message || 'Failed', 'error'); }
+  }
+
+  // ── Shared Global Room Layout Designer Bridge for Regular Exams ──────────
+  let _exSeatLayoutModalActive = false;
+  let _exSeatLayoutExamLabel = '';
+  let _exSeatLayoutStudents = [];
+  let _exSeatLayoutMix = {};
+
+  function _exSeatBuildVirtualScheduleAndComp() {
+    const roomsSorted = (_exSeatRooms || []).slice().sort((a, b) => String(a.room_name || '').localeCompare(String(b.room_name || ''), undefined, { numeric: true }));
+    const roomStates = {};
+    const byRoom = {};
+    roomsSorted.forEach(r => {
+      roomStates[r.id] = {
+        room: r,
+        code: _admSpRoomBuildingCode(r),
+        building: _admSpRoomBuildingName(r),
+        capacity: parseInt(r.capacity, 10) || 0,
+        plannedUsed: 0,
+        actualUsed: 0,
+        remaining: parseInt(r.capacity, 10) || 0,
+        slices: [],
+      };
+    });
+    const byRoomRaw = {};
+    (_exSeatLayoutStudents || []).forEach(s => {
+      const rid = parseInt(s.room_id, 10);
+      if (!rid || !roomStates[rid]) return;
+      if (!byRoomRaw[rid]) byRoomRaw[rid] = [];
+      const cls = String(s.class || '').trim();
+      const sec = String(s.section || '').trim();
+      const ck = _admSpCritKey(cls, sec, '');
+      byRoomRaw[rid].push({
+        cand: { id: s.student_id, name_english: s.student_name || '', index_id: s.roll || '', token: s.student_id || '', class: cls, version: sec, category: '' },
+        id: s.student_id,
+        room_id: rid,
+        room_name: roomStates[rid].room.room_name,
+        building: roomStates[rid].building,
+        building_code: roomStates[rid].code,
+        seat_no: parseInt(s.seat_no, 10) || 0,
+        cls,
+        version: sec,
+        category: '',
+        crit_key: ck,
+        crit_label: [cls, sec].filter(Boolean).join(' · ') || 'Students',
+        display_id: String(s.roll || s.student_id || ''),
+        tracking_id: String(s.student_id || ''),
+      });
+    });
+    const sched = {
+      id: 'ex_global_virtual',
+      name: _exSeatLayoutExamLabel || 'Regular Exam Seat Plan',
+      exam_date: '',
+      start_time: '',
+      index_display_col: 'index_id',
+      room_mix: _exSeatLayoutMix,
+    };
+    Object.keys(byRoomRaw).forEach(ridStr => {
+      const rid = parseInt(ridStr, 10);
+      const rs = roomStates[rid];
+      const list = byRoomRaw[rid].sort((a, b) => (a.seat_no - b.seat_no));
+      const layout = _admSpGetRoomLayout(rid, rs.capacity);
+      const mixCfg = _exSeatLayoutMix[String(rid)] || { mode: 'sequential', col_map: {}, swaps: [] };
+      const arranged = _admSpArrangeRoomEntries(list, layout, mixCfg);
+      byRoom[rid] = arranged.entries;
+      rs.actualUsed = arranged.entries.length;
+      rs.layout = layout;
+      rs.layoutSlots = arranged.slots;
+      rs.slotMap = arranged.slotMap;
+      rs.overflowEntries = arranged.overflowEntries;
+      rs.groupMeta = arranged.groupMeta;
+      rs.slices = arranged.groupMeta.map(g => ({ label: g.label, count: g.count }));
+    });
+    return { sched, comp: { roomStates, byRoom, criteriaList: [], criteriaMap: {}, rows: [], buildingTotals: [], assignments: Object.values(byRoom).flat() } };
+  }
+
+  function _exSeatRenderGlobalLayoutModal() {
+    const body = document.getElementById('exSeatGlobalLayoutModalBody');
+    if (!body) return;
+    const { sched, comp } = _exSeatBuildVirtualScheduleAndComp();
+    body.innerHTML = _admSpRenderLayoutDesignerHtml(sched, comp);
+  }
+
+  async function _exSeatOpenGlobalLayoutDesigner(roomId) {
+    if (!_exSeatRooms.length) await _exSeatLoadRooms();
+    const examSel = document.getElementById('exSeatExamSelect');
+    const examId = parseInt(examSel?.value, 10) || 0;
+    _exSeatLayoutExamLabel = (examId && examSel?.selectedOptions?.[0]?.textContent) || 'Global Room Layout Designer';
+    _exSeatLayoutStudents = [];
+    if (examId) {
+      try {
+        const res = await _adminFetch('getExamSeatPlanData', { exam_id: examId });
+        if (res && res.result === 'success' && Array.isArray(res.students)) _exSeatLayoutStudents = res.students;
+      } catch (_) {}
+    }
+    _admSpRooms = _exSeatRooms.slice().sort((a, b) => String(a.room_name || '').localeCompare(String(b.room_name || ''), undefined, { numeric: true }));
+    _admSpCanEdit = true;
+    _admSpCircularName = _exSeatLayoutExamLabel;
+    _admSpSessionName = 'Global Room Layout';
+    _admSpActiveRoomId = roomId ? parseInt(roomId, 10) : (_exSeatLayoutStudents[0]?.room_id || _admSpRooms[0]?.id || null);
+    _admSpLayShowAllRooms = !_exSeatLayoutStudents.length;
+    _admSpLaySwapSeat = null;
+    _exSeatLayoutModalActive = true;
+
+    let overlay = document.getElementById('exSeatGlobalLayoutOverlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'exSeatGlobalLayoutOverlay';
+      overlay.className = 'fixed inset-0 bg-slate-900/70 backdrop-blur-xs z-[9500] flex items-center justify-center p-2 sm:p-4';
+      overlay.innerHTML = `<div class="bg-slate-50 rounded-2xl shadow-2xl w-full max-w-[1400px] max-h-[94vh] flex flex-col overflow-hidden border border-slate-200">
+        <div class="px-5 py-3 bg-white border-b border-slate-200 flex items-center justify-between gap-3 shrink-0">
+          <div>
+            <h3 class="font-black text-slate-900 text-sm uppercase tracking-wider">🌐 Global Room Seat Plan Layout Designer</h3>
+            <p class="text-[11px] text-slate-400">Saved globally for every Regular Exam, Admission Test &amp; Multiple Exam Setup.</p>
+          </div>
+          <button type="button" onclick="_exSeatCloseGlobalLayoutModal()" class="px-3 py-1.5 bg-slate-100 hover:bg-red-50 hover:text-red-600 rounded-xl text-xs font-black">✕ Close</button>
+        </div>
+        <div id="exSeatGlobalLayoutModalBody" class="p-4 overflow-y-auto flex-1"></div>
+      </div>`;
+      document.body.appendChild(overlay);
+    }
+    overlay.classList.remove('hidden');
+    _exSeatRenderGlobalLayoutModal();
+  }
+
+  function _exSeatCloseGlobalLayoutModal() {
+    _exSeatLayoutModalActive = false;
+    document.getElementById('exSeatGlobalLayoutOverlay')?.classList.add('hidden');
+    _exSeatRenderRoomsTable();
+  }
+
+  async function _exSeatPrintVisualRoomLayout() {
+    const examSel = document.getElementById('exSeatExamSelect');
+    const examId = parseInt(examSel?.value, 10) || 0;
+    if (!examId) { showToast('Pick an exam first', 'error'); return; }
+    const roomSelVal = document.getElementById('exSeatPrintRoomSelect')?.value || '';
+    try {
+      const res = await _adminFetch('getExamSeatPlanData', { exam_id: examId, room_id: roomSelVal || undefined });
+      if (res.result !== 'success') { showToast(res.message || 'Failed', 'error'); return; }
+      if (!res.students || !res.students.length) { showToast('No students allocated yet — run Seat Allocation first', 'error'); return; }
+      _exSeatLayoutExamLabel = examSel?.selectedOptions?.[0]?.textContent || 'Exam Seat Plan';
+      _exSeatLayoutStudents = res.students;
+      _admSpRooms = _exSeatRooms.slice();
+      _admSpCircularName = _exSeatLayoutExamLabel;
+      _admSpSessionName = '';
+      _admSpActiveRoomId = roomSelVal ? parseInt(roomSelVal, 10) : null;
+      const wasActive = _exSeatLayoutModalActive;
+      _exSeatLayoutModalActive = true;
+      _admSpLayPrintRoomMap(roomSelVal ? 'CURRENT' : 'ALL');
+      _exSeatLayoutModalActive = wasActive;
     } catch (e) { showToast(e.message || 'Failed', 'error'); }
   }
 
@@ -55191,6 +55355,9 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     }
   }
   function _admSpActiveSchedule() {
+    if (typeof _exSeatLayoutModalActive !== 'undefined' && _exSeatLayoutModalActive) {
+      return { id: 'ex_global_virtual', name: _exSeatLayoutExamLabel || 'Regular Exam Seat Plan', room_mix: _exSeatLayoutMix };
+    }
     if (!_admSpSchedules.length) return null;
     let s = _admSpSchedules.find(x => x.id === _admSpActiveSchedId);
     if (!s) { s = _admSpSchedules[0]; _admSpActiveSchedId = s.id; }
@@ -56126,6 +56293,10 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   function _admSpRenderStudio() {
+    if (typeof _exSeatLayoutModalActive !== 'undefined' && _exSeatLayoutModalActive) {
+      _exSeatRenderGlobalLayoutModal();
+      return;
+    }
     const root = document.getElementById('admSpStudioRoot');
     if (!root) return;
     const sched = _admSpActiveSchedule();
@@ -57183,21 +57354,21 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
     );
   }
   async function _admSpLaySaveLayouts(silent) {
-    if (!_admCandRequireCircular() || !_admSpCanEdit) return;
+    if (!_admSpCanEdit) return;
+    const isGlobalModal = (typeof _exSeatLayoutModalActive !== 'undefined' && _exSeatLayoutModalActive);
+    if (!isGlobalModal && !_admCandRequireCircular()) return;
     try {
-      const res = await _admCandFetch('saveSeatPlanRoomLayouts', {
-        circular_id: _admCandActiveCircularId,
-        room_layouts: _admSpRoomLayouts,
-      });
-      if (res.error) { showToast(res.error, 'error'); return; }
+      const res = isGlobalModal
+        ? await _adminFetch('saveGlobalRoomLayouts', { room_layouts: _admSpRoomLayouts })
+        : await _admCandFetch('saveSeatPlanRoomLayouts', { circular_id: _admCandActiveCircularId, room_layouts: _admSpRoomLayouts });
+      if (res && (res.error || res.result === 'error')) { showToast(res.error || res.message || 'Save failed', 'error'); return; }
       _admSpLayoutsDirty = false;
-      // Also persist any schedule mix changes alongside layout save
-      if (_admSpDirty) {
+      if (!isGlobalModal && _admSpDirty) {
         await _admCandFetch('saveSeatPlanSchedules', { circular_id: _admCandActiveCircularId, schedules: _admSpSchedules });
         _admSpDirty = false;
         document.getElementById('admSpDirtyBadge')?.classList.add('hidden');
       }
-      if (!silent) showToast('Room layouts & mix settings saved', 'success');
+      if (!silent) showToast('Global room layouts saved for all exams!', 'success');
       _admSpRenderStudio();
     } catch (e) { showToast(e.message || 'Save failed', 'error'); }
   }
@@ -57408,6 +57579,7 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
                   <h3 class="font-black text-slate-900 text-base">${_escHtml(room.room_name)}</h3>
                   <span class="text-xs font-bold text-slate-400">${_escHtml(rs.building || '')}</span>
                   <span class="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-black">${entries.length} seated · ${slots.length} layout desks · Cap ${room.capacity}</span>
+                  <span class="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-black" title="Saved once per physical room and shared across all Admission Exams and Regular Exams">🌐 Global Room Layout</span>
                   ${_admSpLayoutsDirty ? '<span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-black">Layout Unsaved</span>' : ''}
                 </div>
               </div>
@@ -57553,9 +57725,17 @@ Give the complete array, not a sample. If too long, stop cleanly at a chapter bo
   }
 
   function _admSpLayPrintRoomMap(target) {
-    const sched = _admSpActiveSchedule();
-    if (!sched) return;
-    const comp = _admSpCompute(sched);
+    const isGlobalModal = (typeof _exSeatLayoutModalActive !== 'undefined' && _exSeatLayoutModalActive);
+    let sched, comp;
+    if (isGlobalModal) {
+      const built = _exSeatBuildVirtualScheduleAndComp();
+      sched = built.sched;
+      comp = built.comp;
+    } else {
+      sched = _admSpActiveSchedule();
+      if (!sched) return;
+      comp = _admSpCompute(sched);
+    }
     const labelField = _admSpLayLabelField || sched.index_display_col || 'index_id';
 
     let roomIds;

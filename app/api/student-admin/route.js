@@ -796,9 +796,9 @@ const ADMIN_TAB_ACTIONS = {
     'get_grade_scales', 'save_grade_scale', 'delete_grade_scale',
     'save_board_exam_record', 'get_board_exam_records',
     // Seat Plan (Part 9) -- shares the Rooms registry with Admission's own
-    // Rooms tab and Inventory Admin (inventory.rooms/buildings), but
-    // allocation itself (exam.exam_seat_assignments) is this module's own.
-    'listExamRooms', 'saveExamRoom', 'deleteExamRoom',
+    // Rooms tab and Inventory Admin (inventory.rooms/buildings), and shares
+    // global physical room layouts (admission.admission_settings -> seat_plan_room_layouts).
+    'listExamRooms', 'saveExamRoom', 'deleteExamRoom', 'saveGlobalRoomLayouts',
     'runExamSeatAllocation', 'clearExamSeatAllocation', 'getExamSeatPlanData',
   ]),
   // Leave Management lives under the Payroll nav tab (its "Leave" sub-tab) —
@@ -5330,10 +5330,43 @@ export async function POST(req) {
   // Allocation itself (who sits where for THIS exam) is this module's own:
   // exam.exam_seat_assignments/exam_seat_allocation_runs (see
   // migration_exam_seat_plan.sql).
+  async function _getGlobalRoomLayouts() {
+    try {
+      const res = await fetch(`${SB_URL}/rest/v1/admission_settings?key=eq.seat_plan_room_layouts&select=value`, {
+        headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Accept-Profile': 'admission' },
+      });
+      if (!res.ok) return {};
+      const rows = await res.json();
+      return (Array.isArray(rows) && rows[0] && rows[0].value && typeof rows[0].value === 'object') ? rows[0].value : {};
+    } catch { return {}; }
+  }
+  async function _saveGlobalRoomLayouts(room_layouts) {
+    const hdrs = {
+      apikey: SB_KEY,
+      Authorization: `Bearer ${SB_KEY}`,
+      'Content-Type': 'application/json',
+      'Accept-Profile': 'admission',
+      'Content-Profile': 'admission',
+    };
+    const now = new Date().toISOString();
+    const check = await fetch(`${SB_URL}/rest/v1/admission_settings?key=eq.seat_plan_room_layouts&select=key`, { headers: hdrs });
+    const existing = check.ok ? await check.json() : [];
+    const method = (Array.isArray(existing) && existing.length) ? 'PATCH' : 'POST';
+    const url = method === 'PATCH'
+      ? `${SB_URL}/rest/v1/admission_settings?key=eq.seat_plan_room_layouts`
+      : `${SB_URL}/rest/v1/admission_settings`;
+    const body = method === 'PATCH'
+      ? { value: room_layouts, updated_at: now }
+      : { key: 'seat_plan_room_layouts', value: room_layouts, updated_at: now };
+    const res = await fetch(url, { method, headers: { ...hdrs, Prefer: 'return=minimal' }, body: JSON.stringify(body) });
+    if (!res.ok) return { error: await res.text() };
+    return { success: true };
+  }
   if (action === 'listExamRooms') {
-    const [rooms, buildings] = await Promise.all([
+    const [rooms, buildings, room_layouts] = await Promise.all([
       sbInventory('rooms?select=id,name,capacity,building_id&order=name.asc'),
       sbInventory('buildings?select=id,name'),
+      _getGlobalRoomLayouts(),
     ]);
     if (rooms?.error) return NextResponse.json({ result: 'error', message: rooms.error });
     const buildingById = {};
@@ -5341,7 +5374,13 @@ export async function POST(req) {
     const mapped = (Array.isArray(rooms) ? rooms : []).map(r => ({
       id: r.id, room_name: r.name, capacity: r.capacity, building: r.building_id ? (buildingById[r.building_id] || null) : null,
     }));
-    return NextResponse.json({ result: 'success', rooms: mapped });
+    return NextResponse.json({ result: 'success', rooms: mapped, room_layouts });
+  }
+  if (action === 'saveGlobalRoomLayouts') {
+    const layouts = (payload.room_layouts && typeof payload.room_layouts === 'object') ? payload.room_layouts : {};
+    const res = await _saveGlobalRoomLayouts(layouts);
+    if (res?.error) return NextResponse.json({ result: 'error', message: res.error });
+    return NextResponse.json({ result: 'success' });
   }
   if (action === 'saveExamRoom') {
     const { id, room_name, capacity, building } = payload;
